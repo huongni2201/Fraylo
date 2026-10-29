@@ -133,7 +133,8 @@ public sealed class PlaywrightBrowserController : IBrowserProcessController
 
                 var launchOptions = new BrowserTypeLaunchPersistentContextOptions
                 {
-                    Headless = isHeadless
+                    Headless = isHeadless,
+                    Channel = "chrome"
                 };
 
             IBrowserContext browserContext;

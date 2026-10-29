@@ -301,6 +301,18 @@ public static class Program
         await Reject(() => uploader.PublishAsync(input, () => throw new Exception("Không được submit khi login đang mở"), CancellationToken.None));
         Check(controller.IsRunning(profileId) && !visible.Context.Pages.Single().IsClosed, "Không chiếm/đóng cửa sổ login");
         Pass("Giữ cửa sổ login của người dùng; không chạy upload trong context visible.");
+
+        // Chrome thật (channel "chrome"), không custom launcher; trang cục bộ, không liên hệ TikTok.
+        await controller.CloseContextAsync(profileId);
+        using var realOwner = new ProfileOwner(id => Path.Combine(temp, "real", id));
+        await using var realController = new PlaywrightBrowserController(profiles, realOwner);
+        var real = await realController.LaunchPersistentContextAsync(profileId, true);
+        var realPage = await real.Context.NewPageAsync();
+        await realPage.SetContentAsync("<title>chrome-channel</title><p>ok</p>");
+        var userAgent = await realPage.EvaluateAsync<string>("() => navigator.userAgent");
+        Console.WriteLine($"UA Chrome thật: {userAgent}");
+        Check(userAgent.Contains("Chrome/") && !userAgent.Contains("Chromium/"), "Launch channel chrome phải dùng Google Chrome");
+        Pass("Controller khởi chạy Google Chrome thật qua channel chrome và tải trang cục bộ.");
     }
 
     private sealed class FixtureIdentityResolver : IProfileIdentityResolver
