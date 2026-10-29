@@ -133,8 +133,7 @@ public sealed class PlaywrightBrowserController : IBrowserProcessController
 
                 var launchOptions = new BrowserTypeLaunchPersistentContextOptions
                 {
-                    Headless = isHeadless,
-                    Args = ["--disable-blink-features=AutomationControlled"]
+                    Headless = isHeadless
                 };
 
             IBrowserContext browserContext;

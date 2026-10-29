@@ -593,8 +593,8 @@ public static class BrowserSmokeTests
                     customPersistentLauncher: (userDataDir, options) =>
                     {
                         Assert(options.Headless == true, "Headless option phải đúng theo yêu cầu.");
-                        Assert(options.Args != null && options.Args.Contains("--disable-blink-features=AutomationControlled"),
-                            "Args phải chứa cờ --disable-blink-features=AutomationControlled.");
+                        Assert(options.Args == null || !options.Args.Contains("--disable-blink-features=AutomationControlled"),
+                            "Args không được chứa cờ che automation.");
                         return Task.FromResult(mockContextProxy);
                     });
 

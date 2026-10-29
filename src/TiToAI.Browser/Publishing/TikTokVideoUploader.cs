@@ -72,7 +72,8 @@ public sealed class TikTokVideoUploader(
             await page.RouteAsync("**/*", route => ShouldBlockResource(
                 route.Request.Method, route.Request.ResourceType, route.Request.Url)
                     ? route.AbortAsync() : route.FallbackAsync());
-            await page.GotoAsync(UploadUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
+            var response = await page.GotoAsync(UploadUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
+            EnsureUploadResponse(response);
             EnsureTikTokUrl(page.Url);
             await UploadAndFillAsync(page, input, cancellationToken);
             var post = page.GetByRole(AriaRole.Button, new() { NameRegex = new Regex("^(Post|Đăng)$", RegexOptions.IgnoreCase) });
@@ -198,11 +199,25 @@ public sealed class TikTokVideoUploader(
             throw new InvalidOperationException("TikTok yêu cầu đăng nhập/xác minh hoặc đã chuyển trang. Hoàn tất trong Cài đặt.");
     }
 
+    // shortcut: danh sách cảnh báo theo chữ EN/VI, chỉ kiểm qua fixture; bổ sung khi gặp cảnh báo thật.
+    private static readonly Regex WarningText = new(
+        "unusual activity|hoạt động bất thường|too many (requests|attempts)|quá nhiều (yêu cầu|lần thử)|access denied|truy cập bị từ chối|temporarily (blocked|restricted|suspended)|tạm thời bị (chặn|hạn chế|đình chỉ)|verify to continue|xác minh để tiếp tục",
+        RegexOptions.IgnoreCase);
+
+    private static void EnsureUploadResponse(IResponse? response)
+    {
+        if (response is { Ok: false })
+            throw new InvalidOperationException($"TikTok trả HTTP {response.Status} khi mở trang tải lên. Đã dừng, không thử lại tự động; kiểm tra trong Cài đặt.");
+    }
+
     private static async Task EnsureNoChallengeAsync(IPage page)
     {
-        var challenge = page.Locator("iframe[src*='captcha'], [id*='captcha']");
+        var challenge = page.Locator("iframe[src*='captcha'], [id*='captcha'], [class*='captcha']");
         for (int i = 0; i < await challenge.CountAsync(); i++)
             if (await challenge.Nth(i).IsVisibleAsync())
                 throw new InvalidOperationException("TikTok yêu cầu xác minh CAPTCHA. Hãy xác minh thủ công trong Cài đặt.");
+        var visibleText = await page.EvaluateAsync<string>("() => document.body ? document.body.innerText : ''");
+        if (WarningText.IsMatch(visibleText))
+            throw new InvalidOperationException("TikTok hiển thị cảnh báo hoặc xác minh; đã dừng trước khi đăng. Xử lý thủ công trong Cài đặt.");
     }
 }

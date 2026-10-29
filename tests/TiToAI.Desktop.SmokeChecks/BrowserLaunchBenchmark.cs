@@ -273,8 +273,7 @@ public static class BrowserLaunchBenchmark
                     string userDataDir = registry.GetUserDataDir(profileId, BrowserProfileKind.SharedAI);
                     var launchOptions = new BrowserTypeLaunchPersistentContextOptions
                     {
-                        Headless = true, // headless: true for CI/automated benchmark consistency; chromium process launch cost is identical
-                        Args = new[] { "--disable-blink-features=AutomationControlled" }
+                        Headless = true // headless: true for CI/automated benchmark consistency; chromium process launch cost is identical
                     };
 
                     long t4_start = Stopwatch.GetTimestamp();

@@ -247,15 +247,20 @@ public static class Program
         await page.SetContentAsync("<div id='captcha'>Verify</div><input type='file' hidden>");
         await Reject(() => TikTokVideoUploader.UploadAndFillAsync(page, input, CancellationToken.None));
         Check(await page.Locator("input").EvaluateAsync<int>("e => e.files.length") == 0, "CAPTCHA chặn upload");
-        Pass("DOM mất caption/CAPTCHA phải dừng trước khi đăng, không bypass.");
+        await page.SetContentAsync("<div>Unusual activity detected</div><input type='file' hidden>");
+        await Reject(() => TikTokVideoUploader.UploadAndFillAsync(page, input, CancellationToken.None));
+        Check(await page.Locator("input").EvaluateAsync<int>("e => e.files.length") == 0, "Cảnh báo chữ chặn upload");
+        Pass("DOM mất caption/CAPTCHA/cảnh báo phải dừng trước khi đăng, không bypass.");
 
         // Toàn bộ request được fulfill bằng HTML cục bộ; không liên hệ TikTok thật.
         using var owner = new ProfileOwner(id => Path.Combine(temp, "controller", id));
+        int status = 200;
         await using var controller = new PlaywrightBrowserController(profiles, owner, customPersistentLauncher: async (_, _) =>
         {
             var context = await browser.NewContextAsync();
             await context.RouteAsync("**/*", route => route.FulfillAsync(new()
             {
+                Status = status,
                 ContentType = "text/html", Body = """
                 <input type="file" hidden><div role="textbox" contenteditable="true"></div>
                 <select aria-label="Who can watch this video"><option>Everyone</option><option>Only you</option></select>
@@ -276,6 +281,12 @@ public static class Program
         Check(controller.IsRunning(profileId) && !preservedPage.IsClosed && handle.Context.Pages.Count == 1,
             "Tái dùng context ẩn nhưng chỉ đóng page tự tạo");
         Pass("Toàn adapter đi qua upload/caption/privacy/checkpoint/Post/success; giữ context của caller.");
+        status = 403;
+        bool blockedCheckpoint = false;
+        await Reject(() => uploader.PublishAsync(input, () => { blockedCheckpoint = true; return Task.CompletedTask; }, CancellationToken.None));
+        status = 200;
+        Check(!blockedCheckpoint, "HTTP 403 phải dừng trước checkpoint");
+        Pass("HTTP 403 khi mở trang tải lên dừng trước checkpoint, không gửi lại.");
         await Reject(() => uploader.PublishAsync(input with { AccountIdentity = "@other" }, () => throw new Exception("Không được submit sai account"), CancellationToken.None));
         Check(!preservedPage.IsClosed, "Sai account không đóng context của caller");
         var submitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
