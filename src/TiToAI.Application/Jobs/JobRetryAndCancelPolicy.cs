@@ -103,6 +103,13 @@ public static class JobRetryAndCancelPolicy
     }
 
     /// <summary>
+    /// Lý do render video bị dừng ở bước chờ/tải sau khi đã gửi (có side chat đã lưu): job chuyển Failed và thử lại được từ bước đó.
+    /// </summary>
+    public static bool IsResumableRenderReason(string? reasonCode) =>
+        string.Equals(reasonCode, JobReasonCode.RenderTimeout, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(reasonCode, JobReasonCode.RenderInterrupted, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Kiểm tra xem mã lý do có thuộc nhóm nghẽn hạn ngạch (capacity / quota / budget) hay không.
     /// Khi gặp các mã này: BẢO TOÀN ATTEMPTS — tuyệt đối không tiêu hao lượt thử của tác vụ.
     /// </summary>
@@ -196,9 +203,9 @@ public static class JobRetryAndCancelPolicy
     {
         ArgumentNullException.ThrowIfNull(job);
 
-        // Hết thời gian chờ render: giải phóng tài nguyên, đưa Failed để người dùng thử lại từ bước thất bại.
+        // Render bị timeout hoặc gián đoạn: giải phóng tài nguyên, đưa Failed để người dùng thử lại từ bước thất bại.
         // Sau khi gửi prompt, retry chỉ tiếp tục chờ side chat đã lưu (xem RetryAsync), không gửi lại.
-        if (string.Equals(reasonCode, JobReasonCode.RenderTimeout, StringComparison.OrdinalIgnoreCase))
+        if (IsResumableRenderReason(reasonCode))
         {
             return new JobRetryDecision(
                 CanRetry: false,

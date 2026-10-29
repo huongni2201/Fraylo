@@ -619,7 +619,7 @@ public sealed class JobService
         }
 
         // Render MuseAI hết thời gian chờ sau khi đã gửi: chỉ thử lại bằng cách tiếp tục chờ side chat đã lưu, không gửi lại.
-        bool resumableRender = job.ReasonCode == JobReasonCode.RenderTimeout
+        bool resumableRender = JobRetryAndCancelPolicy.IsResumableRenderReason(job.ReasonCode)
             && await TiToAI.Application.Providers.MuseAiPlaywrightAutomation.CanResumeRenderAsync(dbContext, job, cancellationToken).ConfigureAwait(false);
 
         if (job.SideEffectSubmitted != 0 && !resumableRender)

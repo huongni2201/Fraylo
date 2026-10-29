@@ -59,6 +59,7 @@ export type JobReasonCode =
   | "lease_expired_retry"
   | "reconcile_rejected"
   | "render_timeout"
+  | "render_interrupted"
   | "adapter_not_available"
   | string;
 
@@ -365,6 +366,8 @@ export function formatReasonCode(reasonCode?: string | null): string {
       return "Kết quả đối soát bị từ chối do không hợp lệ.";
     case "render_timeout":
       return "Quá thời gian chờ AI tạo video. Tác vụ đã dừng và giải phóng tài nguyên; có thể thử lại từ bước chờ.";
+    case "render_interrupted":
+      return "Việc tạo video bị gián đoạn sau khi đã gửi yêu cầu. Tác vụ đã dừng và giải phóng tài nguyên; có thể thử lại từ bước chờ.";
     case "adapter_not_available":
       return "Bộ điều hợp của nhà cung cấp AI này chưa sẵn sàng trong phiên bản hiện tại.";
     default:
@@ -559,7 +562,8 @@ export function getRecommendedAction(
     }
 
     // Chỉ khi sideEffectSubmitted xác nhận rõ ràng bằng 0, hoặc render MuseAI hết giờ (chỉ tiếp tục chờ side chat đã lưu): mới cho retry
-    if (job.sideEffectSubmitted === 0 || (job.reasonCode === "render_timeout" && job.state === "Failed")) {
+    const resumableRender = job.reasonCode === "render_timeout" || job.reasonCode === "render_interrupted";
+    if (job.sideEffectSubmitted === 0 || (resumableRender && job.state === "Failed")) {
       return {
         type: "retry",
         label: "Thử lại",

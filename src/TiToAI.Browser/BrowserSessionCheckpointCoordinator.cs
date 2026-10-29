@@ -9,6 +9,7 @@ using TiToAI.Browser.Abstractions;
 using TiToAI.Browser.Models;
 using TiToAI.Contracts.Browser;
 using TiToAI.Contracts.Jobs;
+using TiToAI.Contracts.Providers;
 using TiToAI.Infrastructure.Persistence;
 using TiToAI.Infrastructure.Persistence.Entities;
 
@@ -228,12 +229,13 @@ public sealed class BrowserSessionCheckpointCoordinator : IDisposable
 
                 if (accountIds.Count > 0)
                 {
+                    // MuseAI: side chat đã lưu URL và việc khôi phục mở lại browser qua lease, nên job chờ đối soát không giữ browser.
                     bool hasActiveOrUncertain = db.Jobs.Any(j =>
                         j.ExecutionBinding != null &&
                         accountIds.Contains(j.ExecutionBinding.ProviderAccountId) &&
                         (j.State == JobState.Running ||
                          j.State == JobState.Reserved ||
-                         (j.State == JobState.AwaitingUser && j.SideEffectSubmitted == 1)));
+                         (j.State == JobState.AwaitingUser && j.SideEffectSubmitted == 1 && j.ProviderKey != ProviderKeys.MuseAI)));
 
                     if (hasActiveOrUncertain) return true;
                 }

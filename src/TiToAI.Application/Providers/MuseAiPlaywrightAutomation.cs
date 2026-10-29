@@ -82,6 +82,7 @@ public sealed class MuseAiPlaywrightAutomation
 
         IPage? page = null;
         var submitted = false;
+        var threadSaved = false;
         try
         {
             ct.ThrowIfCancellationRequested();
@@ -115,6 +116,7 @@ public sealed class MuseAiPlaywrightAutomation
             await page.Locator("button[aria-label='Send']").ClickAsync().WaitAsync(ct).ConfigureAwait(false);
             await page.WaitForURLAsync(ThreadUrl, new() { Timeout = 30000 }).WaitAsync(ct).ConfigureAwait(false);
             await SaveThreadUrlAsync(job.JobId, page.Url, ct).ConfigureAwait(false);
+            threadSaved = true;
             await _activity.WriteAsync(job.JobId, "submit", $"Đã gửi trong side chat {page.Url}.", ct).ConfigureAwait(false);
             return await FinishRenderAsync(page, job.JobId, job.ProjectId, job.StorageRootId, progress, ct).ConfigureAwait(false);
         }
@@ -124,21 +126,21 @@ public sealed class MuseAiPlaywrightAutomation
         }
         catch (PlaywrightException ex)
         {
-            await RecordFailureAsync(job.JobId, submitted ? "Lỗi sau khi gửi; cần đối soát." : "Lỗi thao tác browser trước khi gửi.").ConfigureAwait(false);
-            return new(false, ReasonCode: submitted ? "reconcile_required" : "automation_blocked",
+            await RecordFailureAsync(job.JobId, submitted ? "Lỗi sau khi gửi." : "Lỗi thao tác browser trước khi gửi.").ConfigureAwait(false);
+            return new(false, ReasonCode: PostSubmitFailureReason(submitted, threadSaved, "automation_blocked"),
                 ErrorMessage: $"Không thể hoàn tất thao tác MuseAI: {ex.Message}", SideEffectSubmitted: submitted);
         }
         catch (TimeoutException ex)
         {
-            // Trước khi gửi: an toàn để thử lại từ đầu. Sau khi gửi (chưa lưu side chat): chưa rõ đã gửi hay chưa, phải đối soát.
-            await RecordFailureAsync(job.JobId, submitted ? "Hết thời gian sau khi gửi; cần đối soát." : "Hết thời gian trước khi gửi; tác vụ thất bại, có thể thử lại.").ConfigureAwait(false);
-            return new(false, ReasonCode: submitted ? "reconcile_required" : JobReasonCode.RenderTimeout,
+            // Trước khi gửi: an toàn để thử lại từ đầu. Chưa lưu side chat sau khi gửi: chưa rõ đã gửi hay chưa, phải đối soát.
+            await RecordFailureAsync(job.JobId, submitted ? "Hết thời gian sau khi gửi." : "Hết thời gian trước khi gửi; tác vụ thất bại, có thể thử lại.").ConfigureAwait(false);
+            return new(false, ReasonCode: PostSubmitFailureReason(submitted, threadSaved, JobReasonCode.RenderTimeout),
                 ErrorMessage: $"Quá thời gian chờ MuseAI: {ex.Message}", SideEffectSubmitted: submitted);
         }
         catch (Exception ex)
         {
-            await RecordFailureAsync(job.JobId, submitted ? "Tác vụ lỗi sau khi gửi; cần đối soát." : "Tác vụ lỗi trước khi gửi.").ConfigureAwait(false);
-            return new(false, ReasonCode: submitted ? "reconcile_required" : "automation_blocked",
+            await RecordFailureAsync(job.JobId, submitted ? "Tác vụ lỗi sau khi gửi." : "Tác vụ lỗi trước khi gửi.").ConfigureAwait(false);
+            return new(false, ReasonCode: PostSubmitFailureReason(submitted, threadSaved, "automation_blocked"),
                 ErrorMessage: $"Không hoàn tất được render MuseAI: {ex.Message}", SideEffectSubmitted: submitted);
         }
         finally
@@ -269,6 +271,16 @@ public sealed class MuseAiPlaywrightAutomation
         && string.IsNullOrWhiteSpace(job.ResultReference) && string.IsNullOrWhiteSpace(job.ResultText)
         && await ReadSavedThreadUrlAsync(db, job.Id, ct).ConfigureAwait(false) is not null;
 
+    /// <summary>
+    /// Lý do khi render lỗi: chưa gửi thì dùng lý do mặc định; đã gửi nhưng chưa lưu side chat thì phải đối soát (chưa rõ
+    /// prompt đã vào chat hay chưa); đã lưu side chat thì job Failed và thử lại được từ bước chờ, không gửi lại.
+    /// </summary>
+    private static string PostSubmitFailureReason(bool submitted, bool threadSaved, string notSubmittedReason)
+    {
+        if (!submitted) return notSubmittedReason;
+        return threadSaved ? JobReasonCode.RenderInterrupted : "reconcile_required";
+    }
+
     /// <summary>Mở lại side chat đã lưu rồi chờ video. Không gửi lại prompt; hết thời gian thì trả render_timeout.</summary>
     private async Task<JobExecutionResult> ResumeRenderAsync(JobExecutionContext job, string threadUrl, Func<int, string, Task>? progress, CancellationToken ct)
     {
@@ -296,8 +308,9 @@ public sealed class MuseAiPlaywrightAutomation
         }
         catch (Exception ex)
         {
-            await RecordFailureAsync(job.JobId, "Lỗi khi mở lại side chat sau khi gửi; cần đối soát.").ConfigureAwait(false);
-            return new(false, ReasonCode: "reconcile_required", ErrorMessage: $"Không mở lại được side chat MuseAI: {ex.Message}", SideEffectSubmitted: true);
+            // Side chat đã lưu từ trước: lỗi ở đây không làm mất prompt đã gửi, job thất bại và thử lại được từ bước chờ.
+            await RecordFailureAsync(job.JobId, "Lỗi khi mở lại side chat sau khi gửi; tác vụ thất bại, có thể thử lại.").ConfigureAwait(false);
+            return new(false, ReasonCode: JobReasonCode.RenderInterrupted, ErrorMessage: $"Không mở lại được side chat MuseAI: {ex.Message}", SideEffectSubmitted: true);
         }
         finally
         {

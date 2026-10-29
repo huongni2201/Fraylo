@@ -52,6 +52,7 @@ public static class JobReasonCode
     public const string LeaseExpiredRetry = "lease_expired_retry";
     public const string ReconcileRejected = "reconcile_rejected";
     public const string RenderTimeout = "render_timeout";
+    public const string RenderInterrupted = "render_interrupted";
 }
 
 public sealed record JobSummaryDto(

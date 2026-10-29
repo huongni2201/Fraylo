@@ -169,6 +169,22 @@ public static class AccountConcurrencyAndBrowserLifecycleSmokeTests
             "10. Render MuseAI hết giờ: Failed và giải phóng; retry chỉ tiếp tục chờ side chat đã lưu, không gửi lại",
             Test_RenderTimeout_FailsAndRetryResumesWithoutResendAsync);
 
+        await RunCaseAsync(
+            "11. Một tài khoản MuseAI, một tab: render đầu kết thúc theo mọi nhánh thì render kế tiếp vẫn được chạy",
+            Test_SingleMuseTab_NextRenderRunsAfterFirstEndsAsync);
+
+        await RunCaseAsync(
+            "12. Trình duyệt thật: đóng context khi hết job phải đóng cả tab blank mặc định",
+            Test_RealBrowser_CloseContextClosesDefaultBlankTabAsync);
+
+        await RunCaseAsync(
+            "13. Trình duyệt thật + scheduler: job xong, không còn job nào thì browser phải đóng",
+            Test_RealBrowser_JobFinishedAndIdle_ClosesBrowserAsync);
+
+        await RunCaseAsync(
+            "14. Job MuseAI chờ đối soát không giữ browser; job ChatGPT chờ đối soát vẫn giữ",
+            Test_BrowserIdle_AwaitingMuseAiJobDoesNotKeepBrowserOpenAsync);
+
         Console.WriteLine("\n=================================================================");
         if (failed == 0)
         {
@@ -603,6 +619,474 @@ public static class AccountConcurrencyAndBrowserLifecycleSmokeTests
         {
             CleanupTestContext(tempDir);
         }
+    }
+
+    /// <summary>
+    /// Một tài khoản MuseAI với MaxTabs = 1: mỗi nhánh kết thúc của render đầu tiên không được giữ tab/slot làm
+    /// render kế tiếp bị chặn vĩnh viễn. Render đầu có thể kết thúc bằng timeout, lỗi sau khi gửi, thành công hoặc timeout trước khi gửi.
+    /// </summary>
+    public static async Task Test_SingleMuseTab_NextRenderRunsAfterFirstEndsAsync()
+    {
+        // ExpectNext = false chỉ dành cho lỗi chưa lưu side chat sau khi gửi: chưa rõ prompt đã vào chat, phải đối soát có chủ đích.
+        var scenarios = new (string Name, Func<Func<Task>, Task<JobExecutionResult>> Script, bool ExpectNext)[]
+        {
+            ("render_timeout sau khi gửi", commit => Submitted(commit, new JobExecutionResult(false, ReasonCode: JobReasonCode.RenderTimeout, SideEffectSubmitted: true)), true),
+            ("gián đoạn sau khi đã lưu side chat", commit => Submitted(commit, new JobExecutionResult(false, ReasonCode: JobReasonCode.RenderInterrupted, SideEffectSubmitted: true)), true),
+            ("thành công", commit => Submitted(commit, new JobExecutionResult(true, ResultReference: "asset-first", SideEffectSubmitted: true)), true),
+            ("render_timeout trước khi gửi", commit => Task.FromResult(new JobExecutionResult(false, ReasonCode: JobReasonCode.RenderTimeout, SideEffectSubmitted: false)), true),
+            ("lỗi chưa lưu side chat sau khi gửi (reconcile_required)", commit => Submitted(commit, new JobExecutionResult(false, ReasonCode: JobReasonCode.ReconcileRequired, SideEffectSubmitted: true)), false),
+        };
+
+        var blocked = new List<string>();
+        foreach (var (name, script, expectNext) in scenarios)
+        {
+            var (ran, firstState, reason) = await RunSingleMuseTabScenarioAsync(script);
+            if (ran != expectNext)
+            {
+                blocked.Add($"[{name}] render đầu ở trạng thái '{firstState}', render kế tiếp chạy={ran}, mong đợi={expectNext} (reason='{reason}')");
+            }
+        }
+
+        Assert(blocked.Count == 0,
+            "Một tab MuseAI bị chiếm sau khi render kết thúc:\n  - " + string.Join("\n  - ", blocked));
+    }
+
+    private static Task<JobExecutionResult> Submitted(Func<Task> commit, JobExecutionResult result) =>
+        commit().ContinueWith(_ => result, TaskScheduler.Default);
+
+    private static async Task<(bool Ran, string FirstState, string? Reason)> RunSingleMuseTabScenarioAsync(
+        Func<Func<Task>, Task<JobExecutionResult>> firstScript)
+    {
+        var (dbOptions, tempDir, _, _) = CreateTestContext();
+        try
+        {
+            var now = DateTimeOffset.UtcNow.ToString("o");
+            var earlier = DateTimeOffset.UtcNow.AddSeconds(-5).ToString("o");
+            const string profileId = "profile_muse_single";
+            string firstId = Guid.NewGuid().ToString("D");
+            string secondId = Guid.NewGuid().ToString("D");
+
+            await using (var db = new TiToAIDbContext(dbOptions))
+            {
+                db.BrowserProfiles.Add(new BrowserProfile
+                {
+                    Id = profileId,
+                    Kind = "SharedAI",
+                    ProviderKey = "museai",
+                    DisplayName = "Muse một tab",
+                    SessionStatus = "Connected",
+                    OperationalState = "Stopped",
+                    VisibilityState = "Hidden",
+                    Lifecycle = "Active",
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now
+                });
+                db.ProviderAccounts.Add(new ProviderAccount
+                {
+                    Id = "acc-muse-single",
+                    ProviderKey = "museai",
+                    ProfileId = profileId,
+                    DisplayName = "Muse một tab",
+                    VerifiedIdentity = "muse-single@internal",
+                    IdentityVerifiedAtUtc = now,
+                    Enabled = true,
+                    Lifecycle = "Active",
+                    MaxConcurrentJobs = 1,
+                    MaxTabs = 1,
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now
+                });
+                db.Projects.Add(new Project
+                {
+                    Id = "prj_muse_single",
+                    Name = "Dự án một tab",
+                    Status = "Draft",
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now
+                });
+                db.Jobs.Add(new Job
+                {
+                    Id = firstId,
+                    ProjectId = "prj_muse_single",
+                    TaskType = JobTaskType.VideoRender,
+                    ProviderKey = ProviderKeys.MuseAI,
+                    State = JobState.Queued,
+                    Attempts = 0,
+                    MaxAttempts = 3,
+                    SideEffectSubmitted = 0,
+                    StorageRootId = "root_test",
+                    CreatedAtUtc = earlier,
+                    UpdatedAtUtc = earlier
+                });
+                db.Jobs.Add(new Job
+                {
+                    Id = secondId,
+                    ProjectId = "prj_muse_single",
+                    TaskType = JobTaskType.VideoRender,
+                    ProviderKey = ProviderKeys.MuseAI,
+                    State = JobState.Queued,
+                    Attempts = 0,
+                    MaxAttempts = 3,
+                    SideEffectSubmitted = 0,
+                    StorageRootId = "root_test",
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now
+                });
+                await db.SaveChangesAsync();
+            }
+
+            var executor = new ScriptedRenderExecutor(firstId, firstScript);
+            var scheduler = new JobScheduler(dbOptions, new JobReservation(dbOptions), executor);
+
+            // Render đầu giữ tab cho tới khi test cho phép kết thúc; nếu không, worker nhả slot trước khi dispatch vòng sau.
+            int firstDispatched = await scheduler.DispatchPendingJobsAsync();
+            Assert(firstDispatched == 1, $"Chỉ render đầu được dispatch khi còn một tab, thực tế: {firstDispatched}");
+
+            executor.Release.TrySetResult();
+            string firstState = JobState.Running;
+            for (int wait = 0; wait < 200; wait++)
+            {
+                await Task.Delay(20);
+                await using var db = new TiToAIDbContext(dbOptions);
+                firstState = (await db.Jobs.AsNoTracking().FirstAsync(j => j.Id == firstId)).State;
+                if (firstState is not (JobState.Reserved or JobState.Running)) break;
+            }
+
+            int secondDispatched = await scheduler.DispatchPendingJobsAsync();
+            await using (var db = new TiToAIDbContext(dbOptions))
+            {
+                var second = await db.Jobs.AsNoTracking().FirstAsync(j => j.Id == secondId);
+                return (secondDispatched == 1, firstState, second.ReasonCode);
+            }
+        }
+        finally
+        {
+            CleanupTestContext(tempDir);
+        }
+    }
+
+    /// <summary>
+    /// Trình duyệt Playwright thật: khi mở context, Chromium có sẵn một tab about:blank. Job đóng tab của nó thì tab blank vẫn còn;
+    /// đóng context phải đóng luôn trình duyệt, không được để lại tab blank.
+    /// </summary>
+    public static async Task Test_RealBrowser_CloseContextClosesDefaultBlankTabAsync()
+    {
+        var (dbOptions, tempDir, _, _) = CreateTestContext();
+        try
+        {
+            var now = DateTimeOffset.UtcNow.ToString("o");
+            const string profileId = "profile_real_close";
+
+            await using (var db = new TiToAIDbContext(dbOptions))
+            {
+                db.BrowserProfiles.Add(new BrowserProfile
+                {
+                    Id = profileId,
+                    Kind = "SharedAI",
+                    ProviderKey = "museai",
+                    DisplayName = "Real close",
+                    SessionStatus = "Connected",
+                    OperationalState = "Stopped",
+                    VisibilityState = "Hidden",
+                    Lifecycle = "Active",
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now
+                });
+                await db.SaveChangesAsync();
+            }
+
+            var profileRegistry = new ProfileRegistry(() => new TiToAIDbContext(dbOptions), tempDir);
+            var profileOwner = new ProfileOwner(pid => Path.Combine(tempDir, "profiles", pid));
+            var controller = new PlaywrightBrowserController(profileRegistry, profileOwner);
+
+            var handle = await controller.LaunchPersistentContextAsync(profileId, isHeadless: true);
+            var context = handle.Context;
+            int blankAtLaunch = context.Pages.Count;
+
+            var jobPage = await context.NewPageAsync();
+            await jobPage.CloseAsync();
+            int blankAfterJob = context.Pages.Count;
+
+            await controller.CloseContextAsync(profileId);
+
+            bool contextStillAlive;
+            try
+            {
+                await context.NewPageAsync();
+                contextStillAlive = true;
+            }
+            catch (PlaywrightException)
+            {
+                contextStillAlive = false;
+            }
+
+            Assert(blankAtLaunch >= 1, $"Khi mở context phải có tab blank mặc định, thực tế: {blankAtLaunch}");
+            Assert(blankAfterJob >= 1, $"Tab blank mặc định vẫn còn sau khi job đóng tab của nó, thực tế: {blankAfterJob}");
+            Assert(!controller.IsRunning(profileId), "Sau CloseContextAsync, trình duyệt không được còn được theo dõi là đang chạy.");
+            Assert(!contextStillAlive, "CloseContextAsync phải đóng cả context và trình duyệt, không được còn tab blank mặc định.");
+        }
+        finally
+        {
+            CleanupTestContext(tempDir);
+        }
+    }
+
+    /// <summary>
+    /// Luồng thật: scheduler + gatekeeper + trình duyệt Playwright thật. Job mở một tab như MuseAI rồi đóng tab đó.
+    /// Khi không còn job nào, browser phải đóng hẳn (kể cả tab blank mặc định), không chỉ đóng tab của job.
+    /// </summary>
+    public static async Task Test_RealBrowser_JobFinishedAndIdle_ClosesBrowserAsync()
+    {
+        var (dbOptions, tempDir, _, _) = CreateTestContext();
+        try
+        {
+            var now = DateTimeOffset.UtcNow.ToString("o");
+            const string profileId = "profile_real_job";
+            const string providerKey = "smoke-browser";
+            string jobId = Guid.NewGuid().ToString("D");
+
+            await using (var db = new TiToAIDbContext(dbOptions))
+            {
+                db.BrowserProfiles.Add(new BrowserProfile
+                {
+                    Id = profileId,
+                    Kind = "SharedAI",
+                    ProviderKey = providerKey,
+                    DisplayName = "Real job",
+                    SessionStatus = "Connected",
+                    OperationalState = "Stopped",
+                    VisibilityState = "Hidden",
+                    Lifecycle = "Active",
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now
+                });
+                db.ProviderAccounts.Add(new ProviderAccount
+                {
+                    Id = "acc-real-job",
+                    ProviderKey = providerKey,
+                    ProfileId = profileId,
+                    DisplayName = "Real job",
+                    VerifiedIdentity = "real-job@internal",
+                    IdentityVerifiedAtUtc = now,
+                    Enabled = true,
+                    Lifecycle = "Active",
+                    MaxConcurrentJobs = 1,
+                    MaxTabs = 1,
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now
+                });
+                db.Projects.Add(new Project { Id = "prj_real_job", Name = "Real job", Status = "Draft", CreatedAtUtc = now, UpdatedAtUtc = now });
+                db.Jobs.Add(new Job
+                {
+                    Id = jobId,
+                    ProjectId = "prj_real_job",
+                    TaskType = JobTaskType.VideoRender,
+                    ProviderKey = providerKey,
+                    State = JobState.Queued,
+                    Attempts = 0,
+                    MaxAttempts = 3,
+                    SideEffectSubmitted = 0,
+                    StorageRootId = "root_test",
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now
+                });
+                await db.SaveChangesAsync();
+            }
+
+            var profileRegistry = new ProfileRegistry(() => new TiToAIDbContext(dbOptions), tempDir);
+            var profileOwner = new ProfileOwner(pid => Path.Combine(tempDir, "profiles", pid));
+            var processController = new PlaywrightBrowserController(profileRegistry, profileOwner);
+            var gatekeeper = new HostBrowserGatekeeper(profileRegistry, new LoginCoordinator(profileRegistry, processController), new TabPool(), processController);
+            var scheduler = new JobScheduler(dbOptions, new JobReservation(dbOptions), new TabOpeningExecutor(processController), gatekeeper);
+
+            int dispatched = await scheduler.DispatchPendingJobsAsync();
+            Assert(dispatched == 1, $"Job phải được dispatch, thực tế: {dispatched}");
+
+            string state = JobState.Queued;
+            for (int wait = 0; wait < 300; wait++)
+            {
+                await Task.Delay(50);
+                await using var db = new TiToAIDbContext(dbOptions);
+                state = (await db.Jobs.AsNoTracking().FirstAsync(j => j.Id == jobId)).State;
+                if (JobState.IsTerminal(state)) break;
+            }
+            Assert(state == JobState.Succeeded, $"Job phải Succeeded, thực tế: {state}");
+
+            // Đóng browser diễn ra nền sau khi worker kết thúc; cho tối đa 10 giây.
+            for (int wait = 0; wait < 200 && processController.IsRunning(profileId); wait++)
+            {
+                await Task.Delay(50);
+            }
+
+            Assert(!processController.IsRunning(profileId),
+                "Không còn job nào trên profile thì browser phải đóng, nhưng browser vẫn đang chạy (còn tab blank mặc định).");
+        }
+        finally
+        {
+            CleanupTestContext(tempDir);
+        }
+    }
+
+    /// <summary>Executor giả lập MuseAI: mở một tab trên context của profile rồi đóng tab đó trước khi kết thúc.</summary>
+    private sealed class TabOpeningExecutor : IJobExecutor
+    {
+        private readonly IBrowserProcessController _controller;
+
+        public TabOpeningExecutor(IBrowserProcessController controller) => _controller = controller;
+
+        public async Task<JobExecutionResult> ExecuteAsync(
+            JobExecutionContext context,
+            Func<Task> onPreSideEffectCommitAsync,
+            Func<int, string, Task>? onProgressAsync,
+            CancellationToken cancellationToken)
+        {
+            var handle = _controller.TryGetContext(context.ProfileId)
+                ?? throw new InvalidOperationException("Profile chưa có browser context cho job.");
+            var page = await handle.Context.NewPageAsync();
+            await page.CloseAsync();
+            return new JobExecutionResult(true, ResultReference: "tab-used", SideEffectSubmitted: true);
+        }
+    }
+
+    /// <summary>
+    /// Job AwaitingUser đã gửi (chưa đối soát) trong DB: MuseAI không giữ browser vì side chat đã lưu và khôi phục mở lại được;
+    /// ChatGPT vẫn giữ browser như trước.
+    /// </summary>
+    public static async Task Test_BrowserIdle_AwaitingMuseAiJobDoesNotKeepBrowserOpenAsync()
+    {
+        var (dbOptions, tempDir, _, _) = CreateTestContext();
+        try
+        {
+            var now = DateTimeOffset.UtcNow.ToString("o");
+            const string museProfile = "profile_muse_awaiting";
+            const string chatProfile = "profile_chat_awaiting";
+
+            await using (var db = new TiToAIDbContext(dbOptions))
+            {
+                db.Projects.Add(new Project { Id = "prj_awaiting", Name = "Chờ đối soát", Status = "Draft", CreatedAtUtc = now, UpdatedAtUtc = now });
+                foreach (var (profileId, accountId, providerKey, taskType, jobId) in new[]
+                {
+                    (museProfile, "acc-muse-awaiting", ProviderKeys.MuseAI, JobTaskType.VideoRender, "job-muse-awaiting"),
+                    (chatProfile, "acc-chat-awaiting", ProviderKeys.ChatGPTWeb, JobTaskType.Script, "job-chat-awaiting"),
+                })
+                {
+                    db.BrowserProfiles.Add(new BrowserProfile
+                    {
+                        Id = profileId,
+                        Kind = "SharedAI",
+                        ProviderKey = providerKey,
+                        DisplayName = profileId,
+                        SessionStatus = "Connected",
+                        OperationalState = "Stopped",
+                        VisibilityState = "Hidden",
+                        Lifecycle = "Active",
+                        CreatedAtUtc = now,
+                        UpdatedAtUtc = now
+                    });
+                    db.ProviderAccounts.Add(new ProviderAccount
+                    {
+                        Id = accountId,
+                        ProviderKey = providerKey,
+                        ProfileId = profileId,
+                        DisplayName = accountId,
+                        VerifiedIdentity = accountId + "@internal",
+                        IdentityVerifiedAtUtc = now,
+                        Enabled = true,
+                        Lifecycle = "Active",
+                        MaxConcurrentJobs = 1,
+                        MaxTabs = 1,
+                        CreatedAtUtc = now,
+                        UpdatedAtUtc = now
+                    });
+                    db.Jobs.Add(new Job
+                    {
+                        Id = jobId,
+                        ProjectId = "prj_awaiting",
+                        TaskType = taskType,
+                        ProviderKey = providerKey,
+                        State = JobState.AwaitingUser,
+                        ReasonCode = JobReasonCode.ReconcileRequired,
+                        Attempts = 1,
+                        MaxAttempts = 3,
+                        SideEffectSubmitted = 1,
+                        StorageRootId = "root_test",
+                        CreatedAtUtc = now,
+                        UpdatedAtUtc = now
+                    });
+                    db.ExecutionBindings.Add(new ExecutionBinding
+                    {
+                        JobId = jobId,
+                        ProfileId = profileId,
+                        ProviderAccountId = accountId,
+                        TabSlotId = "slot-1",
+                        AssignedAtUtc = now
+                    });
+                }
+                await db.SaveChangesAsync();
+            }
+
+            var profileRegistry = new ProfileRegistry(() => new TiToAIDbContext(dbOptions), tempDir);
+            var profileOwner = new ProfileOwner(pid => Path.Combine(tempDir, "profiles", pid));
+            var fakeLauncher = new TrackingPersistentLauncher();
+            var processController = new PlaywrightBrowserController(profileRegistry, profileOwner, customPersistentLauncher: fakeLauncher.LaunchAsync);
+            var tabPool = new TabPool();
+            var loginCoordinator = new LoginCoordinator(profileRegistry, processController);
+            var checkpointCoordinator = new BrowserSessionCheckpointCoordinator(
+                profileRegistry, loginCoordinator, null, processController, tabPool, () => new TiToAIDbContext(dbOptions));
+            var gatekeeper = new HostBrowserGatekeeper(profileRegistry, loginCoordinator, tabPool, processController, checkpointCoordinator);
+
+            await processController.LaunchPersistentContextAsync(museProfile, isHeadless: true);
+            await processController.LaunchPersistentContextAsync(chatProfile, isHeadless: true);
+
+            Assert(gatekeeper.IsProfileIdle(museProfile),
+                "Job MuseAI AwaitingUser đã gửi không được giữ browser: side chat đã lưu và khôi phục mở lại qua lease.");
+            Assert(!gatekeeper.IsProfileIdle(chatProfile),
+                "Job ChatGPT AwaitingUser đã gửi vẫn phải giữ browser cho đến khi đối soát.");
+
+            gatekeeper.CloseProfileIfIdle(museProfile);
+            for (int wait = 0; wait < 100 && processController.IsRunning(museProfile); wait++)
+            {
+                await Task.Delay(20);
+            }
+            Assert(!processController.IsRunning(museProfile), "Profile MuseAI chỉ còn job chờ đối soát thì browser phải đóng.");
+            Assert(processController.IsRunning(chatProfile), "Profile ChatGPT còn job chờ đối soát thì browser không được đóng.");
+        }
+        finally
+        {
+            CleanupTestContext(tempDir);
+        }
+    }
+
+    /// <summary>Executor theo kịch bản: job đầu chạy theo kịch bản, các job sau thành công ngay.</summary>
+    private sealed class ScriptedRenderExecutor : IJobExecutor
+    {
+        private readonly string _firstJobId;
+        private readonly Func<Func<Task>, Task<JobExecutionResult>> _firstScript;
+
+        public ScriptedRenderExecutor(string firstJobId, Func<Func<Task>, Task<JobExecutionResult>> firstScript)
+        {
+            _firstJobId = firstJobId;
+            _firstScript = firstScript;
+        }
+
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<JobExecutionResult> ExecuteAsync(
+            JobExecutionContext context,
+            Func<Task> onPreSideEffectCommitAsync,
+            Func<int, string, Task>? onProgressAsync,
+            CancellationToken cancellationToken)
+        {
+            if (context.JobId == _firstJobId)
+            {
+                var result = await _firstScript(onPreSideEffectCommitAsync);
+                await Release.Task.WaitAsync(cancellationToken);
+                return result;
+            }
+
+            return new JobExecutionResult(true, ResultReference: "asset-next", SideEffectSubmitted: true);
+        }
+
     }
 
     /// <summary>
