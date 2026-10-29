@@ -58,6 +58,14 @@ public sealed class JobReservation
     private DateTimeOffset UtcNow => _clock?.Invoke() ?? DateTimeOffset.UtcNow;
 
     /// <summary>
+    /// Job giữ slot vì cần đối soát: đang AwaitingUser, hoặc đã hủy nhưng side effect đã gửi và chưa có kết quả.
+    /// </summary>
+    private static bool HoldsSlotForReconcile(Job? job) =>
+        job?.State == JobState.AwaitingUser
+        || (job?.State == JobState.Canceled && job.SideEffectSubmitted == 1
+            && string.IsNullOrWhiteSpace(job.ResultReference) && string.IsNullOrWhiteSpace(job.ResultText));
+
+    /// <summary>
     /// Thực hiện cấp quyền thuê độc quyền (Atomic Compare-and-Set) thông qua SQLite BEGIN IMMEDIATE.
     /// Lựa chọn ProviderAccount eligible từ pool toàn ứng dụng, tạo ExecutionBinding bất biến,
     /// chiếm slot rảnh cụ thể trong ActiveSlotOccupancy và chuyển trạng thái từ 'Queued' sang 'Reserved'.
@@ -133,7 +141,8 @@ public sealed class JobReservation
                 }
 
                 // BẢO VỆ CHỐNG RESEND MÙ: Tuyệt đối không reserve lại job đã submit side effect mà chưa có kết quả/checkpoint đối soát.
-                if (job.SideEffectSubmitted == 1 && string.IsNullOrWhiteSpace(job.ResultReference) && string.IsNullOrWhiteSpace(job.ResultText))
+                if (job.SideEffectSubmitted == 1 && string.IsNullOrWhiteSpace(job.ResultReference) && string.IsNullOrWhiteSpace(job.ResultText)
+                    && !await TiToAI.Application.Providers.MuseAiPlaywrightAutomation.CanResumeRenderAsync(dbContext, job, cancellationToken).ConfigureAwait(false))
                 {
                     job.State = JobState.AwaitingUser;
                     job.ReasonCode = JobReasonCode.ReconcileRequired;
@@ -291,7 +300,7 @@ public sealed class JobReservation
                     if (accountOtherOccupancies.Count >= boundCapacity)
                     {
                         // Slot đang bị job cần đối soát giữ: báo rõ để người dùng biết cần xử lý job đó trước
-                        job.ReasonCode = accountOtherOccupancies.Any(o => o.Job?.State == JobState.AwaitingUser)
+                        job.ReasonCode = accountOtherOccupancies.Any(o => HoldsSlotForReconcile(o.Job))
                             ? "waiting_for_reconcile"
                             : "waiting_for_capacity";
                         job.UpdatedAtUtc = nowIso;
@@ -463,7 +472,7 @@ public sealed class JobReservation
                     // Toàn bộ pool đã đầy hoặc chạm budget browser: Giữ nguyên trạng thái Queued, KHÔNG tăng attempts
                     // Slot đang bị job cần đối soát giữ: báo rõ để người dùng biết cần xử lý job đó trước
                     bool blockedByReconcile = eligibleAccounts.Any(a =>
-                        currentOccupancies.Any(o => o.ProviderAccountId == a.Id && o.Job?.State == JobState.AwaitingUser));
+                        currentOccupancies.Any(o => o.ProviderAccountId == a.Id && HoldsSlotForReconcile(o.Job)));
                     job.ReasonCode = blockedByBrowserBudget ? "waiting_for_global_browser_budget"
                         : blockedByReconcile ? "waiting_for_reconcile"
                         : "waiting_for_capacity";

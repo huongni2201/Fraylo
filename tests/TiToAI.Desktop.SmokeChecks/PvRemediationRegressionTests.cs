@@ -1147,6 +1147,105 @@ public static class PvRemediationRegressionTests
         }
     }
 
+    /// <summary>Tạo cảnh có prompt cũ rồi cho AI từ chối VideoPrompt; trả về id cảnh và service để kiểm tra tiếp.</summary>
+    private static async Task<(string sceneId, ProjectWorkflowService workflow)> ApplyRejectedVideoPromptAsync(
+        DbContextOptions<TiToAIDbContext> dbOptions, string tempDir, string prjId)
+    {
+        var (_, _, workflowService) = await SetupServicesAsync(dbOptions, tempDir);
+        var readyAssetId = SeedAsset(dbOptions, "Image", "ready/r_reject_manual.jpg");
+        string sceneId = Guid.NewGuid().ToString("D").ToLowerInvariant();
+        var now = DateTimeOffset.UtcNow.ToString("o");
+        using (var db = new TiToAIDbContext(dbOptions))
+        {
+            db.Scenes.Add(new Scene
+            {
+                Id = sceneId, ProjectId = prjId, SequenceOrder = 1, Name = "Cảnh 1", TargetDurationSeconds = 15,
+                ImageAssetId = readyAssetId, PromptText = "OLD PROMPT", Status = "Draft", CreatedAtUtc = now, UpdatedAtUtc = now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await workflowService.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
+            ProjectId: prjId, WorkflowMode: WorkflowModes.ReadyImage, GoalPrompt: "Prompt test từ chối",
+            ModelAssetId: null, ProductAssetId: null, ReadyImageAssetId: readyAssetId,
+            AudioOption: AudioOptions.None, AudioAssetId: null, TargetSceneCount: 1, TargetDurationPerSceneSeconds: 15));
+
+        string promptJobId = Guid.NewGuid().ToString("D").ToLowerInvariant();
+        using (var db = new TiToAIDbContext(dbOptions))
+        {
+            db.Jobs.Add(new Job
+            {
+                Id = promptJobId, ProjectId = prjId, SceneId = sceneId, TaskType = JobTaskType.VideoPrompt,
+                State = JobState.Succeeded, ProviderKey = ProviderKeys.ChatGPTWeb, StorageRootId = "root-1",
+                PromptSnapshotText = "snapshot", ConfigSnapshotJson = "{}",
+                ResultText = "Xin lỗi, tôi không thể tạo nội dung này.", MaxAttempts = 3, CreatedAtUtc = now, UpdatedAtUtc = now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await workflowService.ApplyJobOutputAsync(promptJobId);
+        return (sceneId, workflowService);
+    }
+
+    /// <summary>
+    /// Ca 13: Sau khi AI từ chối, nút "Tạo video" thủ công không được đưa prompt cũ vào hàng đợi.
+    /// </summary>
+    public static async Task Test_Repro13_RejectedVideoPrompt_ManualRenderMustNotEnqueueOldPromptAsync()
+    {
+        var (dbOptions, tempDir, prjId) = CreateTestEnvironment();
+        try
+        {
+            var (sceneId, workflowService) = await ApplyRejectedVideoPromptAsync(dbOptions, tempDir, prjId);
+
+            bool threw = false;
+            try
+            {
+                await workflowService.CreateSceneVideoAsync(new CreateSceneVideoRequest(prjId, SceneId: sceneId));
+            }
+            catch (ProjectWorkflowValidationException)
+            {
+                threw = true;
+            }
+
+            using var verify = new TiToAIDbContext(dbOptions);
+            var renderJobs = await verify.Jobs.CountAsync(j => j.ProjectId == prjId && j.TaskType == JobTaskType.VideoRender);
+            Assert(threw, "[PV-R13] Render thủ công khi prompt bị từ chối phải bị chặn bằng lỗi nghiệp vụ.");
+            Assert(renderJobs == 0, $"[PV-R13] Render thủ công vẫn sinh {renderJobs} job VideoRender bằng prompt cũ.");
+        }
+        finally
+        {
+            CleanupTestEnvironment(tempDir);
+        }
+    }
+
+    /// <summary>
+    /// Ca 14: Người dùng lưu prompt hợp lệ thì bỏ cờ lỗi prompt nhưng giữ cờ video cần tạo lại.
+    /// </summary>
+    public static async Task Test_Repro14_ManualValidPrompt_MustClearPromptStaleFlagAsync()
+    {
+        var (dbOptions, tempDir, prjId) = CreateTestEnvironment();
+        try
+        {
+            var (sceneId, workflowService) = await ApplyRejectedVideoPromptAsync(dbOptions, tempDir, prjId);
+
+            await workflowService.UpdateVideoContentItemAsync(new UpdateVideoContentItemRequest(
+                ProjectId: prjId, Id: sceneId, VideoPrompt: "NEW VALID PROMPT"));
+
+            using var verify = new TiToAIDbContext(dbOptions);
+            var setting = await verify.AppSettings.AsNoTracking().FirstAsync(s => s.Key == $"scene.workflow.{sceneId}");
+            var meta = JsonSerializer.Deserialize<SceneWorkflowDetailDto>(setting.Value, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+            var scene = await verify.Scenes.AsNoTracking().FirstAsync(s => s.Id == sceneId);
+
+            Assert(scene.PromptText == "NEW VALID PROMPT", "[PV-R14] Prompt hợp lệ do người dùng lưu phải được ghi vào cảnh.");
+            Assert(meta.StaleTaskTypes?.Contains(JobTaskType.VideoPrompt) != true, "[PV-R14] Lưu prompt hợp lệ phải xóa cờ lỗi VideoPrompt.");
+            Assert(meta.StaleTaskTypes?.Contains(JobTaskType.VideoRender) == true, "[PV-R14] Lưu prompt phải giữ cờ video cần tạo lại.");
+        }
+        finally
+        {
+            CleanupTestEnvironment(tempDir);
+        }
+    }
+
     public static async Task<int> RunAllAsync()
     {
         Console.WriteLine("\n=================================================================");
@@ -1167,6 +1266,8 @@ public static class PvRemediationRegressionTests
             ("PV-R1 Ca 10: StartWorkflowAsync Idempotency với ClientRequestId", Test_Repro10_StartWorkflow_IdempotencyWithClientRequestIdAsync),
             ("PV-RenderedPromptText Ca 11: Dùng text đã render cho Template Script/VideoPrompt", Test_Repro11_RenderedPromptTextAsync),
             ("PV-R12 Ca 12: AI từ chối VideoPrompt không được render lại bằng prompt cũ", Test_Repro12_RejectedVideoPrompt_MustNotAutoRenderOldPromptAsync),
+            ("PV-R13 Ca 13: Render thủ công sau khi AI từ chối không được dùng prompt cũ", Test_Repro13_RejectedVideoPrompt_ManualRenderMustNotEnqueueOldPromptAsync),
+            ("PV-R14 Ca 14: Lưu prompt hợp lệ phải xóa cờ lỗi prompt, giữ cờ render", Test_Repro14_ManualValidPrompt_MustClearPromptStaleFlagAsync),
         };
 
         int pass = 0;

@@ -1296,10 +1296,9 @@ public static class VideoWorkflowSmokeTests
             // CD14: Kiểm tra Preview AI Prompt
             var preview = await workflowService.PreviewAiPromptAsync(new PreviewAiPromptRequest(prjId, sceneId));
             Assert(preview.ComposedPrompt.Contains(uniqueToken), "ComposedPrompt trong Preview phải chứa chuỗi nhận diện độc nhất.");
-            Assert(preview.ComposedPrompt.Contains("[HƯỚNG DẪN TỪ TEMPLATE"), "ComposedPrompt phải có block HƯỚNG DẪN.");
-            Assert(preview.ComposedPrompt.Contains("[NHIỆM VỤ]"), "ComposedPrompt phải có block NHIỆM VỤ.");
-            Assert(preview.ComposedPrompt.Contains("[DỮ LIỆU LẦN TẠO"), "ComposedPrompt phải có block DỮ LIỆU LẦN TẠO.");
+            Assert(preview.ComposedPrompt.StartsWith(uniqueToken), "ComposedPrompt phải bắt đầu bằng nguyên văn template người dùng lưu.");
             Assert(preview.ComposedPrompt.Contains("[OUTPUT_CONTRACT]"), "ComposedPrompt phải có block OUTPUT_CONTRACT.");
+            Assert(preview.ComposedPrompt.Contains("\"video_prompt\""), "OUTPUT_CONTRACT phải yêu cầu JSON có video_prompt.");
 
             // CD11, CD12: Khởi chạy workflow -> Kiểm tra Job VideoPrompt được enqueue chứa đúng ComposedPrompt
             var startRes = await workflowService.StartWorkflowAsync(new StartProjectWorkflowRequest(prjId));

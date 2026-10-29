@@ -356,7 +356,8 @@ public sealed partial class ProjectWorkflowService
                 await SaveOrUpdateContentItemAsync(dbContext, job.ProjectId, contentItem with
                 {
                     ImageAssetId = scene.ImageAssetId,
-                    VideoPrompt = scene.PromptText ?? contentItem.VideoPrompt,
+                    // Prompt bị AI từ chối không được giữ lại trong bảng, tránh render nhầm prompt cũ.
+                    VideoPrompt = promptRejected ? string.Empty : scene.PromptText ?? contentItem.VideoPrompt,
                     Status = promptRejected ? "NeedsReview" : "ReadyForVideo",
                     UpdatedAtUtc = nowIso
                 }, cancellationToken).ConfigureAwait(false);
@@ -602,6 +603,10 @@ public sealed partial class ProjectWorkflowService
     private async Task TryAutoEnqueueVideoRenderForProjectAsync(string projectId, string runId, string? logJobId, CancellationToken cancellationToken, int attempt = 0)
     {
         if (!MuseAiTrialMode.Enabled || _jobService == null) return;
+
+        // Callback retry có thể đến sau khi run đã kết thúc hoặc đã chuyển sang run khác: không tạo render mới.
+        var config = await GetWorkflowConfigAsync(projectId, cancellationToken).ConfigureAwait(false);
+        if (config.RunState != WorkflowRunState.Running || config.CurrentRunId != runId || config.FinalVideoAssetId != null) return;
 
         var claimKey = $"workflow.auto_render.{projectId}.{runId}";
 

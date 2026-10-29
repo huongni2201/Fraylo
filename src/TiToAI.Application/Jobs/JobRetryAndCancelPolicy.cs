@@ -196,6 +196,20 @@ public static class JobRetryAndCancelPolicy
     {
         ArgumentNullException.ThrowIfNull(job);
 
+        // Hết thời gian chờ render: giải phóng tài nguyên, đưa Failed để người dùng thử lại từ bước thất bại.
+        // Sau khi gửi prompt, retry chỉ tiếp tục chờ side chat đã lưu (xem RetryAsync), không gửi lại.
+        if (string.Equals(reasonCode, JobReasonCode.RenderTimeout, StringComparison.OrdinalIgnoreCase))
+        {
+            return new JobRetryDecision(
+                CanRetry: false,
+                TargetState: JobState.Failed,
+                FinalReasonCode: JobReasonCode.RenderTimeout,
+                RetryDelay: null,
+                ShouldRollbackAttempts: false,
+                Classification: FailureClassification.PermanentFailure
+            );
+        }
+
         // 1. Nếu đã submit side effect: TUYỆT ĐỐI CẤM retry tự động, bắt buộc sang AwaitingUser để đối soát
         if (sideEffectSubmitted || job.SideEffectSubmitted == 1)
         {

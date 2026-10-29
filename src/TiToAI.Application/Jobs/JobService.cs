@@ -618,7 +618,11 @@ public sealed class JobService
                 job.Id);
         }
 
-        if (job.SideEffectSubmitted != 0)
+        // Render MuseAI hết thời gian chờ sau khi đã gửi: chỉ thử lại bằng cách tiếp tục chờ side chat đã lưu, không gửi lại.
+        bool resumableRender = job.ReasonCode == JobReasonCode.RenderTimeout
+            && await TiToAI.Application.Providers.MuseAiPlaywrightAutomation.CanResumeRenderAsync(dbContext, job, cancellationToken).ConfigureAwait(false);
+
+        if (job.SideEffectSubmitted != 0 && !resumableRender)
         {
             throw new JobValidationException(
                 "Không thể thử lại (retry) tác vụ đã phát sinh tác dụng phụ (side-effect) ra bên ngoài.",
@@ -630,7 +634,7 @@ public sealed class JobService
             .AnyAsync(o => o.JobId == job.Id, cancellationToken).ConfigureAwait(false);
 
         bool hasUnresolved = hasOccupancy ||
-            (job.SideEffectSubmitted == 1 &&
+            (job.SideEffectSubmitted == 1 && !resumableRender &&
              string.IsNullOrWhiteSpace(job.ResultReference) &&
              string.IsNullOrWhiteSpace(job.ResultText));
 

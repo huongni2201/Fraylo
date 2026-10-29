@@ -619,7 +619,9 @@ export function useQueueState(options: UseQueueStateOptions = {}): UseQueueState
         return false;
       }
 
-      if (sideEffect === 1 || hasUnresolved) {
+      // Render MuseAI hết giờ chỉ tiếp tục chờ side chat đã lưu ở backend, không gửi lại nên được phép retry
+      const resumableRender = job.reasonCode === "render_timeout";
+      if ((sideEffect === 1 || hasUnresolved) && !resumableRender) {
         setError(
           createErrorDto(
             "UNCERTAIN_RETRY_BLOCKED",

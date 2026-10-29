@@ -51,6 +51,7 @@ public static class JobReasonCode
     public const string GlobalJobBudgetReached = "global_job_budget_reached";
     public const string LeaseExpiredRetry = "lease_expired_retry";
     public const string ReconcileRejected = "reconcile_rejected";
+    public const string RenderTimeout = "render_timeout";
 }
 
 public sealed record JobSummaryDto(

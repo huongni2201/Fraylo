@@ -74,22 +74,13 @@ public sealed class VideoWorkflowPromptComposer
         // [NHIỆM VỤ]
         // [DỮ LIỆU LẦN TẠO]
         // [OUTPUT_CONTRACT]
-        int durationSec = Convert.ToInt32(scene.TargetDurationSeconds);
         var sb = new StringBuilder();
-        sb.AppendLine("[HƯỚNG DẪN TỪ TEMPLATE VIDEO PROMPT ĐÃ CHỌN]");
         sb.AppendLine(renderedTemplate.Trim());
         sb.AppendLine();
-        sb.AppendLine("[NHIỆM VỤ]");
-        sb.AppendLine($"Viết prompt chuyển động bằng tiếng Anh (motion prompt) cho clip_{scene.SequenceOrder} (tên cảnh: '{scene.Name}'), không tạo thêm clip. Mô tả các nhịp phân cảnh/shot bên trong thời lượng {durationSec} giây của clip.");
-        sb.AppendLine();
-        sb.AppendLine("[DỮ LIỆU LẦN TẠO — do app serialize]");
-        sb.AppendLine($"CLIP_CONTEXT: clip_{scene.SequenceOrder}, tên: \"{scene.Name}\", thời lượng: {durationSec}s.");
+        // Mô tả cảnh do bước Script tạo: dữ liệu của cảnh, không phải chỉ dẫn.
         if (!string.IsNullOrWhiteSpace(scenePurpose)) sb.AppendLine($"SCENE_PURPOSE: {scenePurpose}");
-        sb.AppendLine($"REFERENCE_IMAGES: SelectedImage={scene.ImageAssetId ?? "None"}.");
-        sb.AppendLine($"PROVIDER_CAPABILITIES: thời lượng clip = {durationSec}s, hỗ trợ multi-shot = Không (chuyển động liên tục).");
-        sb.AppendLine();
         sb.AppendLine("[OUTPUT_CONTRACT]");
-        sb.AppendLine("Chỉ trả về prompt chuyển động camera và hành động nhân vật bằng tiếng Anh cho một clip duy nhất, khớp với thời lượng clip. Các mốc thời gian (nếu có) đóng vai trò hướng dẫn nhịp điệu nội dung trong clip. Không bao gồm mã JSON hay giải thích phụ.");
+        sb.AppendLine("Chỉ trả về DUY NHẤT một JSON hợp lệ, không markdown, theo schema: {\"video_prompt\": \"chuỗi prompt video\"}.");
 
         return new VideoPromptCompositionResult(
             TemplateId: templateId,

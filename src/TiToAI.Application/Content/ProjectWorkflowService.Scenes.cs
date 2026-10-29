@@ -216,6 +216,11 @@ public sealed partial class ProjectWorkflowService
         }
         var candidateHistory = existingSceneMeta?.VideoCandidateHistory;
         var staleTasks = new HashSet<string>(existingSceneMeta?.StaleTaskTypes ?? Array.Empty<string>(), StringComparer.Ordinal);
+        // Prompt người dùng nhập thay thế prompt bị AI từ chối: bỏ cờ lỗi prompt, các cờ do ảnh/thời lượng/âm thanh vẫn được áp dụng bên dưới.
+        if (promptChanged && !string.IsNullOrWhiteSpace(scene.PromptText))
+        {
+            staleTasks.Remove(JobTaskType.VideoPrompt);
+        }
         if (imageChanged)
         {
             staleTasks.Add(JobTaskType.VideoPrompt);

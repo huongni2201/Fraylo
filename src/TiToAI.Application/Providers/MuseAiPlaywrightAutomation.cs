@@ -7,6 +7,7 @@ using TiToAI.Application.Assets;
 using TiToAI.Application.Jobs;
 using TiToAI.Browser.Abstractions;
 using TiToAI.Contracts.Jobs;
+using TiToAI.Contracts.Providers;
 using TiToAI.Browser.Models;
 using TiToAI.Infrastructure.Persistence;
 using TiToAI.Infrastructure.Persistence.Entities;
@@ -56,6 +57,12 @@ public sealed class MuseAiPlaywrightAutomation
         CancellationToken ct)
     {
         await _activity.WriteAsync(job.JobId, "validate", "Bắt đầu kiểm tra prompt, ảnh và phiên MuseAI.", ct).ConfigureAwait(false);
+        // Đã có side chat nghĩa là prompt đã gửi: chỉ chờ lại video, tuyệt đối không gửi lại.
+        await using var db = new TiToAIDbContext(_dbOptions);
+        var savedThreadUrl = await ReadSavedThreadUrlAsync(db, job.JobId, ct).ConfigureAwait(false);
+        if (savedThreadUrl is not null)
+            return await ResumeRenderAsync(job, savedThreadUrl, progress, ct).ConfigureAwait(false);
+
         var prompt = ReadPrompt(job.PromptSnapshotText);
         var (durationSeconds, imageIds) = ReadRenderInput(job.ConfigSnapshotJson);
         if (string.IsNullOrWhiteSpace(job.ProfileId) || string.IsNullOrWhiteSpace(prompt) || durationSeconds <= 0 || imageIds.Count == 0)
@@ -109,13 +116,7 @@ public sealed class MuseAiPlaywrightAutomation
             await page.WaitForURLAsync(ThreadUrl, new() { Timeout = 30000 }).WaitAsync(ct).ConfigureAwait(false);
             await SaveThreadUrlAsync(job.JobId, page.Url, ct).ConfigureAwait(false);
             await _activity.WriteAsync(job.JobId, "submit", $"Đã gửi trong side chat {page.Url}.", ct).ConfigureAwait(false);
-            if (progress is not null) await progress(50, "Đang chờ MuseAI tạo video").ConfigureAwait(false);
-
-            await WaitForVideoAsync(page, ct).ConfigureAwait(false);
-            await _activity.WriteAsync(job.JobId, "result", "MuseAI đã trả về video.", ct).ConfigureAwait(false);
-
-            var assetId = await DownloadVideoAssetAsync(page, job.JobId, job.ProjectId, job.StorageRootId, ct).ConfigureAwait(false);
-            return new(true, ResultReference: assetId, SideEffectSubmitted: true);
+            return await FinishRenderAsync(page, job.JobId, job.ProjectId, job.StorageRootId, progress, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -129,8 +130,9 @@ public sealed class MuseAiPlaywrightAutomation
         }
         catch (TimeoutException ex)
         {
-            await RecordFailureAsync(job.JobId, submitted ? "Hết thời gian sau khi gửi; cần đối soát." : "Hết thời gian trước khi gửi.").ConfigureAwait(false);
-            return new(false, ReasonCode: submitted ? "reconcile_required" : "automation_blocked",
+            // Trước khi gửi: an toàn để thử lại từ đầu. Sau khi gửi (chưa lưu side chat): chưa rõ đã gửi hay chưa, phải đối soát.
+            await RecordFailureAsync(job.JobId, submitted ? "Hết thời gian sau khi gửi; cần đối soát." : "Hết thời gian trước khi gửi; tác vụ thất bại, có thể thử lại.").ConfigureAwait(false);
+            return new(false, ReasonCode: submitted ? "reconcile_required" : JobReasonCode.RenderTimeout,
                 ErrorMessage: $"Quá thời gian chờ MuseAI: {ex.Message}", SideEffectSubmitted: submitted);
         }
         catch (Exception ex)
@@ -244,11 +246,83 @@ public sealed class MuseAiPlaywrightAutomation
     private async Task<string?> ReadThreadUrlAsync(string jobId, CancellationToken ct)
     {
         await using var db = new TiToAIDbContext(_dbOptions);
+        return await ReadSavedThreadUrlAsync(db, jobId, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>URL side chat đã lưu của job (chỉ có sau khi prompt đã gửi); null nếu chưa gửi hoặc URL không hợp lệ.</summary>
+    public static async Task<string?> ReadSavedThreadUrlAsync(TiToAIDbContext db, string jobId, CancellationToken ct)
+    {
         var url = await db.AppSettings.AsNoTracking()
             .Where(s => s.Key == ThreadUrlKeyPrefix + jobId)
             .Select(s => s.Value)
             .FirstOrDefaultAsync(ct).ConfigureAwait(false);
         return IsSideChatUrl(url) ? url : null;
+    }
+
+    /// <summary>
+    /// Render MuseAI đã gửi prompt (có side chat đã lưu) và chưa có kết quả: có thể tiếp tục chờ video mà không gửi lại.
+    /// Dùng chung cho executor và đường retry/reservation để không gửi lại prompt.
+    /// </summary>
+    public static async Task<bool> CanResumeRenderAsync(TiToAIDbContext db, Job job, CancellationToken ct) =>
+        job.TaskType == JobTaskType.VideoRender
+        && string.Equals(job.ProviderKey, ProviderKeys.MuseAI, StringComparison.OrdinalIgnoreCase)
+        && string.IsNullOrWhiteSpace(job.ResultReference) && string.IsNullOrWhiteSpace(job.ResultText)
+        && await ReadSavedThreadUrlAsync(db, job.Id, ct).ConfigureAwait(false) is not null;
+
+    /// <summary>Mở lại side chat đã lưu rồi chờ video. Không gửi lại prompt; hết thời gian thì trả render_timeout.</summary>
+    private async Task<JobExecutionResult> ResumeRenderAsync(JobExecutionContext job, string threadUrl, Func<int, string, Task>? progress, CancellationToken ct)
+    {
+        var handle = string.IsNullOrWhiteSpace(job.ProfileId) ? null : _browser.TryGetContext(job.ProfileId);
+        if (handle is null)
+            return new(false, ReasonCode: "automation_blocked", ErrorMessage: "Profile MuseAI chưa được mở để tiếp tục chờ video.");
+
+        IPage? page = null;
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+            await _activity.WriteAsync(job.JobId, "resume", "Đã gửi prompt trước đó: mở lại side chat để chờ video, không gửi lại.", ct).ConfigureAwait(false);
+            page = await handle.Context.NewPageAsync().ConfigureAwait(false);
+            await page.GotoAsync(threadUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 }).WaitAsync(ct).ConfigureAwait(false);
+            return await FinishRenderAsync(page, job.JobId, job.ProjectId, job.StorageRootId, progress, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (TimeoutException ex)
+        {
+            await RecordFailureAsync(job.JobId, "Hết thời gian mở lại side chat; tác vụ thất bại, có thể thử lại từ bước chờ.").ConfigureAwait(false);
+            return new(false, ReasonCode: JobReasonCode.RenderTimeout, ErrorMessage: $"Quá thời gian mở lại side chat MuseAI: {ex.Message}", SideEffectSubmitted: true);
+        }
+        catch (Exception ex)
+        {
+            await RecordFailureAsync(job.JobId, "Lỗi khi mở lại side chat sau khi gửi; cần đối soát.").ConfigureAwait(false);
+            return new(false, ReasonCode: "reconcile_required", ErrorMessage: $"Không mở lại được side chat MuseAI: {ex.Message}", SideEffectSubmitted: true);
+        }
+        finally
+        {
+            if (page is not null && !page.IsClosed)
+                try { await page.CloseAsync().ConfigureAwait(false); } catch { }
+        }
+    }
+
+    /// <summary>Chờ video trong side chat đang mở rồi tải về thành Asset. Hết thời gian chờ thì trả render_timeout (job Failed, có thể thử lại).</summary>
+    private async Task<JobExecutionResult> FinishRenderAsync(IPage page, string jobId, string projectId, string storageRootId, Func<int, string, Task>? progress, CancellationToken ct)
+    {
+        if (progress is not null) await progress(50, "Đang chờ MuseAI tạo video").ConfigureAwait(false);
+        try
+        {
+            await WaitForVideoAsync(page, ct).ConfigureAwait(false);
+        }
+        catch (TimeoutException ex)
+        {
+            await RecordFailureAsync(jobId, "Hết thời gian chờ video MuseAI; tác vụ thất bại, có thể thử lại từ bước chờ.").ConfigureAwait(false);
+            return new(false, ReasonCode: JobReasonCode.RenderTimeout, ErrorMessage: $"Quá thời gian chờ MuseAI tạo video: {ex.Message}", SideEffectSubmitted: true);
+        }
+        await _activity.WriteAsync(jobId, "result", "MuseAI đã trả về video.", ct).ConfigureAwait(false);
+
+        var assetId = await DownloadVideoAssetAsync(page, jobId, projectId, storageRootId, ct).ConfigureAwait(false);
+        return new(true, ResultReference: assetId, SideEffectSubmitted: true);
     }
 
     private async Task RecordFailureAsync(string jobId, string message)

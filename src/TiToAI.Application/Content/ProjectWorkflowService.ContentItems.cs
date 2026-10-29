@@ -226,10 +226,29 @@ public sealed partial class ProjectWorkflowService
             {
                 await MarkSceneVideoStaleAsync(dbContext, scene.Id, "Prompt video đã thay đổi.", nowIso, cancellationToken).ConfigureAwait(false);
             }
+            // Người dùng lưu prompt hợp lệ thì thay thế prompt bị AI từ chối: bỏ cờ lỗi prompt, giữ cờ video cần tạo lại.
+            if (!string.IsNullOrWhiteSpace(request.VideoPrompt))
+            {
+                await ClearStaleVideoPromptAsync(dbContext, scene.Id, nowIso, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return updated;
+    }
+
+    /// <summary>Chặn render khi có phân cảnh còn cờ prompt video bị AI từ chối, kể cả khi prompt cũ vẫn còn trong Scene.</summary>
+    private static async Task EnsureScenePromptsRenderableAsync(
+        TiToAIDbContext dbContext, IEnumerable<string> sceneIds, CancellationToken cancellationToken)
+    {
+        var keys = sceneIds.Select(GetSceneKey).ToList();
+        var settings = await dbContext.AppSettings.AsNoTracking()
+            .Where(s => keys.Contains(s.Key))
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        if (settings.Any(s => IsPromptStale(s.Value)))
+        {
+            throw new ProjectWorkflowValidationException("Có phân cảnh cần xem lại prompt video. Hãy sửa hoặc tạo lại prompt trong bảng Project trước khi render.");
+        }
     }
 
     /// <summary>Đánh dấu video của cảnh cần xem lại; FindReadyVideoAsync không cho đăng video đã stale.</summary>
@@ -245,6 +264,23 @@ public sealed partial class ProjectWorkflowService
 
         var staleTasks = new HashSet<string>(meta.StaleTaskTypes ?? Array.Empty<string>(), StringComparer.Ordinal) { JobTaskType.VideoRender };
         meta = meta with { IsStale = true, StaleReason = reason, StaleTaskTypes = staleTasks.ToArray() };
+        setting.Value = JsonSerializer.Serialize(meta, JsonOptions);
+        setting.UpdatedAtUtc = nowIso;
+    }
+
+    /// <summary>Bỏ cờ lỗi prompt video sau khi người dùng lưu prompt hợp lệ; cờ VideoRender vẫn giữ nguyên.</summary>
+    private static async Task ClearStaleVideoPromptAsync(
+        TiToAIDbContext dbContext, string sceneId, string nowIso, CancellationToken cancellationToken)
+    {
+        var key = GetSceneKey(sceneId);
+        var setting = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == key, cancellationToken).ConfigureAwait(false);
+        if (setting is null || string.IsNullOrWhiteSpace(setting.Value)) return;
+
+        var meta = JsonSerializer.Deserialize<SceneWorkflowDetailDto>(setting.Value, JsonOptions);
+        if (meta is null) return;
+
+        var staleTasks = (meta.StaleTaskTypes ?? Array.Empty<string>()).Where(t => t != JobTaskType.VideoPrompt).ToArray();
+        meta = meta with { IsStale = staleTasks.Length > 0, StaleReason = staleTasks.Length > 0 ? meta.StaleReason : null, StaleTaskTypes = staleTasks };
         setting.Value = JsonSerializer.Serialize(meta, JsonOptions);
         setting.UpdatedAtUtc = nowIso;
     }
@@ -323,6 +359,7 @@ public sealed partial class ProjectWorkflowService
         {
             throw new ProjectWorkflowValidationException("Cảnh này chưa có prompt video. Hãy tạo prompt video trước khi tạo video.");
         }
+        await EnsureScenePromptsRenderableAsync(dbContext, new[] { targetSceneId }, cancellationToken).ConfigureAwait(false);
 
         var imageAssetId = targetItem.ImageAssetId ?? scene?.ImageAssetId ?? config.FoundationImageAssetId ?? config.ReadyImageAssetId ?? config.ProductAssetId;
         var audioAssetId = targetItem.AudioAssetId ?? scene?.AudioAssetId ?? (config.AudioOption == AudioOptions.CustomAudio ? config.AudioAssetId : null);
@@ -442,6 +479,7 @@ public sealed partial class ProjectWorkflowService
             throw new ProjectWorkflowValidationException(
                 $"Phân cảnh {missing.SequenceOrder} chưa có ảnh. Hãy tạo ảnh cho mọi phân cảnh trước khi render.");
         }
+        await EnsureScenePromptsRenderableAsync(dbContext, scenes.Select(s => s.Id), cancellationToken).ConfigureAwait(false);
 
         var hasActiveRender = await dbContext.Jobs.AsNoTracking().AnyAsync(j =>
             j.ProjectId == projectId && j.TaskType == JobTaskType.VideoRender &&

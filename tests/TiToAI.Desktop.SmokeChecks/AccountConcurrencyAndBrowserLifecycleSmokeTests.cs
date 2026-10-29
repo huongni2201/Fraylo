@@ -20,6 +20,7 @@ using TiToAI.Browser.Models;
 using TiToAI.Contracts.Accounts;
 using TiToAI.Contracts.Bridge;
 using TiToAI.Contracts.Jobs;
+using TiToAI.Contracts.Providers;
 using TiToAI.Desktop.Bridge.Handlers;
 using TiToAI.Desktop.Hosting;
 using TiToAI.Infrastructure.Persistence;
@@ -159,6 +160,14 @@ public static class AccountConcurrencyAndBrowserLifecycleSmokeTests
         await RunCaseAsync(
             "8. Vòng đời browser: Nhiều job cùng profile xin lease đồng thời chỉ mở một browser",
             Test_BrowserLaunch_ConcurrentLeasesOnSameProfile_LaunchOnceAsync);
+
+        await RunCaseAsync(
+            "9. Đối soát: Job chờ bị slot của job hủy chưa đối soát giữ phải báo waiting_for_reconcile",
+            Test_Reservation_HeldByUnreconciledCancel_ReportsWaitingForReconcileAsync);
+
+        await RunCaseAsync(
+            "10. Render MuseAI hết giờ: Failed và giải phóng; retry chỉ tiếp tục chờ side chat đã lưu, không gửi lại",
+            Test_RenderTimeout_FailsAndRetryResumesWithoutResendAsync);
 
         Console.WriteLine("\n=================================================================");
         if (failed == 0)
@@ -390,6 +399,205 @@ public static class AccountConcurrencyAndBrowserLifecycleSmokeTests
                 Assert(succeededCount == 1, "Đã có 1 job hoàn tất");
                 Assert(queuedCount == 2, $"Còn 2 jobs đang chờ, thực tế {queuedCount}");
             }
+        }
+        finally
+        {
+            CleanupTestContext(tempDir);
+        }
+    }
+
+    /// <summary>
+    /// Job đã hủy nhưng side effect đã gửi và chưa đối soát vẫn giữ slot: job chờ phải báo waiting_for_reconcile, không báo waiting_for_capacity.
+    /// </summary>
+    public static async Task Test_Reservation_HeldByUnreconciledCancel_ReportsWaitingForReconcileAsync()
+    {
+        var (dbOptions, tempDir, _, _) = CreateTestContext();
+        try
+        {
+            var now = DateTimeOffset.UtcNow.ToString("o");
+            string holderId = Guid.NewGuid().ToString("D");
+            string waitingId = Guid.NewGuid().ToString("D");
+
+            await using (var db = new TiToAIDbContext(dbOptions))
+            {
+                db.BrowserProfiles.Add(new BrowserProfile
+                {
+                    Id = "profile_muse_reconcile",
+                    Kind = "SharedAI",
+                    ProviderKey = "museai",
+                    DisplayName = "Muse Reconcile Profile",
+                    SessionStatus = "Connected",
+                    OperationalState = "Stopped",
+                    VisibilityState = "Hidden",
+                    Lifecycle = "Active",
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now
+                });
+                db.ProviderAccounts.Add(new ProviderAccount
+                {
+                    Id = "acc-muse-reconcile",
+                    ProviderKey = "museai",
+                    ProfileId = "profile_muse_reconcile",
+                    DisplayName = "Muse Reconcile Account",
+                    VerifiedIdentity = "muse-reconcile@internal",
+                    IdentityVerifiedAtUtc = now,
+                    Enabled = true,
+                    Lifecycle = "Active",
+                    MaxConcurrentJobs = 1,
+                    MaxTabs = 1,
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now
+                });
+                db.Projects.Add(new Project
+                {
+                    Id = "prj_reconcile",
+                    Name = "Dự án đối soát",
+                    Status = "Draft",
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now
+                });
+                db.Jobs.Add(new Job
+                {
+                    Id = holderId,
+                    ProjectId = "prj_reconcile",
+                    TaskType = JobTaskType.VideoRender,
+                    State = JobState.Canceled,
+                    Attempts = 1,
+                    MaxAttempts = 3,
+                    SideEffectSubmitted = 1,
+                    SideEffectAtUtc = now,
+                    CancelRequested = 1,
+                    StorageRootId = "root_test",
+                    ProviderKey = "museai",
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now
+                });
+                db.Jobs.Add(new Job
+                {
+                    Id = waitingId,
+                    ProjectId = "prj_reconcile",
+                    TaskType = JobTaskType.VideoRender,
+                    State = JobState.Queued,
+                    Attempts = 0,
+                    MaxAttempts = 3,
+                    SideEffectSubmitted = 0,
+                    StorageRootId = "root_test",
+                    ProviderKey = "museai",
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now
+                });
+                db.ActiveSlotOccupancies.Add(new ActiveSlotOccupancy
+                {
+                    ProviderAccountId = "acc-muse-reconcile",
+                    TabSlotId = "slot-1",
+                    JobId = holderId,
+                    LeaseOwnerId = "scheduler-test",
+                    LeaseToken = 1,
+                    AcquiredAtUtc = now
+                });
+                await db.SaveChangesAsync();
+            }
+
+            var reservation = new JobReservation(dbOptions);
+            var result = await reservation.TryReserveJobAsync(waitingId, "worker-test", TimeSpan.FromMinutes(5));
+            Assert(!result.Acquired, "Job chờ không được chiếm slot đang bị job cần đối soát giữ.");
+
+            await using (var db = new TiToAIDbContext(dbOptions))
+            {
+                var waiting = await db.Jobs.AsNoTracking().FirstAsync(j => j.Id == waitingId);
+                Assert(waiting.ReasonCode == JobReasonCode.WaitingForReconcile,
+                    $"ReasonCode phải là waiting_for_reconcile khi slot do job chưa đối soát giữ, thực tế: {waiting.ReasonCode}");
+            }
+        }
+        finally
+        {
+            CleanupTestContext(tempDir);
+        }
+    }
+
+    /// <summary>
+    /// Render MuseAI hết thời gian chờ: job chuyển Failed (không AwaitingUser). Retry chỉ được phép khi có side chat đã lưu,
+    /// khi đó chỉ tiếp tục chờ video (không gửi lại prompt). Không có side chat đã lưu thì từ chối retry.
+    /// </summary>
+    public static async Task Test_RenderTimeout_FailsAndRetryResumesWithoutResendAsync()
+    {
+        var (dbOptions, tempDir, _, settingsService) = CreateTestContext();
+        try
+        {
+            var now = DateTimeOffset.UtcNow.ToString("o");
+            string resumableId = Guid.NewGuid().ToString("D");
+            string unsavedId = Guid.NewGuid().ToString("D");
+            string threadUrl = $"https://muse.ai/thread/{Guid.NewGuid():D}";
+
+            // Chính sách: timeout đã gửi hoặc chưa gửi đều thành Failed, không tự retry, không đưa về AwaitingUser.
+            var policyJob = new Job { Id = resumableId, TaskType = JobTaskType.VideoRender, ProviderKey = ProviderKeys.MuseAI, State = JobState.Running, Attempts = 1, MaxAttempts = 3, SideEffectSubmitted = 1 };
+            var submittedDecision = JobRetryAndCancelPolicy.EvaluateFailure(policyJob, JobReasonCode.RenderTimeout, true);
+            Assert(submittedDecision.TargetState == JobState.Failed && !submittedDecision.CanRetry,
+                "Render hết giờ sau khi gửi phải chuyển Failed, không được AwaitingUser hay tự retry.");
+            var preSubmitDecision = JobRetryAndCancelPolicy.EvaluateFailure(
+                new Job { Id = unsavedId, TaskType = JobTaskType.VideoRender, ProviderKey = ProviderKeys.MuseAI, State = JobState.Running, Attempts = 1, MaxAttempts = 3, SideEffectSubmitted = 0 },
+                JobReasonCode.RenderTimeout, false);
+            Assert(preSubmitDecision.TargetState == JobState.Failed && !preSubmitDecision.CanRetry,
+                "Render hết giờ trước khi gửi cũng phải chuyển Failed.");
+
+            await using (var db = new TiToAIDbContext(dbOptions))
+            {
+                db.Projects.Add(new Project { Id = "prj_timeout", Name = "Dự án timeout", Status = "Draft", CreatedAtUtc = now, UpdatedAtUtc = now });
+                // Cả hai job đã gửi prompt (SideEffectSubmitted = 1); chỉ job đầu có side chat đã lưu.
+                foreach (var id in new[] { resumableId, unsavedId })
+                {
+                    db.Jobs.Add(new Job
+                    {
+                        Id = id,
+                        ProjectId = "prj_timeout",
+                        TaskType = JobTaskType.VideoRender,
+                        ProviderKey = ProviderKeys.MuseAI,
+                        State = JobState.Failed,
+                        ReasonCode = JobReasonCode.RenderTimeout,
+                        Attempts = 1,
+                        MaxAttempts = 3,
+                        Revision = 1,
+                        SideEffectSubmitted = 1,
+                        StorageRootId = "root_test",
+                        CreatedAtUtc = now,
+                        UpdatedAtUtc = now
+                    });
+                }
+                db.AppSettings.Add(new AppSetting { Key = "job.museai.thread." + resumableId, Value = threadUrl, UpdatedAtUtc = now });
+                await db.SaveChangesAsync();
+            }
+
+            var profileRegistry = new ProfileRegistry(() => new TiToAIDbContext(dbOptions), tempDir);
+            var profileOwner = new ProfileOwner(pid => Path.Combine(tempDir, "profiles", pid));
+            var processController = new PlaywrightBrowserController(profileRegistry, profileOwner,
+                customPersistentLauncher: new TrackingPersistentLauncher().LaunchAsync);
+            var gatekeeper = new HostBrowserGatekeeper(profileRegistry, new LoginCoordinator(profileRegistry, processController), new TabPool(), processController);
+            var scheduler = new JobScheduler(dbOptions, new JobReservation(dbOptions), new ControlledJobExecutor(), gatekeeper);
+            var jobService = new JobService(dbOptions, new JobSnapshotFactory(settingsService), scheduler);
+
+            // Retry tác vụ đã có side chat đã lưu: đưa về Queued, giữ nguyên số lần thử; executor sẽ tiếp tục chờ, không gửi lại.
+            var retried = await jobService.RetryAsync(new JobRetryRequest(resumableId, 1));
+            Assert(retried.State == JobState.Queued, $"Retry render hết giờ có side chat phải về Queued, thực tế: {retried.State}");
+
+            await using (var db = new TiToAIDbContext(dbOptions))
+            {
+                var resumable = await db.Jobs.AsNoTracking().FirstAsync(j => j.Id == resumableId);
+                Assert(resumable.SideEffectSubmitted == 1, "Retry không được xóa cờ side effect đã gửi.");
+                Assert(await MuseAiPlaywrightAutomation.CanResumeRenderAsync(db, resumable, CancellationToken.None),
+                    "Job có side chat đã lưu phải được nhận diện là có thể tiếp tục chờ.");
+            }
+
+            // Không có side chat đã lưu: không được retry, tránh gửi lại prompt khi chưa rõ đã gửi hay chưa.
+            bool refused = false;
+            try
+            {
+                await jobService.RetryAsync(new JobRetryRequest(unsavedId, 1));
+            }
+            catch (JobValidationException)
+            {
+                refused = true;
+            }
+            Assert(refused, "Retry render đã gửi nhưng thiếu side chat đã lưu phải bị từ chối.");
         }
         finally
         {
