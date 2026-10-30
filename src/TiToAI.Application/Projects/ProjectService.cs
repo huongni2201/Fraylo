@@ -2,6 +2,7 @@ using System.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using TiToAI.Application.Content;
 using TiToAI.Contracts.Projects;
 using TiToAI.Infrastructure.Persistence;
 using TiToAI.Infrastructure.Persistence.Entities;
@@ -48,7 +49,12 @@ public sealed class ProjectService
                 p.CreatedAtUtc,
                 p.UpdatedAtUtc,
                 p.GroupId,
-                dbContext.ProjectGroups.Where(g => g.Id == p.GroupId).Select(g => g.Name).FirstOrDefault()))
+                dbContext.ProjectGroups.Where(g => g.Id == p.GroupId).Select(g => g.Name).FirstOrDefault(),
+                dbContext.Scenes
+                    .Where(s => s.ProjectId == p.Id && s.VideoAssetId != null)
+                    .OrderBy(s => s.SequenceOrder)
+                    .Select(s => s.VideoAssetId)
+                    .FirstOrDefault()))
             .ToListAsync(cancellationToken);
     }
 
@@ -164,7 +170,14 @@ public sealed class ProjectService
 
         if (request.GroupId is not null)
         {
-            project.GroupId = await ResolveGroupIdAsync(dbContext, request.GroupId, cancellationToken);
+            var newGroupId = await ResolveGroupIdAsync(dbContext, request.GroupId, cancellationToken);
+            if (newGroupId != project.GroupId)
+            {
+                // Đổi nhóm là đổi hướng dẫn/tệp kế thừa của run: áp cùng quy tắc với sửa Nhóm.
+                await ProjectGroupService.EnsureNoActiveRunAsync(dbContext, [project.Id], cancellationToken);
+                await WorkflowInputGuard.MarkProjectVideosStaleAsync(dbContext, [project.Id], "Nhóm của dự án đã thay đổi.", cancellationToken);
+            }
+            project.GroupId = newGroupId;
             isModified = true;
         }
 

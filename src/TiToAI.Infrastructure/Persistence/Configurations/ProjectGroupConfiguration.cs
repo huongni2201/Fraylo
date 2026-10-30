@@ -40,12 +40,6 @@ public class ProjectGroupConfiguration : IEntityTypeConfiguration<ProjectGroup>
             .HasDefaultValue(string.Empty)
             .IsRequired();
 
-        builder.Property(g => g.PromptVariablesJson)
-            .HasColumnName("prompt_variables_json")
-            .HasColumnType("TEXT")
-            .HasDefaultValue("{}")
-            .IsRequired();
-
         builder.Property(g => g.ModelAssetId)
             .HasColumnName("model_asset_id")
             .HasColumnType("TEXT");

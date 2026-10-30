@@ -1,6 +1,6 @@
 # Nhóm dự án và prompt phân tầng
 
-Cập nhật 2026-10-29. Trạng thái: **ĐÃ TRIỂN KHAI P1 và P2; P3 một phần** — xem mục 9 cho sai khác so với kế hoạch gốc. Liên quan: [VIDEO_FIRST_ARCHITECTURE_PLAN](VIDEO_FIRST_ARCHITECTURE_PLAN.md), [VIDEO_TWO_FLOW_SPLIT](VIDEO_TWO_FLOW_SPLIT.md), [STATUS](../agents/STATUS.md).
+Cập nhật 2026-10-30. Trạng thái: **ĐÃ TRIỂN KHAI P1 và P2; P3 một phần** — xem mục 9 cho sai khác so với kế hoạch gốc. **Mục 11 thay thế cơ chế ghép 3 tầng và biến ở §3.2, §3.3, D1, §9 bằng cơ chế ưu tiên Dự án > Nhóm > mẫu toàn cục, không còn biến.** Liên quan: [VIDEO_FIRST_ARCHITECTURE_PLAN](VIDEO_FIRST_ARCHITECTURE_PLAN.md), [VIDEO_TWO_FLOW_SPLIT](VIDEO_TWO_FLOW_SPLIT.md), [STATUS](../agents/STATUS.md).
 
 ## 1. Yêu cầu
 
@@ -179,3 +179,22 @@ Kiểm chứng (2026-10-30):
 - Desktop smoke: `project-first` PASS (`ProjectGroupSmokeTests` thêm: đặt tệp mặc định và chuyển tệp của Project, từ chối tệp sai loại/ngoài nhóm/thư viện, kế thừa và ghi đè riêng, đổi mặc định theo thời gian thực, âm thanh tùy chọn, dự án ngoài nhóm bị chặn, xóa nhóm bỏ liên kết tệp); `workflow` 16/16; `remediation` 14/14; `t15` 19/19.
 - Web: `tsc` và `vite build` PASS; `videoProductionTab.test.ts` 8/8 PASS. `appNavigation.test.ts` và `settingsPage.test.ts` FAIL với cùng lỗi trên HEAD (đã đối chiếu bằng worktree), không liên quan thay đổi này.
 - NOT_RUN: giao diện chọn/tải tệp trong WebView2; render thật qua provider.
+
+## 11. Prompt theo ưu tiên, bỏ biến (2026-10-30)
+
+Người dùng bỏ hẳn biến và đổi cách ghép: mỗi tác vụ chỉ dùng **một** prompt, chọn theo thứ tự ưu tiên, không nối.
+
+```text
+Prompt Script / VideoPrompt =
+  prompt của Dự án (scriptGuidance / videoGuidance)   nếu không rỗng
+  else prompt của Nhóm                                  nếu không rỗng
+  else mẫu toàn cục đang chọn (PromptTemplate.IsActive) bắt buộc phải có
++ [OUTPUT_CONTRACT do app nối]                          không sửa được
+```
+
+- **Không còn biến ở Dự án và Nhóm:** xóa `promptVariables` khỏi `ProjectWorkflowConfigDto`, `SaveProjectWorkflowConfigRequest`, `ProjectGroupDto`, `ProjectGroupSaveRequest`; xóa cột `prompt_variables_json` của `ProjectGroup` khỏi entity, cấu hình EF và `final-schema.sql`; xóa ô "Biến mặc định" ở trang nhóm và khối "Biến số theo Mẫu Prompt" ở VideoProductionTab. Prompt Dự án/Nhóm và mẫu toàn cục được gửi **nguyên văn**, `{...}` là văn bản thường, không còn lỗi "còn biến chưa được điền".
+- **Giữ tên trường `scriptGuidance`/`videoGuidance`** để không đổi contract thêm, nhưng ý nghĩa là prompt đầy đủ thay thế, không phải hướng dẫn bổ sung. Giới hạn nâng từ 4000 lên 20000 ký tự. Nhãn UI đổi thành "Prompt kịch bản"/"Prompt video".
+- **Chọn prompt tại một chỗ:** `VideoWorkflowPromptComposer.ResolvePromptAsync`. Bước bấm chạy dùng cùng hàm này để báo thiếu mẫu toàn cục chỉ khi cả Dự án lẫn Nhóm đều trống. Mẫu Image vẫn bắt buộc theo mẫu toàn cục.
+- **Nguồn hiển thị:** `TemplateName` của kết quả ghép là "Prompt của dự án", "Prompt của nhóm <tên>" hoặc "Mẫu <purpose> toàn cục"; VideoProductionTab hiển thị "Kịch bản: Dự án|Nhóm|<tên mẫu> · Video: …".
+- **Ngoài phạm vi:** bộ render biến của trang Prompt toàn cục (`PromptRenderer`, `PromptTemplateService.PreviewAsync`, `JobEnqueueRequest.PromptVariables`) giữ nguyên; mẫu Image còn dùng nó. Thời lượng không còn là biến `{duration}` của Dự án; composer Script vẫn tự ghi thời lượng trong phần dữ liệu lần tạo.
+- **Dữ liệu cũ:** DB đã tạo trước đó vẫn còn cột `prompt_variables_json` (có DEFAULT), không ảnh hưởng EF; DB mới tạo từ schema đã bỏ cột. Prompt dự án/nhóm từng được viết như "hướng dẫn bổ sung" nay sẽ thay hẳn mẫu toàn cục nên cần viết lại thành prompt đầy đủ.

@@ -49,6 +49,7 @@ public static class PvRemediationRegressionTests
         using (var db = new TiToAIDbContext(dbOptions))
         {
             db.Database.EnsureCreated();
+            VideoWorkflowSmokeTests.SeedRequiredPromptTemplates(db);
 
 
             db.Projects.Add(new Project
@@ -1035,7 +1036,7 @@ public static class PvRemediationRegressionTests
             Assert(savedConfig.VideoGuidance == videoPrompt, "Hướng dẫn VideoPrompt của Dự án phải được lưu nguyên vẹn.");
 
             var scriptResult = await composer.ComposeScriptPlanningAiRequestAsync(savedConfig);
-            Assert(scriptResult.ComposedPrompt.Contains(scriptPrompt), "Composer Script phải nối nguyên văn hướng dẫn của Dự án.");
+            Assert(scriptResult.ComposedPrompt.Contains(scriptPrompt), "Composer Script phải dùng nguyên văn prompt của Dự án.");
 
             var scene = new Scene
             {
@@ -1048,31 +1049,25 @@ public static class PvRemediationRegressionTests
                 UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("o")
             };
             var videoResult = await composer.ComposeVideoPromptAiRequestAsync(savedConfig, scene);
-            Assert(videoResult.ComposedPrompt.Contains(videoPrompt), "Composer VideoPrompt phải nối nguyên văn hướng dẫn của Dự án.");
+            Assert(videoResult.ComposedPrompt.Contains(videoPrompt), "Composer VideoPrompt phải dùng nguyên văn prompt của Dự án.");
 
-            // Hướng dẫn không được chứa biến: biến chỉ điền trong mẫu chung, nên lưu phải bị từ chối.
-            bool rejectedPlaceholderInGuidance = false;
-            try
-            {
-                await workflowService.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
-                    ProjectId: prjId,
-                    WorkflowMode: WorkflowModes.ProductOnly,
-                    GoalPrompt: "",
-                    ModelAssetId: null,
-                    ProductAssetId: null,
-                    ReadyImageAssetId: null,
-                    AudioOption: AudioOptions.None,
-                    AudioAssetId: null,
-                    TargetSceneCount: 2,
-                    TargetDurationPerSceneSeconds: 15,
-                    ScriptGuidance: "Kịch bản với biến {bien_chua_dien}."
-                ));
-            }
-            catch (ProjectWorkflowValidationException ex)
-            {
-                rejectedPlaceholderInGuidance = ex.Message.Contains("biến");
-            }
-            Assert(rejectedPlaceholderInGuidance, "Backend phải từ chối hướng dẫn chứa placeholder thay vì nối lỗi vào prompt.");
+            // Không còn biến: dấu ngoặc nhọn là văn bản thường, prompt dự án được lưu và dùng nguyên văn.
+            const string bracePrompt = "Kịch bản với {ngoac_nhon} giữ nguyên.";
+            var braceConfig = await workflowService.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
+                ProjectId: prjId,
+                WorkflowMode: WorkflowModes.ProductOnly,
+                GoalPrompt: "",
+                ModelAssetId: null,
+                ProductAssetId: null,
+                ReadyImageAssetId: null,
+                AudioOption: AudioOptions.None,
+                AudioAssetId: null,
+                TargetSceneCount: 2,
+                TargetDurationPerSceneSeconds: 15,
+                ScriptGuidance: bracePrompt
+            ));
+            var braceResult = await composer.ComposeScriptPlanningAiRequestAsync(braceConfig);
+            Assert(braceResult.ComposedPrompt.Contains(bracePrompt), "Prompt có dấu ngoặc nhọn phải được dùng nguyên văn.");
         }
         finally
         {

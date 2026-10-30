@@ -26,6 +26,11 @@ public sealed record VideoPromptCompositionResult(
 );
 
 /// <summary>
+/// Prompt đã chọn cho một tác vụ: nguồn (Dự án / Nhóm / mẫu toàn cục) và nội dung nguyên văn.
+/// </summary>
+public sealed record ResolvedPrompt(string Id, string Name, string Text);
+
+/// <summary>
 /// Bộ tổng hợp Prompt chuyên dụng cho quy trình sản xuất video từ ảnh.
 /// Thực hiện quy tắc composition §3.1: Dùng template đã render -> Nhiệm vụ và ngữ cảnh cảnh -> OUTPUT_CONTRACT.
 /// Bảo đảm tương thích template tùy chỉnh, không lặp render nội dung người dùng, báo lỗi rõ ràng nếu thiếu biến bắt buộc.
@@ -37,6 +42,24 @@ public sealed class VideoWorkflowPromptComposer
     public VideoWorkflowPromptComposer(DbContextOptions<TiToAIDbContext> dbOptions)
     {
         _dbOptions = dbOptions ?? throw new ArgumentNullException(nameof(dbOptions));
+    }
+
+    /// <summary>
+    /// Prompt chung là bắt buộc: backend không tự dùng prompt dựng sẵn, chưa chọn mẫu có nội dung thì từ chối chạy.
+    /// </summary>
+    public static async Task<PromptTemplate> RequireActiveTemplateAsync(
+        TiToAIDbContext dbContext, string purpose, CancellationToken cancellationToken)
+    {
+        var template = await dbContext.PromptTemplates
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.Purpose == purpose && t.IsActive, cancellationToken)
+            .ConfigureAwait(false);
+        if (template == null || string.IsNullOrWhiteSpace(template.TemplateText))
+        {
+            throw new ProjectWorkflowValidationException(
+                $"Chưa có Prompt {purpose} toàn ứng dụng. Vào trang Prompt, tab {purpose}: tạo mẫu có nội dung, lưu và bấm \"Chọn sử dụng\" trước khi chạy.");
+        }
+        return template;
     }
 
     /// <summary>
@@ -57,17 +80,10 @@ public sealed class VideoWorkflowPromptComposer
             .Where(setting => setting.Key == $"scene.plan.{scene.Id}")
             .Select(setting => setting.Value).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
 
-        var template = await dbContext.PromptTemplates
-            .AsNoTracking()
-            .FirstOrDefaultAsync(t => t.Purpose == JobTaskType.VideoPrompt && t.IsActive, cancellationToken)
-            .ConfigureAwait(false);
-
-        string templateId = template?.Id ?? "default-video-prompt";
-        string templateName = template != null ? $"Mẫu {template.Purpose} toàn cục" : "Mẫu Prompt Video Chuẩn";
-        string templateText = template?.TemplateText ?? PromptTemplateService.DefaultVideoPromptInstruction;
-
-        // Frontend renders dynamic fields before saving. Backend uses the resulting text.
-        string renderedTemplate = await ResolveInstructionAsync(dbContext, config, templateText, templateName, isVideoPrompt: true, cancellationToken).ConfigureAwait(false);
+        var prompt = await ResolvePromptAsync(dbContext, config, JobTaskType.VideoPrompt, cancellationToken).ConfigureAwait(false);
+        string templateId = prompt.Id;
+        string templateName = prompt.Name;
+        string renderedTemplate = prompt.Text;
 
         // 3. Ghép 4 phần canonical theo §3.1:
         // [HƯỚNG DẪN TỪ TEMPLATE VIDEO PROMPT ĐÃ CHỌN]
@@ -102,37 +118,15 @@ public sealed class VideoWorkflowPromptComposer
 
         await using var dbContext = new TiToAIDbContext(_dbOptions);
 
-        var template = await dbContext.PromptTemplates
-            .AsNoTracking()
-            .FirstOrDefaultAsync(t => t.Purpose == JobTaskType.Script && t.IsActive, cancellationToken)
-            .ConfigureAwait(false);
-
-        string templateId = template?.Id ?? "default-script";
-        string templateName = template != null ? $"Mẫu {template.Purpose} toàn cục" : "Mẫu Kịch Bản Chuẩn";
-        string templateText = template?.TemplateText ?? PromptTemplateService.DefaultScriptInstruction;
-
-        string renderedTemplate = await ResolveInstructionAsync(dbContext, config, templateText, templateName, isVideoPrompt: false, cancellationToken).ConfigureAwait(false);
+        var prompt = await ResolvePromptAsync(dbContext, config, JobTaskType.Script, cancellationToken).ConfigureAwait(false);
+        string templateId = prompt.Id;
+        string templateName = prompt.Name;
+        string renderedTemplate = prompt.Text;
 
         var sb = new StringBuilder();
-        sb.AppendLine("[HƯỚNG DẪN TỪ TEMPLATE KỊCH BẢN ĐÃ CHỌN]");
         sb.AppendLine(renderedTemplate.Trim());
         sb.AppendLine();
         bool singleVideo = config.VideoStrategy == VideoStrategies.SingleVideo;
-        sb.AppendLine("[NHIỆM VỤ]");
-        if (singleVideo)
-        {
-            sb.AppendLine($"Lập storyboard cho đúng một video dài {config.TargetDurationPerSceneSeconds} giây cho mục tiêu được cung cấp. Chia video thành các đoạn liên tiếp, bắt đầu từ 0 và kết thúc tại thời lượng video; mỗi đoạn có mô tả hành động.");
-        }
-        else
-        {
-            sb.AppendLine($"Lập đúng {config.TargetSceneCount} cảnh, mỗi cảnh là một clip riêng dài {config.TargetDurationPerSceneSeconds} giây cho mục tiêu được cung cấp. Mỗi cảnh có prompt ảnh tĩnh và prompt video chuyển động riêng, khác nhau giữa các cảnh.");
-        }
-        sb.AppendLine();
-        sb.AppendLine("[DỮ LIỆU LẦN TẠO — do app serialize]");
-        sb.AppendLine($"TOTAL_DURATION: {config.TargetDurationPerSceneSeconds} giây.");
-        sb.AppendLine($"WORKFLOW_MODE: {config.WorkflowMode}.");
-        sb.AppendLine($"VIDEO_STRATEGY: {config.VideoStrategy}.");
-        sb.AppendLine();
         sb.AppendLine("[OUTPUT_CONTRACT]");
         if (singleVideo)
         {
@@ -140,7 +134,7 @@ public sealed class VideoWorkflowPromptComposer
         }
         else
         {
-            sb.AppendLine($"Chỉ trả về JSON hợp lệ, không markdown. Schema: {{\"scenes\":[{{\"name\":\"tên cảnh\",\"imagePrompt\":\"prompt ảnh tĩnh của cảnh\",\"videoPrompt\":\"prompt video chuyển động của cảnh, dài {config.TargetDurationPerSceneSeconds} giây\"}}]}}. Trả đúng {config.TargetSceneCount} cảnh.");
+            sb.AppendLine($"Chỉ trả về JSON hợp lệ, không markdown. Schema: {{\"scenes\":[{{\"name\":\"tên cảnh\",\"imagePrompt\":\"prompt ảnh tĩnh của cảnh\",\"videoPrompt\":\"prompt video chuyển động của cảnh, dài {config.TargetDurationPerSceneSeconds} giây\",\"tiktokContent\":\"nội dung đăng TikTok cho cảnh: tiêu đề cuốn hút, caption kêu gọi hành động kèm 3-5 hashtag thịnh hành\"}}]}}. Trả đúng {config.TargetSceneCount} cảnh.");
         }
 
         return new VideoPromptCompositionResult(
@@ -197,17 +191,22 @@ public sealed class VideoWorkflowPromptComposer
     }
 
     /// <summary>
-    /// Điền biến vào mẫu chung rồi nối hướng dẫn của Nhóm và Dự án ở cuối. Biến lấy theo thứ tự: mặc định dựng sẵn,
-    /// biến Nhóm, biến Dự án (Dự án ghi đè Nhóm).
+    /// Chọn prompt theo mức ưu tiên: Dự án (nếu có) &gt; Nhóm (nếu có) &gt; mẫu toàn cục đang chọn. Chỉ dùng đúng một mức,
+    /// không ghép, không điền biến. Chỉ khi cả Dự án lẫn Nhóm để trống mới bắt buộc có mẫu toàn cục.
     /// </summary>
-    private static async Task<string> ResolveInstructionAsync(
+    public static async Task<ResolvedPrompt> ResolvePromptAsync(
         TiToAIDbContext dbContext,
         ProjectWorkflowConfigDto config,
-        string templateText,
-        string templateName,
-        bool isVideoPrompt,
+        string purpose,
         CancellationToken cancellationToken)
     {
+        bool isVideoPrompt = purpose == JobTaskType.VideoPrompt;
+        var projectPrompt = isVideoPrompt ? config.VideoGuidance : config.ScriptGuidance;
+        if (!string.IsNullOrWhiteSpace(projectPrompt))
+        {
+            return new ResolvedPrompt("project", "Prompt của dự án", projectPrompt.Trim());
+        }
+
         var groupId = await dbContext.Projects
             .AsNoTracking()
             .Where(p => p.Id == config.ProjectId)
@@ -218,44 +217,14 @@ public sealed class VideoWorkflowPromptComposer
             .AsNoTracking()
             .FirstOrDefaultAsync(g => g.Id == groupId, cancellationToken)
             .ConfigureAwait(false);
-
-        var variables = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var pair in PromptGuidance.ParseVariablesJson(group?.PromptVariablesJson)) variables[pair.Key] = pair.Value;
-        foreach (var pair in config.PromptVariables ?? new Dictionary<string, string>())
+        var groupPrompt = isVideoPrompt ? group?.VideoGuidance : group?.ScriptGuidance;
+        if (group is not null && !string.IsNullOrWhiteSpace(groupPrompt))
         {
-            if (!string.IsNullOrWhiteSpace(pair.Value)) variables[pair.Key] = pair.Value;
-        }
-        // Biến hệ thống luôn theo thời lượng cấu hình, không bị nhóm hay dự án ghi đè.
-        var duration = $"{config.TargetDurationPerSceneSeconds}s";
-        foreach (var name in new[] { "duration", "DURATION", "thoi_luong", "THOI_LUONG" }) variables[name] = duration;
-
-        var (detectedVariables, malformed) = PromptRenderer.ParseTemplate(templateText);
-        if (malformed.Count > 0)
-        {
-            throw new ProjectWorkflowValidationException(
-                $"Template '{templateName}' chứa placeholder lỗi cú pháp: {string.Join(", ", malformed)}");
+            return new ResolvedPrompt($"group:{group.Id}", $"Prompt của nhóm {group.Name}", groupPrompt.Trim());
         }
 
-        var missing = detectedVariables.Where(name => !variables.ContainsKey(name)).ToList();
-        if (missing.Count > 0)
-        {
-            throw new ProjectWorkflowValidationException(
-                $"Prompt '{templateName}' còn biến chưa được điền: {string.Join(", ", missing)}. Vui lòng điền biến trong Nhóm hoặc Dự án rồi lưu lại.");
-        }
-
-        var sb = new StringBuilder(PromptRenderer.Render(templateText, variables).Trim());
-        var groupGuidance = isVideoPrompt ? group?.VideoGuidance : group?.ScriptGuidance;
-        var projectGuidance = isVideoPrompt ? config.VideoGuidance : config.ScriptGuidance;
-        if (!string.IsNullOrWhiteSpace(groupGuidance))
-        {
-            sb.AppendLine().AppendLine().AppendLine("[HƯỚNG DẪN BỔ SUNG CỦA NHÓM]").Append(groupGuidance.Trim());
-        }
-        if (!string.IsNullOrWhiteSpace(projectGuidance))
-        {
-            sb.AppendLine().AppendLine().AppendLine("[HƯỚNG DẪN BỔ SUNG CỦA DỰ ÁN]").Append(projectGuidance.Trim());
-        }
-
-        return sb.ToString();
+        var template = await RequireActiveTemplateAsync(dbContext, purpose, cancellationToken).ConfigureAwait(false);
+        return new ResolvedPrompt(template.Id, $"Mẫu {template.Purpose} toàn cục", template.TemplateText);
     }
 
 }

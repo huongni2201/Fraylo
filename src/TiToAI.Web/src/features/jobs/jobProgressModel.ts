@@ -7,6 +7,8 @@ export const OUTPUT_PREVIEW_LENGTH = 160;
 export interface VideoJobText {
   script: string;
   prompt: string;
+  tiktok: string;
+  imageAssetId: string | null;
 }
 
 /** Gộp các danh sách theo id; danh sách đến sau ghi đè bản cũ, kết quả mới nhất lên đầu. */
@@ -28,7 +30,14 @@ export function outputPreview(resultText: string | null | undefined): string {
 export function indexVideoText(items: VideoContentItemDto[]): Record<string, VideoJobText> {
   const index: Record<string, VideoJobText> = {};
   for (const item of items) {
-    if (item.sceneId) index[item.sceneId] = { script: item.contentText ?? "", prompt: item.videoPrompt };
+    if (item.sceneId) {
+      index[item.sceneId] = {
+        script: item.contentText ?? "",
+        prompt: item.videoPrompt,
+        tiktok: item.tiktokContent ?? "",
+        imageAssetId: item.imageAssetId ?? null,
+      };
+    }
   }
   return index;
 }
@@ -41,8 +50,8 @@ export function isPipelineRow(job: JobSummaryDto): boolean {
 
 /** Kịch bản và prompt hiển thị cho dòng: theo cảnh nếu có, còn job Kịch bản không gắn cảnh thì lấy output của chính nó. */
 export function jobRowText(job: JobSummaryDto, videoText: Record<string, VideoJobText>): VideoJobText {
-  if (job.sceneId) return videoText[job.sceneId] ?? { script: "", prompt: "" };
-  return { script: job.taskType === "Script" ? (job.resultText ?? "") : "", prompt: "" };
+  if (job.sceneId) return videoText[job.sceneId] ?? { script: "", prompt: "", tiktok: "", imageAssetId: null };
+  return { script: job.taskType === "Script" ? (job.resultText ?? "") : "", prompt: "", tiktok: "", imageAssetId: null };
 }
 
 /** Các dự án có job gắn cảnh, để nạp kịch bản và prompt tương ứng. */

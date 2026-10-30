@@ -45,8 +45,7 @@ public sealed class TikTokPublishingService(
         var videos = new List<PublishVideoDto>();
         foreach (var project in projects)
         {
-            var video = await FindReadyVideoAsync(readDb, project, ct);
-            if (video != null) videos.Add(video);
+            videos.AddRange(await FindReadyVideosAsync(readDb, project, ct));
         }
         return new(videos, attempts);
     }
@@ -72,9 +71,9 @@ public sealed class TikTokPublishingService(
             }
             var project = await db.Projects.AsNoTracking().SingleOrDefaultAsync(p => p.Id == request.ProjectId, ct)
                 ?? throw new KeyNotFoundException("Không tìm thấy dự án.");
-            var video = await FindReadyVideoAsync(db, project, ct);
-            if (video == null || video.AssetId != request.AssetId)
-                throw new InvalidOperationException("Dự án cần đúng một video hoàn chỉnh, chưa stale và không có tác vụ đang chạy.");
+            var readyVideos = await FindReadyVideosAsync(db, project, ct);
+            if (!readyVideos.Any(v => v.AssetId == request.AssetId))
+                throw new InvalidOperationException("Video cần hoàn chỉnh, chưa stale và dự án không có tác vụ đang chạy.");
             var asset = await db.Assets.AsNoTracking().SingleAsync(a => a.Id == request.AssetId, ct);
             var account = await db.BrowserProfiles.AsNoTracking()
                 .Where(p => p.Id == request.AccountId && p.Kind == "TikTok" && p.Lifecycle == "Active")
@@ -129,8 +128,8 @@ public sealed class TikTokPublishingService(
                 ct.ThrowIfCancellationRequested();
                 await using var currentDb = new TiToAIDbContext(dbOptions);
                 var currentProject = await currentDb.Projects.AsNoTracking().SingleOrDefaultAsync(p => p.Id == request.ProjectId, ct);
-                var currentVideo = currentProject == null ? null : await FindReadyVideoAsync(currentDb, currentProject, ct);
-                if (currentVideo?.AssetId != request.AssetId)
+                var currentVideos = currentProject == null ? [] : await FindReadyVideosAsync(currentDb, currentProject, ct);
+                if (!currentVideos.Any(v => v.AssetId == request.AssetId))
                     throw new InvalidOperationException("Đầu ra dự án đã thay đổi trong lúc tải lên; đã dừng trước khi đăng.");
                 stored = WithState(stored, "Submitted", "Đã bắt đầu gửi lệnh đăng; đang chờ TikTok xác nhận.");
                 submitted = true;
@@ -181,40 +180,69 @@ public sealed class TikTokPublishingService(
         finally { Gate.Release(); }
     }
 
-    private async Task<PublishVideoDto?> FindReadyVideoAsync(TiToAIDbContext db, Project project, CancellationToken ct)
+    /// <summary>
+    /// Video đăng được của Project: video cuối (revision đang chọn, hoặc clip duy nhất), hoặc với chiến lược nhiều video
+    /// là clip của từng cảnh khi mọi cảnh đã có video. Rỗng khi còn job đang chạy hoặc có cảnh stale.
+    /// </summary>
+    private async Task<IReadOnlyList<PublishVideoDto>> FindReadyVideosAsync(TiToAIDbContext db, Project project, CancellationToken ct)
     {
         if (await db.Jobs.AsNoTracking().AnyAsync(j => j.ProjectId == project.Id &&
-            (j.State == "Queued" || j.State == "Reserved" || j.State == "Running" || j.State == "AwaitingUser"), ct)) return null;
-        var scenes = await db.Scenes.AsNoTracking().Where(s => s.ProjectId == project.Id).ToListAsync(ct);
+            (j.State == "Queued" || j.State == "Reserved" || j.State == "Running" || j.State == "AwaitingUser"), ct)) return [];
+        var scenes = await db.Scenes.AsNoTracking().Where(s => s.ProjectId == project.Id).OrderBy(s => s.SequenceOrder).ToListAsync(ct);
         foreach (var scene in scenes)
         {
             var metadata = await db.AppSettings.AsNoTracking().SingleOrDefaultAsync(s => s.Key == "scene.workflow." + scene.Id, ct);
             if (metadata != null)
             {
                 using var document = JsonDocument.Parse(metadata.Value);
-                if (document.RootElement.EnumerateObject().Any(p => p.Name.Equals("isStale", StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == JsonValueKind.True)) return null;
+                if (document.RootElement.EnumerateObject().Any(p => p.Name.Equals("isStale", StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == JsonValueKind.True)) return [];
             }
         }
-        string? assetId;
+        // SceneId chỉ có với clip của từng cảnh; caption của clip đó không được lấy từ cảnh khác.
+        var candidates = new List<(string AssetId, string Name, string? SceneId)>();
         if (project.CurrentVideoRevisionId != null)
         {
             var revision = await db.VideoRevisions.AsNoTracking().SingleOrDefaultAsync(v =>
                 v.Id == project.CurrentVideoRevisionId && v.ProjectId == project.Id && v.State == "Ready", ct);
-            assetId = revision?.AssetId;
+            if (revision != null) candidates.Add((revision.AssetId!, project.Name, null));
         }
-        else
+        else if (scenes.Count == 1)
         {
-            // Tương thích output cũ: chỉ một clip đã hoàn tất mới được xem là video cuối.
-            assetId = scenes.Count == 1 ? scenes[0].VideoAssetId : null;
+            // Tương thích output cũ: clip duy nhất là video cuối.
+            if (scenes[0].VideoAssetId != null) candidates.Add((scenes[0].VideoAssetId!, project.Name, null));
         }
-        if (assetId == null) return null;
-        var asset = await db.Assets.AsNoTracking().SingleOrDefaultAsync(a => a.Id == assetId &&
-            (a.ProjectId == project.Id || project.CurrentVideoRevisionId != null) && a.AssetType == "Video" && a.Status == "Linked", ct);
-        if (asset == null) return null;
+        else if (scenes.Count > 1 && scenes.All(s => s.VideoAssetId != null) && await IsMultiVideoAsync(db, project.Id, ct))
+        {
+            candidates.AddRange(scenes.Select(s => (s.VideoAssetId!, $"{project.Name} · Cảnh {s.SequenceOrder}", (string?)s.Id)));
+        }
+        if (candidates.Count == 0) return [];
+
         var content = await db.AppSettings.AsNoTracking().SingleOrDefaultAsync(s => s.Key == "project.video_content." + project.Id, ct);
         var items = content == null ? [] : JsonSerializer.Deserialize<List<VideoContentItemDto>>(content.Value, JsonOptions) ?? [];
-        return new(project.Id, project.Name, asset.Id, Path.GetFileName(asset.RelativePath), asset.ByteSize,
-            items.FirstOrDefault(i => i.VideoAssetId == asset.Id)?.TikTokContent ?? items.FirstOrDefault()?.TikTokContent ?? "");
+        var videos = new List<PublishVideoDto>();
+        foreach (var (assetId, name, sceneId) in candidates)
+        {
+            var asset = await db.Assets.AsNoTracking().SingleOrDefaultAsync(a => a.Id == assetId &&
+                (a.ProjectId == project.Id || project.CurrentVideoRevisionId != null) && a.AssetType == "Video" && a.Status == "Linked", ct);
+            if (asset == null) continue;
+            // Clip của cảnh chỉ lấy caption của cảnh đó; video cuối đơn lẻ mới dùng caption chung đầu tiên.
+            var caption = sceneId != null
+                ? items.FirstOrDefault(i => i.SceneId == sceneId || i.VideoAssetId == asset.Id)?.TikTokContent
+                : items.FirstOrDefault(i => i.VideoAssetId == asset.Id)?.TikTokContent ?? items.FirstOrDefault()?.TikTokContent;
+            videos.Add(new(project.Id, name, asset.Id, Path.GetFileName(asset.RelativePath), asset.ByteSize, caption ?? ""));
+        }
+        return videos;
+    }
+
+    // Cấu hình cũ không có videoStrategy được coi là nhiều video (VIDEO_TWO_FLOW_SPLIT).
+    private static async Task<bool> IsMultiVideoAsync(TiToAIDbContext db, string projectId, CancellationToken ct)
+    {
+        var config = await db.AppSettings.AsNoTracking().SingleOrDefaultAsync(s => s.Key == "project.workflow.config." + projectId, ct);
+        if (config == null) return true;
+        using var document = JsonDocument.Parse(config.Value);
+        var strategy = document.RootElement.EnumerateObject()
+            .FirstOrDefault(p => p.Name.Equals("videoStrategy", StringComparison.OrdinalIgnoreCase));
+        return strategy.Value.ValueKind != JsonValueKind.String || strategy.Value.GetString() != VideoStrategies.SingleVideo;
     }
 
     private async Task RecoverInterruptedAsync(CancellationToken ct)

@@ -191,7 +191,7 @@ public sealed partial class ProjectWorkflowService
                         await SaveOrUpdateContentItemAsync(dbContext, job.ProjectId, new VideoContentItemDto(
                             Id: newScene.Id, ProjectId: job.ProjectId, SceneId: newScene.Id, SequenceOrder: newScene.SequenceOrder,
                             Idea: newScene.Name, Hook: string.Empty, VideoScript: item.Purpose, VideoPrompt: newScene.PromptText ?? string.Empty,
-                            TikTokContent: string.Empty, ImageAssetId: newScene.ImageAssetId, VideoAssetId: null, AudioAssetId: newScene.AudioAssetId,
+                            TikTokContent: item.TikTokContent, ImageAssetId: newScene.ImageAssetId, VideoAssetId: null, AudioAssetId: newScene.AudioAssetId,
                             Status: newScene.PromptText == null ? "Draft" : "ReadyForVideo", CreatedAtUtc: nowIso, UpdatedAtUtc: nowIso,
                             ContentText: newScene.Name, ImagePrompt: item.Purpose), cancellationToken).ConfigureAwait(false);
                     }
@@ -672,14 +672,9 @@ public sealed partial class ProjectWorkflowService
         }
         if (!allReady || anyPendingPrep || anyPendingRender || hasStalePrompt) return;
 
-        dbContext.AppSettings.Add(new AppSetting { Key = claimKey, Value = runId, UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("o") });
-        try
+        if (!await TryClaimAutoRenderAsync(claimKey, projectId, runId, null, cancellationToken).ConfigureAwait(false))
         {
-            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (DbUpdateException)
-        {
-            return; // Lượt apply khác của cùng run đã giữ khóa.
+            return; // Lượt apply khác của cùng run đã giữ khóa và đã tạo job.
         }
 
         try
@@ -687,7 +682,12 @@ public sealed partial class ProjectWorkflowService
             await CreateSceneVideoAsync(new CreateSceneVideoRequest(projectId), cancellationToken).ConfigureAwait(false);
             await WriteAutoRenderLogAsync(logJobId, "result", "Đã tự đưa render MuseAI vào hàng đợi cho Project.", cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException)
+        {
+            await ReleaseAutoRenderClaimAsync(claimKey, CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+        catch (Exception ex)
         {
             await ReleaseAutoRenderClaimAsync(claimKey, CancellationToken.None).ConfigureAwait(false);
             await WriteAutoRenderLogAsync(logJobId, "error", $"Chưa tự động tạo video: {ex.Message}. Sẽ thử lại tự động; có thể bấm Tạo video.", CancellationToken.None).ConfigureAwait(false);
@@ -735,17 +735,9 @@ public sealed partial class ProjectWorkflowService
             }
 
             var claimKey = $"workflow.auto_render.{projectId}.{runId}.{scene.Id}";
-            await using (var claimDb = new TiToAIDbContext(_dbOptions))
+            if (!await TryClaimAutoRenderAsync(claimKey, projectId, runId, scene.Id, cancellationToken).ConfigureAwait(false))
             {
-                claimDb.AppSettings.Add(new AppSetting { Key = claimKey, Value = runId, UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("o") });
-                try
-                {
-                    await claimDb.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                }
-                catch (DbUpdateException)
-                {
-                    continue; // Lượt apply khác đã giữ khóa của cảnh này.
-                }
+                continue; // Lượt apply khác đã giữ khóa của cảnh này và đã tạo job.
             }
 
             try
@@ -753,7 +745,12 @@ public sealed partial class ProjectWorkflowService
                 await CreateSceneVideoAsync(new CreateSceneVideoRequest(projectId, SceneId: scene.Id), cancellationToken).ConfigureAwait(false);
                 await WriteAutoRenderLogAsync(logJobId, "result", $"Đã tự đưa render MuseAI cảnh {scene.SequenceOrder} vào hàng đợi.", cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (OperationCanceledException)
+            {
+                await ReleaseAutoRenderClaimAsync(claimKey, CancellationToken.None).ConfigureAwait(false);
+                throw;
+            }
+            catch (Exception ex)
             {
                 await ReleaseAutoRenderClaimAsync(claimKey, CancellationToken.None).ConfigureAwait(false);
                 await WriteAutoRenderLogAsync(logJobId, "error", $"Chưa tự động tạo video cảnh {scene.SequenceOrder}: {ex.Message}. Sẽ thử lại tự động; có thể bấm Tạo video.", CancellationToken.None).ConfigureAwait(false);
@@ -799,6 +796,42 @@ public sealed partial class ProjectWorkflowService
                 // Lượt thử kế tiếp hoặc lần khởi động sau sẽ xử lý.
             }
         });
+    }
+
+    /// <summary>
+    /// Giữ khóa render tự động của run (hoặc cảnh). Khóa đã có nhưng không có job render nào của run thì app đã dừng
+    /// giữa lúc giữ khóa và lúc tạo job: bỏ khóa mồ côi và giữ lại. Gọi dưới khóa Project nên không có lượt khác đang tạo job.
+    /// </summary>
+    private async Task<bool> TryClaimAutoRenderAsync(string claimKey, string projectId, string runId, string? sceneId, CancellationToken cancellationToken)
+    {
+        for (var pass = 0; pass < 2; pass++)
+        {
+            await using (var claimDb = new TiToAIDbContext(_dbOptions))
+            {
+                claimDb.AppSettings.Add(new AppSetting { Key = claimKey, Value = runId, UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("o") });
+                try
+                {
+                    await claimDb.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    return true;
+                }
+                catch (DbUpdateException)
+                {
+                    // Khóa đã tồn tại: kiểm tra bên dưới.
+                }
+            }
+
+            await using var checkDb = new TiToAIDbContext(_dbOptions);
+            var hasRunJob = await checkDb.Jobs.AsNoTracking().AnyAsync(j =>
+                j.ProjectId == projectId &&
+                j.TaskType == JobTaskType.VideoRender &&
+                (sceneId == null || j.SceneId == sceneId) &&
+                j.ConfigSnapshotJson != null && j.ConfigSnapshotJson.Contains(runId),
+                cancellationToken).ConfigureAwait(false);
+            if (hasRunJob) return false;
+
+            await ReleaseAutoRenderClaimAsync(claimKey, cancellationToken).ConfigureAwait(false);
+        }
+        return false;
     }
 
     private async Task ReleaseAutoRenderClaimAsync(string claimKey, CancellationToken cancellationToken)
@@ -1054,13 +1087,15 @@ public sealed partial class ProjectWorkflowService
                 string name = el.TryGetProperty("name", out var n) ? n.GetString() ?? string.Empty : string.Empty;
                 string imagePrompt = el.TryGetProperty("imagePrompt", out var ip) ? ip.GetString() ?? string.Empty : string.Empty;
                 string videoPrompt = el.TryGetProperty("videoPrompt", out var vp) ? vp.GetString() ?? string.Empty : string.Empty;
+                string tiktokContent = el.TryGetProperty("tiktokContent", out var tc) && tc.ValueKind == JsonValueKind.String ? tc.GetString() ?? string.Empty : string.Empty;
                 list.Add(new ScenePlanItemDto(
                     SequenceOrder: seq,
                     Name: string.IsNullOrWhiteSpace(name) ? $"Cảnh {seq}" : name,
                     Purpose: imagePrompt,
                     TargetDurationSeconds: durationSeconds,
                     ImageStrategy: SceneImageStrategy.ReuseFoundation,
-                    MotionPromptDraft: videoPrompt
+                    MotionPromptDraft: videoPrompt,
+                    TikTokContent: tiktokContent
                 ));
             }
 

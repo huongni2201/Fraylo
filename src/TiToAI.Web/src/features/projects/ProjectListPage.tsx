@@ -2,15 +2,11 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { projectApi, projectGroupApi, STATUS_LABEL, type ProjectGroupDto, type ProjectSummaryDto } from "./projectApi";
 import { ProjectForm } from "./ProjectForm";
 import { ProjectGroupCreateDialog } from "./ProjectGroupCreateDialog";
+import { BulkVideoCreateDialog } from "./BulkVideoCreateDialog";
 import { ProjectGroupSettings } from "./ProjectGroupSettings";
 import type { ErrorDto } from "../../contracts/bridge";
 import {
   Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-  CardFooter,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +43,7 @@ import {
   Film,
   Inbox,
   Layers,
+  Rocket,
 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { cn } from "@/lib/utils";
@@ -91,11 +88,6 @@ function countByStatus(list: ProjectSummaryDto[]): GroupStats {
     inProgress: list.filter((p) => p.status === "InProgress").length,
     completed: list.filter((p) => p.status === "Completed").length,
   };
-}
-
-function sceneLabel(prj: ProjectSummaryDto): string {
-  if (prj.sceneCount > 1) return `${prj.sceneCount} cảnh cũ`;
-  return prj.hasVideo ? "Video sẵn sàng" : "Chưa có video";
 }
 
 interface GroupCardProps {
@@ -165,61 +157,66 @@ interface ProjectCardProps {
 }
 
 function ProjectCard({ project, onOpen, onEdit, onDelete }: ProjectCardProps) {
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const previewSrc = project.previewVideoAssetId && !previewFailed
+    ? `https://media.titoai.local/media/${encodeURIComponent(project.previewVideoAssetId)}#t=0.1`
+    : null;
+
   return (
-    <Card className="flex flex-col justify-between shadow-xs transition-colors hover:border-primary/50">
-      <CardHeader className="p-4 pb-2">
-        <div className="flex items-start justify-between gap-2">
-          <CardTitle className="line-clamp-1 text-base font-semibold text-foreground">
-            {project.name}
-          </CardTitle>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="-mr-2 size-8 shrink-0 text-muted-foreground hover:text-foreground"
-              >
-                <MoreHorizontal className="size-4" />
-                <span className="sr-only">Tùy chọn dự án {project.name}</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={onEdit}>
-                <Pencil className="mr-2 size-4" /> Sửa thông tin
-              </DropdownMenuItem>
-              <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}>
-                <Trash2 className="mr-2 size-4" /> Xóa dự án
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+    <article className="group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xs transition-colors hover:border-primary/60 focus-within:ring-2 focus-within:ring-ring">
+      <button type="button" onClick={onOpen} className="relative block aspect-[9/16] w-full bg-neutral-900 text-left focus-visible:outline-none" aria-label={`Mở dự án ${project.name}`}>
+        {previewSrc ? (
+          <video
+            src={previewSrc}
+            muted
+            playsInline
+            preload="metadata"
+            onError={() => setPreviewFailed(true)}
+            className="absolute inset-0 size-full object-cover"
+          />
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-neutral-400">
+            <Film className="size-8" aria-hidden="true" />
+            <span className="text-xs">{project.status === "InProgress" ? "Đang sản xuất" : "Chưa có video"}</span>
+          </div>
+        )}
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-3 pt-10 text-white">
+          <h3 className="line-clamp-2 text-sm font-semibold leading-snug">{project.name}</h3>
+          <p className="mt-0.5 truncate text-[11px] opacity-80">
+            {project.groupName ? `${project.groupName} · ` : ""}{new Date(project.updatedAtUtc).toLocaleDateString("vi-VN")}
+          </p>
         </div>
+      </button>
 
-        <CardDescription className="mt-1 line-clamp-2 text-xs leading-relaxed">
-          {project.description || "Chưa có mô tả chi tiết."}
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent className="flex flex-wrap items-center gap-2 p-4 pt-1">
-        <Badge variant="outline" className="gap-1 font-medium">
-          <Film className="size-3 text-muted-foreground" />
-          {sceneLabel(project)}
-        </Badge>
-        <Badge variant={STATUS_VARIANT[project.status] ?? "secondary"} className="gap-1.5">
+      <div className="absolute left-2 top-2">
+        <Badge variant={STATUS_VARIANT[project.status] ?? "secondary"} className="gap-1.5 shadow-xs">
           <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
           {STATUS_LABEL[project.status] ?? project.status}
         </Badge>
-      </CardContent>
+      </div>
 
-      <CardFooter className="flex items-center justify-between gap-2 border-t border-border p-4 pt-3">
-        <span className="text-xs text-muted-foreground">
-          Cập nhật {new Date(project.updatedAtUtc).toLocaleDateString("vi-VN")}
-        </span>
-        <Button type="button" size="sm" className="gap-1" onClick={onOpen}>
-          Mở dự án <ArrowRight className="size-3.5" />
-        </Button>
-      </CardFooter>
-    </Card>
+      <div className="absolute right-1.5 top-1.5">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="secondary" size="icon" className="size-8 bg-background/80 backdrop-blur-xs">
+              <MoreHorizontal className="size-4" />
+              <span className="sr-only">Tùy chọn dự án {project.name}</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={onOpen}>
+              <ArrowRight className="mr-2 size-4" /> Mở dự án
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onEdit}>
+              <Pencil className="mr-2 size-4" /> Sửa thông tin
+            </DropdownMenuItem>
+            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}>
+              <Trash2 className="mr-2 size-4" /> Xóa dự án
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </article>
   );
 }
 
@@ -237,6 +234,7 @@ export function ProjectListPage({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [groupTab, setGroupTab] = useState<GroupTab>("projects");
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [isBulkOpen, setIsBulkOpen] = useState(false);
 
   // Modals & Form
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -537,7 +535,7 @@ export function ProjectListPage({
             </Button>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
             {visibleProjects.map((prj) => (
               <ProjectCard
                 key={prj.projectId}
@@ -650,14 +648,22 @@ export function ProjectListPage({
               <Button type="button" variant="outline" onClick={() => setIsCreateGroupOpen(true)} className="gap-1.5">
                 <Layers className="size-4" /> Tạo nhóm
               </Button>
-              <Button type="button" onClick={openCreate} className="gap-1.5">
-                <Plus className="size-4" /> Tạo video
+              <Button type="button" variant="outline" onClick={openCreate} className="gap-1.5">
+                <Plus className="size-4" /> Tạo 1 video
+              </Button>
+              <Button type="button" onClick={() => setIsBulkOpen(true)} className="gap-1.5">
+                <Rocket className="size-4" /> Tạo hàng loạt
               </Button>
             </>
           ) : (
-            <Button type="button" onClick={openCreate} className="gap-1.5">
-              <Plus className="size-4" /> {scope !== UNGROUPED ? "Tạo video trong nhóm" : "Tạo video"}
-            </Button>
+            <>
+              <Button type="button" variant="outline" onClick={openCreate} className="gap-1.5">
+                <Plus className="size-4" /> Tạo 1 video
+              </Button>
+              <Button type="button" onClick={() => setIsBulkOpen(true)} className="gap-1.5">
+                <Rocket className="size-4" /> Tạo hàng loạt
+              </Button>
+            </>
           )
         }
       />
@@ -676,6 +682,14 @@ export function ProjectListPage({
           setIsFormOpen(false);
           fetchProjects();
         }}
+      />
+
+      <BulkVideoCreateDialog
+        isOpen={isBulkOpen}
+        groups={groups}
+        defaultGroupId={activeGroup?.groupId ?? null}
+        onClose={() => setIsBulkOpen(false)}
+        onCreated={fetchProjects}
       />
 
       <ProjectGroupCreateDialog

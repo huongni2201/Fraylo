@@ -15,7 +15,8 @@ public sealed record ProjectSummaryDto(
     [property: JsonPropertyName("createdAtUtc")] string CreatedAtUtc,
     [property: JsonPropertyName("updatedAtUtc")] string UpdatedAtUtc,
     [property: JsonPropertyName("groupId")] string? GroupId = null,
-    [property: JsonPropertyName("groupName")] string? GroupName = null);
+    [property: JsonPropertyName("groupName")] string? GroupName = null,
+    [property: JsonPropertyName("previewVideoAssetId")] string? PreviewVideoAssetId = null);
 
 /// <summary>
 /// Bản ghi chi tiết Dự án.

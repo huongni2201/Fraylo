@@ -1,32 +1,22 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   projectApi,
   type ProjectDetailDto,
-  type SceneDto,
   STATUS_LABEL,
 } from "./projectApi";
-import { SceneTable } from "./SceneTable";
-import { SceneForm } from "./SceneForm";
 import { ProjectForm } from "./ProjectForm";
 import { VideoProductionTab } from "./VideoProductionTab";
 import type { ErrorDto } from "../../contracts/bridge";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-} from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Progress } from "@/components/ui/progress";
 import {
   ArrowLeft,
   Pencil,
   RefreshCw,
   Loader2,
   AlertCircle,
-  Sparkles,
+  ChevronRight,
 } from "lucide-react";
 
 export interface ProjectPageProps {
@@ -35,20 +25,11 @@ export interface ProjectPageProps {
   onOpenPublishing?: (projectId: string) => void;
 }
 
-type ProjectTab = "production" | "scenes" | "overview" | "assets";
-
 export function ProjectPage({ projectId, onBack, onOpenPublishing }: ProjectPageProps) {
   const [project, setProject] = useState<ProjectDetailDto | null>(null);
-  const [scenes, setScenes] = useState<SceneDto[]>([]);
-  const [activeTab, setActiveTab] = useState<ProjectTab>("production");
 
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // Modals
-  const [isSceneFormOpen, setIsSceneFormOpen] = useState(false);
-  const [sceneFormMode, setSceneFormMode] = useState<"create" | "edit">("create");
-  const [editingScene, setEditingScene] = useState<SceneDto | null>(null);
 
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
 
@@ -67,15 +48,11 @@ export function ProjectPage({ projectId, onBack, onOpenPublishing }: ProjectPage
     setErrorMessage(null);
 
     try {
-      const [prj, sceneList] = await Promise.all([
-        projectApi.getProject(projectId),
-        projectApi.listScenes(projectId),
-      ]);
+      const prj = await projectApi.getProject(projectId);
 
       if (controller.signal.aborted) return;
 
       setProject(prj);
-      setScenes(sceneList);
     } catch (err: unknown) {
       if (controller.signal.aborted) return;
       const errorDto = err as ErrorDto;
@@ -96,31 +73,6 @@ export function ProjectPage({ projectId, onBack, onOpenPublishing }: ProjectPage
       }
     };
   }, [fetchData]);
-
-  // Thống kê tổng hợp cho Tab Tổng quan
-  const stats = useMemo(() => {
-    const totalDuration = scenes.reduce((sum, s) => sum + (s.targetDurationSeconds || 0), 0);
-    const withPrompt = scenes.filter((s) => s.promptText && s.promptText.trim().length > 0).length;
-    const withImage = scenes.filter((s) => !!s.imageAssetId).length;
-    const withAudio = scenes.filter((s) => !!s.audioAssetId).length;
-    const withVideo = scenes.filter((s) => !!s.videoAssetId).length;
-    const completed = scenes.filter((s) => s.status === "Completed").length;
-
-    return {
-      totalDuration,
-      withPrompt,
-      withImage,
-      withAudio,
-      withVideo,
-      completed,
-    };
-  }, [scenes]);
-
-  const handleEditScene = (scene: SceneDto) => {
-    setEditingScene(scene);
-    setSceneFormMode("edit");
-    setIsSceneFormOpen(true);
-  };
 
   if (isLoading && !project) {
     return (
@@ -152,246 +104,46 @@ export function ProjectPage({ projectId, onBack, onOpenPublishing }: ProjectPage
   }
 
   return (
-    <div className="space-y-6 pb-10">
-      {/* Header dự án theo Panel 03 */}
-      <Card className="p-5 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-start sm:items-center gap-3">
-            <Button
+    <div className="space-y-5 pb-10">
+      {/* Header gọn: đường dẫn quay lại + tên + trạng thái + sửa */}
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <nav aria-label="Đường dẫn" className="flex items-center gap-1 text-xs text-muted-foreground">
+            <button
               type="button"
-              variant="outline"
-              size="sm"
               onClick={onBack}
-              className="gap-1.5"
+              className="inline-flex items-center gap-1 rounded px-1 py-0.5 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <ArrowLeft className="h-4 w-4" /> Quay lại
-            </Button>
-
-            <div>
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h2 className="text-xl font-bold tracking-tight text-foreground">
-                  {project.name}
-                </h2>
-                <Badge
-                  variant={
-                    project.status === "Completed"
-                      ? "success"
-                      : project.status === "InProgress"
-                      ? "info"
-                      : "secondary"
-                  }
-                >
-                  {STATUS_LABEL[project.status] ?? project.status}
-                </Badge>
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {project.description || "Chưa có mô tả chi tiết."}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 self-end sm:self-auto">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setIsEditProjectOpen(true)}
-              className="gap-1.5"
+              <ArrowLeft className="size-3.5" aria-hidden="true" />
+              {project.groupName ? project.groupName : "Dự án"}
+            </button>
+            <ChevronRight className="size-3" aria-hidden="true" />
+            <span className="truncate text-foreground">{project.name}</span>
+          </nav>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h2 className="text-xl font-bold tracking-tight text-foreground">{project.name}</h2>
+            <Badge
+              variant={
+                project.status === "Completed" ? "success" : project.status === "InProgress" ? "info" : "secondary"
+              }
             >
-              <Pencil className="h-3.5 w-3.5" /> Sửa dự án
-            </Button>
+              {STATUS_LABEL[project.status] ?? project.status}
+            </Badge>
           </div>
+          {project.description && <p className="text-xs text-muted-foreground">{project.description}</p>}
         </div>
-      </Card>
 
-      {/* Tabs Điều Hướng */}
-      <Tabs
-        value={activeTab}
-        onValueChange={(val) => setActiveTab(val as ProjectTab)}
-        className="w-full"
-      >
-        <TabsList className="grid w-full grid-cols-1 sm:w-auto sm:inline-flex h-10">
-          <TabsTrigger value="production" className="gap-2">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <span>Sản xuất video</span>
-          </TabsTrigger>
-        </TabsList>
+        <Button type="button" variant="outline" size="sm" onClick={() => setIsEditProjectOpen(true)} className="gap-1.5">
+          <Pencil className="size-3.5" aria-hidden="true" /> Sửa dự án
+        </Button>
+      </header>
 
-        {/* Tab 1 (Mặc định): Sản xuất video */}
-        <TabsContent value="production" className="mt-4">
-          <VideoProductionTab
-            projectId={projectId}
-            onRefreshProject={fetchData}
-            onOpenPublishing={onOpenPublishing}
-          />
-        </TabsContent>
-
-        {/* Tab 2: Bảng phân cảnh */}
-        <TabsContent value="scenes" className="mt-4">
-          <SceneTable
-            projectId={projectId}
-            scenes={scenes}
-            isLoading={isLoading}
-            onRefresh={fetchData}
-            onEditScene={handleEditScene}
-          />
-        </TabsContent>
-
-        {/* Tab 2: Tổng quan tiến độ */}
-        <TabsContent value="overview" className="mt-4 space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card className="p-4">
-              <span className="text-xs font-medium text-muted-foreground">Tổng số cảnh</span>
-              <div className="text-2xl font-bold text-foreground mt-1">{scenes.length}</div>
-              <span className="text-xs text-muted-foreground mt-0.5 block">Phân đoạn nội dung</span>
-            </Card>
-
-            <Card className="p-4">
-              <span className="text-xs font-medium text-muted-foreground">Thời lượng ước tính</span>
-              <div className="text-2xl font-bold text-foreground mt-1">{stats.totalDuration}s</div>
-              <span className="text-xs text-muted-foreground mt-0.5 block">
-                Khoảng {Math.floor(stats.totalDuration / 60)}m {stats.totalDuration % 60}s
-              </span>
-            </Card>
-
-            <Card className="p-4">
-              <span className="text-xs font-medium text-muted-foreground">Cảnh đã có Prompt</span>
-              <div className="text-2xl font-bold text-foreground mt-1">
-                {stats.withPrompt} / {scenes.length}
-              </div>
-              <span className="text-xs text-muted-foreground mt-0.5 block">
-                {scenes.length > 0 ? Math.round((stats.withPrompt / scenes.length) * 100) : 0}% hoàn thành
-              </span>
-            </Card>
-
-            <Card className="p-4">
-              <span className="text-xs font-medium text-muted-foreground">Cảnh đã kết xuất Video</span>
-              <div className="text-2xl font-bold text-foreground mt-1">
-                {stats.withVideo} / {scenes.length}
-              </div>
-              <span className="text-xs text-muted-foreground mt-0.5 block">
-                {scenes.length > 0 ? Math.round((stats.withVideo / scenes.length) * 100) : 0}% hoàn thành
-              </span>
-            </Card>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base font-semibold">
-                Tiến độ chuẩn bị sản xuất
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs font-medium">
-                  <span>1. Lời dẫn & Kịch bản</span>
-                  <span className="text-muted-foreground">
-                    {stats.withPrompt}/{scenes.length} cảnh (
-                    {scenes.length ? Math.round((stats.withPrompt / scenes.length) * 100) : 0}%)
-                  </span>
-                </div>
-                <Progress
-                  value={scenes.length ? (stats.withPrompt / scenes.length) * 100 : 0}
-                  className="h-2 [&>div]:bg-success"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs font-medium">
-                  <span>2. Hình ảnh minh họa AI</span>
-                  <span className="text-muted-foreground">
-                    {stats.withImage}/{scenes.length} cảnh (
-                    {scenes.length ? Math.round((stats.withImage / scenes.length) * 100) : 0}%)
-                  </span>
-                </div>
-                <Progress
-                  value={scenes.length ? (stats.withImage / scenes.length) * 100 : 0}
-                  className="h-2 [&>div]:bg-primary"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs font-medium">
-                  <span>3. Âm thanh gốc</span>
-                  <span className="text-muted-foreground">
-                    {stats.withAudio}/{scenes.length} cảnh (
-                    {scenes.length ? Math.round((stats.withAudio / scenes.length) * 100) : 0}%)
-                  </span>
-                </div>
-                <Progress
-                  value={scenes.length ? (stats.withAudio / scenes.length) * 100 : 0}
-                  className="h-2 [&>div]:bg-info"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs font-medium">
-                  <span>4. Kết xuất Video MuseAI</span>
-                  <span className="text-muted-foreground">
-                    {stats.withVideo}/{scenes.length} cảnh (
-                    {scenes.length ? Math.round((stats.withVideo / scenes.length) * 100) : 0}%)
-                  </span>
-                </div>
-                <Progress
-                  value={scenes.length ? (stats.withVideo / scenes.length) * 100 : 0}
-                  className="h-2 [&>div]:bg-warning"
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Tab 3: Tài nguyên phân cảnh */}
-        <TabsContent value="assets" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base font-semibold">
-                Danh mục tệp tài nguyên phân cảnh
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {scenes.every((s) => !s.imageAssetId && !s.audioAssetId && !s.videoAssetId) ? (
-                <div className="text-center py-8 text-sm text-muted-foreground">
-                  Chưa có tài nguyên media nào được tạo hoặc nhập vào các phân cảnh.
-                </div>
-              ) : (
-                <div className="divide-y divide-border">
-                  {scenes.map((s) => (
-                    <div
-                      key={s.sceneId}
-                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-3 gap-2 text-xs"
-                    >
-                      <span className="font-semibold text-foreground">
-                        Cảnh #{s.sceneSequence}: {s.name}
-                      </span>
-                      <div className="flex items-center gap-4 text-muted-foreground">
-                        <span>Ảnh: {s.imageAssetId || "—"}</span>
-                        <span>Âm thanh: {s.audioAssetId || "—"}</span>
-                        <span>Video: {s.videoAssetId || "—"}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      {/* Modal Form Cảnh */}
-      <SceneForm
-        isOpen={isSceneFormOpen}
-        mode={sceneFormMode}
+      <VideoProductionTab
         projectId={projectId}
-        scene={editingScene}
-        onClose={() => setIsSceneFormOpen(false)}
-        onSuccess={() => {
-          setIsSceneFormOpen(false);
-          fetchData();
-        }}
+        onRefreshProject={fetchData}
+        onOpenPublishing={onOpenPublishing}
       />
 
-      {/* Modal Form Sửa Dự án */}
       <ProjectForm
         isOpen={isEditProjectOpen}
         mode="edit"

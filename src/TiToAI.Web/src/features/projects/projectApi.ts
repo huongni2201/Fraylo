@@ -11,6 +11,8 @@ export interface ProjectSummaryDto {
   updatedAtUtc: string;
   groupId?: string | null;
   groupName?: string | null;
+  /** Video của cảnh đầu tiên đã có video, dùng làm ảnh xem trước 9:16. */
+  previewVideoAssetId?: string | null;
 }
 
 export const STATUS_LABEL: Record<string, string> = {
@@ -64,7 +66,6 @@ export interface ProjectGroupDto {
   description: string;
   scriptGuidance: string;
   videoGuidance: string;
-  promptVariables: Record<string, string>;
   /** Tệp dùng chung của nhóm; dự án để trống ô sẽ dùng tệp này. */
   modelAssetId?: string | null;
   productAssetId?: string | null;
@@ -81,7 +82,6 @@ export interface ProjectGroupSaveRequest {
   description?: string | null;
   scriptGuidance?: string | null;
   videoGuidance?: string | null;
-  promptVariables?: Record<string, string> | null;
   modelAssetId?: string | null;
   productAssetId?: string | null;
   readyImageAssetId?: string | null;

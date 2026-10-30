@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace TiToAI.Contracts.Projects;
 
 /// <summary>
-/// Nhóm dự án: hướng dẫn prompt và biến dùng chung cho các Dự án trong nhóm.
+/// Nhóm dự án: prompt kịch bản và prompt video dùng chung cho các Dự án trong nhóm.
 /// </summary>
 public sealed record ProjectGroupDto(
     [property: JsonPropertyName("groupId")] string GroupId,
@@ -11,7 +11,6 @@ public sealed record ProjectGroupDto(
     [property: JsonPropertyName("description")] string Description,
     [property: JsonPropertyName("scriptGuidance")] string ScriptGuidance,
     [property: JsonPropertyName("videoGuidance")] string VideoGuidance,
-    [property: JsonPropertyName("promptVariables")] IReadOnlyDictionary<string, string> PromptVariables,
     [property: JsonPropertyName("projectCount")] int ProjectCount,
     [property: JsonPropertyName("createdAtUtc")] string CreatedAtUtc,
     [property: JsonPropertyName("updatedAtUtc")] string UpdatedAtUtc,
@@ -32,7 +31,6 @@ public sealed record ProjectGroupSaveRequest(
     [property: JsonPropertyName("description")] string? Description,
     [property: JsonPropertyName("scriptGuidance")] string? ScriptGuidance,
     [property: JsonPropertyName("videoGuidance")] string? VideoGuidance,
-    [property: JsonPropertyName("promptVariables")] IReadOnlyDictionary<string, string>? PromptVariables,
     [property: JsonPropertyName("modelAssetId")] string? ModelAssetId = null,
     [property: JsonPropertyName("productAssetId")] string? ProductAssetId = null,
     [property: JsonPropertyName("readyImageAssetId")] string? ReadyImageAssetId = null,

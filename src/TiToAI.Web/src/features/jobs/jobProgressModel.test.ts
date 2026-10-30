@@ -41,11 +41,11 @@ test("outputPreview: gộp khoảng trắng và cắt bớt khi quá dài", () =
 
 test("indexVideoText: tra cứu kịch bản và prompt theo sceneId, bỏ mục chưa gắn cảnh", () => {
   const index = indexVideoText([
-    { id: "s1", sceneId: "scene_1", contentText: "Mở đầu", videoPrompt: "Cinematic" } as VideoContentItemDto,
+    { id: "s1", sceneId: "scene_1", contentText: "Mở đầu", videoPrompt: "Cinematic", tiktokContent: "Caption #tag", imageAssetId: "img_1" } as VideoContentItemDto,
     { id: "x", sceneId: null, contentText: "Bỏ qua", videoPrompt: "" } as VideoContentItemDto,
   ]);
 
-  assert.deepEqual(index, { scene_1: { script: "Mở đầu", prompt: "Cinematic" } });
+  assert.deepEqual(index, { scene_1: { script: "Mở đầu", prompt: "Cinematic", tiktok: "Caption #tag", imageAssetId: "img_1" } });
 });
 
 test("isPipelineRow: giữ job render và job Kịch bản/Ảnh/Prompt chưa thành công", () => {

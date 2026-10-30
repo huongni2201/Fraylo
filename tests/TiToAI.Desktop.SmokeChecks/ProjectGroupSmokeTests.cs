@@ -12,7 +12,7 @@ namespace TiToAI.Desktop.SmokeChecks;
 
 /// <summary>
 /// Kiểm thử Nhóm dự án: CRUD, kiểm tra trùng tên, gán Dự án, xóa nhóm giữ lại Dự án,
-/// và ghép hướng dẫn/biến của Nhóm và Dự án vào prompt do backend tạo.
+/// và chọn prompt theo thứ tự ưu tiên Dự án > Nhóm > mẫu toàn cục.
 /// </summary>
 public static class ProjectGroupSmokeTests
 {
@@ -27,28 +27,13 @@ public static class ProjectGroupSmokeTests
             GroupId: null,
             Name: "Quần áo",
             Description: "Video thời trang",
-            ScriptGuidance: "GUIDE_NHOM_SCRIPT",
-            VideoGuidance: "GUIDE_NHOM_VIDEO",
-            PromptVariables: new Dictionary<string, string> { ["chat_lieu"] = "cotton", ["san_pham"] = "áo thun" }));
-        Assert(group.ProjectCount == 0 && group.PromptVariables["chat_lieu"] == "cotton", "Nhóm mới phải lưu đủ hướng dẫn và biến.");
+            ScriptGuidance: "GUIDE_NHOM_SCRIPT {giu_nguyen}",
+            VideoGuidance: "GUIDE_NHOM_VIDEO"));
+        Assert(group.ProjectCount == 0 && group.ScriptGuidance == "GUIDE_NHOM_SCRIPT {giu_nguyen}", "Nhóm mới phải lưu đủ prompt, dấu ngoặc nhọn giữ nguyên vì không còn biến.");
         Assert((await groups.ListAllAsync()).Count == 1, "projectgroup.list phải liệt kê nhóm vừa tạo.");
 
-        // Payload từ bridge (JSON) phải đọc được dictionary biến ở cả hai lệnh nhóm và cấu hình workflow.
-        var jsonOptions = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        var wireGroup = System.Text.Json.JsonSerializer.Deserialize<ProjectGroupSaveRequest>(
-            """{"groupId":null,"name":"Giày","promptVariables":{"chat_lieu":"da"}}""", jsonOptions);
-        Assert(wireGroup?.PromptVariables?["chat_lieu"] == "da", "projectgroup.save phải đọc được promptVariables từ JSON.");
-        var wireConfig = System.Text.Json.JsonSerializer.Deserialize<SaveProjectWorkflowConfigRequest>(
-            """{"projectId":"x","workflowMode":"ProductOnly","promptVariables":{"san_pham":"áo"}}""", jsonOptions);
-        Assert(wireConfig?.PromptVariables?["san_pham"] == "áo", "workflow.save_config phải đọc được promptVariables từ JSON.");
-
-        await ExpectValidationFailureAsync(() => groups.SaveAsync(new ProjectGroupSaveRequest(null, " quần áo ", null, null, null, null)),
+        await ExpectValidationFailureAsync(() => groups.SaveAsync(new ProjectGroupSaveRequest(null, " quần áo ", null, null, null)),
             "Tên nhóm trùng không phân biệt hoa thường phải bị từ chối.");
-        await ExpectValidationFailureAsync(() => groups.SaveAsync(new ProjectGroupSaveRequest(null, "Giày", null, "Dùng {bien}", null, null)),
-            "Hướng dẫn chứa biến phải bị từ chối; biến chỉ điền trong mẫu chung.");
-        await ExpectValidationFailureAsync(() => groups.SaveAsync(new ProjectGroupSaveRequest(null, "Giày", null, null, null,
-            new Dictionary<string, string> { ["chat lieu"] = "da" })),
-            "Tên biến có khoảng trắng phải bị từ chối.");
 
         var project = await projects.CreateAsync(new ProjectCreateRequest("Áo thun 1", null, group.GroupId));
         var detail = await projects.GetAsync(project.ProjectId);
@@ -60,8 +45,8 @@ public static class ProjectGroupSmokeTests
         await ExpectNotFoundAsync(() => projects.CreateAsync(new ProjectCreateRequest("Lạc nhóm", null, Guid.NewGuid().ToString("D"))),
             "Gán Dự án vào nhóm không tồn tại phải bị từ chối.");
 
-        await workflow.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
-            ProjectId: project.ProjectId,
+        SaveProjectWorkflowConfigRequest ConfigRequest(string projectId, string? scriptGuidance = null, string? videoGuidance = null) => new(
+            ProjectId: projectId,
             WorkflowMode: WorkflowModes.ProductOnly,
             GoalPrompt: "",
             ModelAssetId: null,
@@ -71,35 +56,52 @@ public static class ProjectGroupSmokeTests
             AudioAssetId: null,
             TargetSceneCount: 1,
             TargetDurationPerSceneSeconds: 15,
-            PromptVariables: new Dictionary<string, string> { ["san_pham"] = "áo polo", ["chat_lieu"] = "" }));
+            ScriptGuidance: scriptGuidance,
+            VideoGuidance: videoGuidance);
+        await workflow.SaveWorkflowConfigAsync(ConfigRequest(project.ProjectId));
 
         await using (var db = new TiToAIDbContext(options))
         {
-            var template = new PromptTemplate
+            db.PromptTemplates.Add(new PromptTemplate
             {
                 Id = Guid.NewGuid().ToString("D").ToLowerInvariant(),
                 Purpose = JobTaskType.Script,
                 Name = "Mẫu kiểm thử nhóm",
                 IsActive = true,
-                TemplateText = "Viết kịch bản cho {san_pham}, chất liệu {chat_lieu}, thời lượng {duration}.",
+                TemplateText = "MAU_TOAN_CUC_SCRIPT {khong_render}",
                 CreatedAtUtc = DateTime.UtcNow.ToString("o"),
                 UpdatedAtUtc = DateTime.UtcNow.ToString("o")
-            };
-            db.PromptTemplates.Add(template);
+            });
             await db.SaveChangesAsync();
         }
 
         var config = await workflow.GetWorkflowConfigAsync(project.ProjectId);
         Assert(config.GroupId == group.GroupId && config.GroupName == "Quần áo", "Cấu hình Dự án phải kèm nhóm để giao diện hiển thị.");
 
+        // Ưu tiên 2: Dự án không có prompt riêng thì dùng prompt Nhóm, thay hẳn mẫu toàn cục.
         var script = await composer.ComposeScriptPlanningAiRequestAsync(config);
-        Assert(script.ComposedPrompt.Contains("Viết kịch bản cho áo polo, chất liệu cotton, thời lượng 15s."),
-            "Biến Dự án ghi đè biến Nhóm; biến rỗng của Dự án rơi về giá trị Nhóm; {duration} lấy từ thời lượng.");
-        Assert(script.ComposedPrompt.Contains("GUIDE_NHOM_SCRIPT") && script.ComposedPrompt.Contains("[HƯỚNG DẪN BỔ SUNG CỦA NHÓM]"),
-            "Hướng dẫn Script của Nhóm phải được nối vào prompt.");
-        Assert(!script.ComposedPrompt.Contains("[HƯỚNG DẪN BỔ SUNG CỦA DỰ ÁN]"), "Dự án không có hướng dẫn riêng thì không được có khối Dự án.");
-        Assert(script.ComposedPrompt.IndexOf("[HƯỚNG DẪN BỔ SUNG CỦA NHÓM]", StringComparison.Ordinal) < script.ComposedPrompt.IndexOf("[OUTPUT_CONTRACT]", StringComparison.Ordinal),
-            "Hướng dẫn phải nằm trước khuôn đầu ra OUTPUT_CONTRACT.");
+        Assert(script.ComposedPrompt.StartsWith("GUIDE_NHOM_SCRIPT {giu_nguyen}", StringComparison.Ordinal), "Prompt Script phải bắt đầu bằng nội dung đã chọn, không thêm nhãn.");
+        Assert(script.ComposedPrompt.Contains("GUIDE_NHOM_SCRIPT {giu_nguyen}"), "Prompt Script của Nhóm phải được dùng nguyên văn.");
+        Assert(!script.ComposedPrompt.Contains("MAU_TOAN_CUC_SCRIPT"), "Có prompt Nhóm thì không được ghép mẫu toàn cục.");
+        Assert(script.TemplateName.Contains("nhóm"), "Tên nguồn phải cho biết đang dùng prompt Nhóm.");
+        Assert(script.ComposedPrompt.IndexOf("GUIDE_NHOM_SCRIPT", StringComparison.Ordinal) < script.ComposedPrompt.IndexOf("[OUTPUT_CONTRACT]", StringComparison.Ordinal),
+            "Prompt phải nằm trước khuôn đầu ra OUTPUT_CONTRACT.");
+        foreach (var strategy in new[] { VideoStrategies.MultiVideo, VideoStrategies.SingleVideo })
+        {
+            var composed = await composer.ComposeScriptPlanningAiRequestAsync(config with { VideoStrategy = strategy });
+            Assert(!composed.ComposedPrompt.Contains("[NHIỆM VỤ]") && !composed.ComposedPrompt.Contains("[DỮ LIỆU LẦN TẠO")
+                && !composed.ComposedPrompt.Contains("TOTAL_DURATION:") && !composed.ComposedPrompt.Contains("WORKFLOW_MODE:")
+                && !composed.ComposedPrompt.Contains("VIDEO_STRATEGY:"), "Không tự nối nhiệm vụ hoặc dữ liệu lần tạo vào prompt Script.");
+            Assert(composed.ComposedPrompt.Contains(strategy == VideoStrategies.SingleVideo ? "\"shots\"" : "\"scenes\""),
+                "Prompt Script vẫn phải giữ schema đầu ra theo chiến lược video.");
+        }
+
+        // Ưu tiên 1: prompt riêng của Dự án thay cả prompt Nhóm.
+        var projectConfig = await workflow.SaveWorkflowConfigAsync(ConfigRequest(project.ProjectId, scriptGuidance: "GUIDE_DU_AN_SCRIPT"));
+        var projectScript = await composer.ComposeScriptPlanningAiRequestAsync(projectConfig);
+        Assert(projectScript.ComposedPrompt.Contains("GUIDE_DU_AN_SCRIPT") && !projectScript.ComposedPrompt.Contains("GUIDE_NHOM_SCRIPT"),
+            "Prompt của Dự án phải thay hẳn prompt Nhóm, không nối thêm.");
+        Assert(projectScript.TemplateName.Contains("dự án"), "Tên nguồn phải cho biết đang dùng prompt Dự án.");
 
         var scene = new Scene
         {
@@ -112,28 +114,15 @@ public static class ProjectGroupSmokeTests
             UpdatedAtUtc = DateTime.UtcNow.ToString("o")
         };
         var video = await composer.ComposeVideoPromptAiRequestAsync(config, scene);
-        Assert(video.ComposedPrompt.Contains("GUIDE_NHOM_VIDEO"), "Hướng dẫn VideoPrompt của Nhóm phải được nối vào prompt video.");
-
-        await using (var db = new TiToAIDbContext(options))
-        {
-            var template = await db.PromptTemplates.SingleAsync(t => t.Purpose == JobTaskType.Script);
-            template.TemplateText = "Kịch bản cho {san_pham} với {thieu_bien}.";
-            await db.SaveChangesAsync();
-        }
-        bool rejectedMissingVariable = false;
-        try
-        {
-            await composer.ComposeScriptPlanningAiRequestAsync(config);
-        }
-        catch (ProjectWorkflowValidationException ex)
-        {
-            rejectedMissingVariable = ex.Message.Contains("thieu_bien");
-        }
-        Assert(rejectedMissingVariable, "Biến thiếu giá trị ở cả Nhóm lẫn Dự án phải báo lỗi rõ tên biến.");
+        Assert(video.ComposedPrompt.Contains("GUIDE_NHOM_VIDEO"), "Prompt VideoPrompt của Nhóm phải được dùng khi Dự án để trống, kể cả khi chưa có mẫu VideoPrompt toàn cục.");
 
         // Tệp dùng chung trong Nhóm: tệp của dự án được chia sẻ lên Nhóm; dự án để trống ô sẽ dùng tệp mặc định của Nhóm.
-        var otherGroupId = (await groups.SaveAsync(new ProjectGroupSaveRequest(null, "Giày", null, null, null, null))).GroupId;
+        var otherGroupId = (await groups.SaveAsync(new ProjectGroupSaveRequest(null, "Giày", null, null, null))).GroupId;
         var otherProject = await projects.CreateAsync(new ProjectCreateRequest("Giày 1", null, otherGroupId));
+
+        // Ưu tiên 3: Dự án và Nhóm đều trống thì dùng mẫu toàn cục nguyên văn (không điền biến).
+        var fallbackScript = await composer.ComposeScriptPlanningAiRequestAsync(await workflow.GetWorkflowConfigAsync(otherProject.ProjectId));
+        Assert(fallbackScript.ComposedPrompt.Contains("MAU_TOAN_CUC_SCRIPT {khong_render}"), "Không có prompt Dự án và Nhóm thì phải dùng mẫu toàn cục nguyên văn.");
         var ownProduct = NewAsset(project.ProjectId, null, "Image");
         var ownAudio = NewAsset(project.ProjectId, null, "Audio");
         var groupModel = NewAsset(null, group.GroupId, "Image");
@@ -150,7 +139,6 @@ public static class ProjectGroupSmokeTests
 
         var saved = await groups.SaveAsync(new ProjectGroupSaveRequest(group.GroupId, "Quần áo", "Video thời trang",
             "GUIDE_NHOM_SCRIPT", "GUIDE_NHOM_VIDEO",
-            new Dictionary<string, string> { ["chat_lieu"] = "cotton", ["san_pham"] = "áo thun" },
             ModelAssetId: groupModel.Id, ProductAssetId: ownProduct.Id, ReadyImageAssetId: null, AudioAssetId: groupAudio.Id));
         Assert(saved.ProductAssetId == ownProduct.Id && saved.ModelAssetId == groupModel.Id && saved.AudioAssetId == groupAudio.Id,
             "projectgroup.save phải trả về tệp mặc định của nhóm.");
@@ -161,13 +149,13 @@ public static class ProjectGroupSmokeTests
                 "Tệp của dự án trong nhóm khi đặt làm mặc định nhóm phải chuyển thành tệp của nhóm.");
         }
 
-        await ExpectValidationFailureAsync(() => groups.SaveAsync(new ProjectGroupSaveRequest(group.GroupId, "Quần áo", null, null, null, null, ModelAssetId: otherImage.Id)),
+        await ExpectValidationFailureAsync(() => groups.SaveAsync(new ProjectGroupSaveRequest(group.GroupId, "Quần áo", null, null, null, ModelAssetId: otherImage.Id)),
             "Tệp thuộc dự án ngoài nhóm không được làm mặc định nhóm.");
-        await ExpectValidationFailureAsync(() => groups.SaveAsync(new ProjectGroupSaveRequest(group.GroupId, "Quần áo", null, null, null, null, ReadyImageAssetId: libraryImage.Id)),
+        await ExpectValidationFailureAsync(() => groups.SaveAsync(new ProjectGroupSaveRequest(group.GroupId, "Quần áo", null, null, null, ReadyImageAssetId: libraryImage.Id)),
             "Tệp thư viện chung không được làm mặc định nhóm.");
-        await ExpectValidationFailureAsync(() => groups.SaveAsync(new ProjectGroupSaveRequest(group.GroupId, "Quần áo", null, null, null, null, ProductAssetId: ownAudio.Id)),
+        await ExpectValidationFailureAsync(() => groups.SaveAsync(new ProjectGroupSaveRequest(group.GroupId, "Quần áo", null, null, null, ProductAssetId: ownAudio.Id)),
             "Âm thanh không được đặt vào ô ảnh.");
-        await ExpectValidationFailureAsync(() => groups.SaveAsync(new ProjectGroupSaveRequest(group.GroupId, "Quần áo", null, null, null, null, AudioAssetId: groupProduct2.Id)),
+        await ExpectValidationFailureAsync(() => groups.SaveAsync(new ProjectGroupSaveRequest(group.GroupId, "Quần áo", null, null, null, AudioAssetId: groupProduct2.Id)),
             "Ảnh không được đặt vào ô âm thanh.");
 
         // Dự án 2 và 3 trong nhóm: không có tệp riêng nên đọc ra tệp mặc định của nhóm.
@@ -201,7 +189,6 @@ public static class ProjectGroupSmokeTests
         // Đổi tệp mặc định của nhóm: dự án đang kế thừa đổi theo, dự án có tệp riêng giữ nguyên.
         await groups.SaveAsync(new ProjectGroupSaveRequest(group.GroupId, "Quần áo", "Video thời trang",
             "GUIDE_NHOM_SCRIPT", "GUIDE_NHOM_VIDEO",
-            new Dictionary<string, string> { ["chat_lieu"] = "cotton", ["san_pham"] = "áo thun" },
             ModelAssetId: groupModel.Id, ProductAssetId: groupProduct3.Id, ReadyImageAssetId: null, AudioAssetId: groupAudio.Id));
         Assert((await workflow.GetWorkflowConfigAsync(p3.ProjectId)).ProductAssetId == groupProduct3.Id,
             "Dự án đang kế thừa phải theo tệp mặc định mới của nhóm.");

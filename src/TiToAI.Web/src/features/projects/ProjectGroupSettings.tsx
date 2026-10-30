@@ -9,10 +9,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertCircle, Loader2, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import { AlertCircle, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const MAX_GUIDANCE_LENGTH = 4000;
+const MAX_PROMPT_LENGTH = 20000;
 
 type AssetSlotField = "modelAssetId" | "productAssetId" | "readyImageAssetId" | "audioAssetId";
 
@@ -23,21 +23,11 @@ const ASSET_SLOTS: { field: AssetSlotField; label: string; assetType: "Image" | 
   { field: "audioAssetId", label: "Âm thanh", assetType: "Audio" },
 ];
 
-interface VariableRow {
-  id: number;
-  key: string;
-  value: string;
-}
-
-let variableRowSeq = 0;
-const newVariableRow = (key = "", value = ""): VariableRow => ({ id: ++variableRowSeq, key, value });
-
 interface GroupDraft {
   name: string;
   description: string;
   scriptGuidance: string;
   videoGuidance: string;
-  variables: VariableRow[];
   modelAssetId: string | null;
   productAssetId: string | null;
   readyImageAssetId: string | null;
@@ -50,33 +40,11 @@ function toDraft(group: ProjectGroupDto): GroupDraft {
     description: group.description,
     scriptGuidance: group.scriptGuidance,
     videoGuidance: group.videoGuidance,
-    variables: Object.entries(group.promptVariables).map(([key, value]) => newVariableRow(key, value)),
     modelAssetId: group.modelAssetId ?? null,
     productAssetId: group.productAssetId ?? null,
     readyImageAssetId: group.readyImageAssetId ?? null,
     audioAssetId: group.audioAssetId ?? null,
   };
-}
-
-/** So sánh nội dung, bỏ qua id dòng biến để biết còn thay đổi chưa lưu. */
-function snapshotOf(draft: GroupDraft): string {
-  return JSON.stringify({ ...draft, variables: draft.variables.map(({ key, value }) => [key, value]) });
-}
-
-/** Dòng trống bị bỏ qua; dòng có giá trị nhưng thiếu tên hoặc trùng tên là lỗi. */
-function collectVariables(rows: VariableRow[]): { variables: Record<string, string>; error: string | null } {
-  const variables: Record<string, string> = {};
-  for (const row of rows) {
-    const key = row.key.trim();
-    const value = row.value.trim();
-    if (!key && !value) continue;
-    if (!key) return { variables: {}, error: "Có biến chưa đặt tên." };
-    if (Object.prototype.hasOwnProperty.call(variables, key)) {
-      return { variables: {}, error: `Biến "${key}" bị khai báo hai lần.` };
-    }
-    variables[key] = value;
-  }
-  return { variables, error: null };
 }
 
 function fileNameOf(relativePath: string): string {
@@ -92,13 +60,13 @@ interface GuidanceFieldProps {
 }
 
 function GuidanceField({ id, label, hint, value, onChange }: GuidanceFieldProps) {
-  const tooLong = value.length > MAX_GUIDANCE_LENGTH;
+  const tooLong = value.length > MAX_PROMPT_LENGTH;
   return (
     <div className="space-y-1.5">
       <div className="flex items-baseline justify-between gap-2">
         <Label htmlFor={id} className="text-sm font-medium">{label}</Label>
         <span className={cn("text-xs tabular-nums", tooLong ? "text-destructive" : "text-muted-foreground")}>
-          {value.length}/{MAX_GUIDANCE_LENGTH}
+          {value.length}/{MAX_PROMPT_LENGTH}
         </span>
       </div>
       <Textarea
@@ -129,7 +97,7 @@ export function ProjectGroupSettings({ group, onSaved, onDeleted }: ProjectGroup
   const [assetNames, setAssetNames] = useState<Record<string, string>>({});
   const [pickerSlot, setPickerSlot] = useState<AssetSlotField | null>(null);
 
-  const isDirty = snapshotOf(draft) !== snapshotOf(saved);
+  const isDirty = JSON.stringify(draft) !== JSON.stringify(saved);
   const pickerSpec = pickerSlot ? ASSET_SLOTS.find((slot) => slot.field === pickerSlot) : undefined;
 
   /** Tên tệp chỉ để hiển thị: lấy từ danh sách tệp của nhóm. */
@@ -147,31 +115,15 @@ export function ProjectGroupSettings({ group, onSaved, onDeleted }: ProjectGroup
     setDraft((prev) => ({ ...prev, ...patch }));
   };
 
-  const updateVariable = (id: number, patch: Partial<Pick<VariableRow, "key" | "value">>) => {
-    setDraft((prev) => ({
-      ...prev,
-      variables: prev.variables.map((row) => (row.id === id ? { ...row, ...patch } : row)),
-    }));
-  };
-
-  const removeVariable = (id: number) => {
-    setDraft((prev) => ({ ...prev, variables: prev.variables.filter((row) => row.id !== id) }));
-  };
-
   const handleSave = async () => {
     if (isSaving || !isDirty) return;
     const name = draft.name.trim();
-    const { variables, error } = collectVariables(draft.variables);
     if (!name) {
       setErrorMessage("Vui lòng nhập tên nhóm.");
       return;
     }
-    if (error) {
-      setErrorMessage(error);
-      return;
-    }
-    if (draft.scriptGuidance.length > MAX_GUIDANCE_LENGTH || draft.videoGuidance.length > MAX_GUIDANCE_LENGTH) {
-      setErrorMessage(`Hướng dẫn không được vượt quá ${MAX_GUIDANCE_LENGTH} ký tự.`);
+    if (draft.scriptGuidance.length > MAX_PROMPT_LENGTH || draft.videoGuidance.length > MAX_PROMPT_LENGTH) {
+      setErrorMessage(`Prompt không được vượt quá ${MAX_PROMPT_LENGTH} ký tự.`);
       return;
     }
 
@@ -185,7 +137,6 @@ export function ProjectGroupSettings({ group, onSaved, onDeleted }: ProjectGroup
           description: draft.description.trim(),
           scriptGuidance: draft.scriptGuidance.trim(),
           videoGuidance: draft.videoGuidance.trim(),
-          promptVariables: variables,
           modelAssetId: draft.modelAssetId,
           productAssetId: draft.productAssetId,
           readyImageAssetId: draft.readyImageAssetId,
@@ -232,79 +183,26 @@ export function ProjectGroupSettings({ group, onSaved, onDeleted }: ProjectGroup
         <div className="min-w-0 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Hướng dẫn prompt</CardTitle>
+              <CardTitle>Prompt của nhóm</CardTitle>
               <CardDescription>
-                Nối sau mẫu chung của app. Mọi dự án trong nhóm đều nhận hướng dẫn này; dự án có thể thêm phần riêng.
+                Thứ tự ưu tiên: prompt của dự án, rồi prompt của nhóm, rồi mẫu toàn cục. Ô để trống thì dùng mức tiếp theo; dự án trong nhóm không có prompt riêng sẽ dùng prompt này.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <GuidanceField
                 id="grp-script"
-                label="Hướng dẫn kịch bản"
-                hint="Dùng cho bước sinh kịch bản. Không dùng dấu ngoặc nhọn { }; biến được điền trong mẫu chung."
+                label="Prompt kịch bản"
+                hint="Dùng cho bước sinh kịch bản. Để trống để dùng mẫu toàn cục."
                 value={draft.scriptGuidance}
                 onChange={(scriptGuidance) => updateDraft({ scriptGuidance })}
               />
               <GuidanceField
                 id="grp-video"
-                label="Hướng dẫn prompt video"
-                hint="Dùng cho bước sinh prompt video. Không dùng dấu ngoặc nhọn { }."
+                label="Prompt video"
+                hint="Dùng cho bước sinh prompt video. Để trống để dùng mẫu toàn cục."
                 value={draft.videoGuidance}
                 onChange={(videoGuidance) => updateDraft({ videoGuidance })}
               />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Biến mặc định</CardTitle>
-              <CardDescription>
-                Giá trị điền vào biến trong mẫu chung, ví dụ chất liệu hay kiểu dáng. Dự án có thể ghi đè từng biến.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {draft.variables.length === 0 && (
-                <p className="text-sm text-muted-foreground">Chưa có biến mặc định.</p>
-              )}
-              {draft.variables.map((row) => (
-                <div key={row.id} className="flex items-center gap-2">
-                  <Input
-                    aria-label="Tên biến"
-                    className="h-9 w-40 shrink-0 font-mono text-xs"
-                    placeholder="chat_lieu"
-                    maxLength={60}
-                    value={row.key}
-                    onChange={(e) => updateVariable(row.id, { key: e.target.value })}
-                  />
-                  <Input
-                    aria-label="Giá trị biến"
-                    className="h-9 min-w-0 flex-1"
-                    placeholder="cotton"
-                    maxLength={500}
-                    value={row.value}
-                    onChange={(e) => updateVariable(row.id, { value: e.target.value })}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-9 shrink-0 text-muted-foreground hover:text-destructive"
-                    aria-label="Xóa biến"
-                    onClick={() => removeVariable(row.id)}
-                  >
-                    <X className="size-4" />
-                  </Button>
-                </div>
-              ))}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => updateDraft({ variables: [...draft.variables, newVariableRow()] })}
-              >
-                <Plus className="size-3.5" /> Thêm biến
-              </Button>
             </CardContent>
           </Card>
         </div>

@@ -95,14 +95,21 @@ public sealed class MuseAiPlaywrightAutomation
             try
             {
                 await page.WaitForFunctionAsync("n => document.querySelectorAll('img[src^=\"blob:\"]').length >= n",
-                    imagePaths.Count, new() { Timeout = 60000 }).WaitAsync(ct).ConfigureAwait(false);
+                    imagePaths.Count, new() { Timeout = 15000 }).WaitAsync(ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // Selectors come from an unverified DOM read; the snapshot shows what the page actually has.
                 var snapshot = await page.EvaluateAsync<string>(AttachSnapshotScript).ConfigureAwait(false);
-                await _activity.WriteAsync(job.JobId, "media", $"Không thấy đủ ảnh đính kèm: {snapshot}", ct).ConfigureAwait(false);
-                throw new InvalidOperationException($"Không xác nhận được {imagePaths.Count} ảnh trong composer MuseAI: {snapshot}", ex);
+                // The page may render previews without blob: URLs; the file input still holding every file means the picker accepted them.
+                var inputHolds = await page.EvaluateAsync<bool>(
+                    "n => [...document.querySelectorAll(\"input[type='file']\")].some(i => i.files.length >= n)", imagePaths.Count).ConfigureAwait(false);
+                if (!inputHolds)
+                {
+                    await _activity.WriteAsync(job.JobId, "media", $"Không thấy đủ ảnh đính kèm: {snapshot}", ct).ConfigureAwait(false);
+                    throw new InvalidOperationException($"Không xác nhận được {imagePaths.Count} ảnh trong composer MuseAI: {snapshot}", ex);
+                }
+                await _activity.WriteAsync(job.JobId, "media", $"Không thấy ảnh xem trước dạng blob nhưng input đã nhận đủ file, tiếp tục: {snapshot}", ct).ConfigureAwait(false);
             }
             await _activity.WriteAsync(job.JobId, "media", $"Đã đính kèm {imagePaths.Count} ảnh theo thứ tự.", ct).ConfigureAwait(false);
 

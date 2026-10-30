@@ -2,7 +2,9 @@ using System.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using TiToAI.Application.Content;
 using TiToAI.Application.Projects;
+using TiToAI.Contracts.Jobs;
 using TiToAI.Contracts.Scenes;
 using TiToAI.Infrastructure.Persistence;
 using TiToAI.Infrastructure.Persistence.Entities;
@@ -240,6 +242,8 @@ public sealed class SceneService
                 }
 
                 bool isModified = false;
+                var originalInputs = (scene.PromptText, scene.TargetDurationSeconds, scene.AudioAssetId, scene.ImageAssetId);
+                var originalVideoAssetId = scene.VideoAssetId;
 
                 if (request.Name is not null)
                 {
@@ -304,6 +308,28 @@ public sealed class SceneService
                 {
                     scene.VideoAssetId = await ValidateAssetReferenceAsync(dbContext, request.VideoAssetId, "Video", cancellationToken);
                     isModified = true;
+                }
+
+                // Đầu vào video (prompt/ảnh/audio/thời lượng) đổi qua form Cảnh phải theo cùng quy tắc với workflow.update_scene_input.
+                if ((scene.PromptText, scene.TargetDurationSeconds, scene.AudioAssetId, scene.ImageAssetId) != originalInputs)
+                {
+                    if (await WorkflowInputGuard.IsRunRunningAsync(dbContext, scene.ProjectId, cancellationToken))
+                    {
+                        throw new SceneValidationException("Tạm dừng run trước khi thay đổi input của một cảnh.");
+                    }
+                    if (await WorkflowInputGuard.HasActiveSceneJobAsync(dbContext, scene.Id, cancellationToken))
+                    {
+                        throw new SceneValidationException("Đợi các job đang hoạt động hoặc chưa được đối soát xong trước khi sửa input của cảnh.");
+                    }
+                    if (scene.VideoAssetId != null && scene.VideoAssetId == originalVideoAssetId)
+                    {
+                        // Như ma trận §3.4: chỉ đổi prompt thì làm lại video; đổi ảnh/audio/thời lượng thì làm lại cả prompt video.
+                        string[] staleTypes = scene.PromptText != originalInputs.PromptText &&
+                            (scene.TargetDurationSeconds, scene.AudioAssetId, scene.ImageAssetId) == (originalInputs.TargetDurationSeconds, originalInputs.AudioAssetId, originalInputs.ImageAssetId)
+                            ? [JobTaskType.VideoRender]
+                            : [JobTaskType.VideoPrompt, JobTaskType.VideoRender];
+                        await WorkflowInputGuard.MarkSceneVideoStaleAsync(dbContext, scene.Id, "Input của cảnh đã thay đổi. Cần tạo lại video.", staleTypes, cancellationToken);
+                    }
                 }
 
                 if (isModified)

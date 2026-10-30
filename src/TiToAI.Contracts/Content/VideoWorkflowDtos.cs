@@ -133,7 +133,6 @@ public sealed record ProjectWorkflowConfigDto(
     [property: JsonPropertyName("updatedAtUtc")] string UpdatedAtUtc,
     [property: JsonPropertyName("scriptGuidance")] string? ScriptGuidance = null,
     [property: JsonPropertyName("videoGuidance")] string? VideoGuidance = null,
-    [property: JsonPropertyName("promptVariables")] IReadOnlyDictionary<string, string>? PromptVariables = null,
     [property: JsonPropertyName("finalVideoAssetId")] string? FinalVideoAssetId = null,
     [property: JsonPropertyName("groupId")] string? GroupId = null,
     [property: JsonPropertyName("groupName")] string? GroupName = null,
@@ -189,7 +188,6 @@ public sealed record SaveProjectWorkflowConfigRequest(
     [property: JsonPropertyName("targetDurationPerSceneSeconds")] int TargetDurationPerSceneSeconds,
     [property: JsonPropertyName("scriptGuidance")] string? ScriptGuidance = null,
     [property: JsonPropertyName("videoGuidance")] string? VideoGuidance = null,
-    [property: JsonPropertyName("promptVariables")] IReadOnlyDictionary<string, string>? PromptVariables = null,
     [property: JsonPropertyName("videoStrategy")] string? VideoStrategy = null);
 
 /// <summary>
@@ -238,7 +236,8 @@ public sealed record ScenePlanItemDto(
     [property: JsonPropertyName("purpose")] string Purpose,
     [property: JsonPropertyName("targetDurationSeconds")] int TargetDurationSeconds,
     [property: JsonPropertyName("imageStrategy")] string ImageStrategy, // ReuseFoundation | GenerateVariant | DirectInput
-    [property: JsonPropertyName("motionPromptDraft")] string MotionPromptDraft
+    [property: JsonPropertyName("motionPromptDraft")] string MotionPromptDraft,
+    [property: JsonPropertyName("tiktokContent")] string TikTokContent = ""
 );
 
 /// <summary>

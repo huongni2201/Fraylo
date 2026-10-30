@@ -162,6 +162,22 @@ public sealed partial class ProjectWorkflowService
             }
         }
 
+        // Trạng thái Queued/InProgress lưu lúc đưa vào hàng đợi; job render đã Failed/Canceled thì không được kẹt ở "Đang xử lý".
+        var renderJobs = await dbContext.Jobs.AsNoTracking()
+            .Where(j => j.ProjectId == normalizedProjectId && j.TaskType == JobTaskType.VideoRender && j.SceneId != null)
+            .Select(j => new { j.SceneId, j.State, j.CreatedAtUtc })
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        var latestRenderState = renderJobs
+            .GroupBy(j => j.SceneId!)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(j => j.CreatedAtUtc, StringComparer.Ordinal).First().State);
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (list[i].Status is not ("Queued" or "InProgress") || !string.IsNullOrWhiteSpace(list[i].VideoAssetId)) continue;
+            var sceneKey = list[i].SceneId ?? list[i].Id;
+            if (!latestRenderState.TryGetValue(sceneKey, out var jobState)) continue;
+            if (jobState is JobState.Failed or JobState.Canceled) list[i] = list[i] with { Status = "Failed" };
+        }
+
         // Nội dung Script và prompt ảnh lấy từ Scene hiện tại, không lưu bản sao có thể lệch khi Scene đổi.
         var planKeys = scenes.Select(s => $"scene.plan.{s.Id}").ToArray();
         var plans = await dbContext.AppSettings.AsNoTracking()
@@ -251,7 +267,7 @@ public sealed partial class ProjectWorkflowService
         }
     }
 
-    /// <summary>Đánh dấu video của cảnh cần xem lại; FindReadyVideoAsync không cho đăng video đã stale.</summary>
+    /// <summary>Đánh dấu video của cảnh cần xem lại; FindReadyVideosAsync không cho đăng video đã stale.</summary>
     private static async Task MarkSceneVideoStaleAsync(
         TiToAIDbContext dbContext, string sceneId, string reason, string nowIso, CancellationToken cancellationToken)
     {

@@ -151,7 +151,6 @@ CREATE TABLE "ProjectGroup" (
     "description" TEXT NOT NULL DEFAULT '',
     "script_guidance" TEXT NOT NULL DEFAULT '',
     "video_guidance" TEXT NOT NULL DEFAULT '',
-    "prompt_variables_json" TEXT NOT NULL DEFAULT '{}',
     "model_asset_id" TEXT NULL,
     "product_asset_id" TEXT NULL,
     "ready_image_asset_id" TEXT NULL,

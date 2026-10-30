@@ -27,6 +27,7 @@ let mockConfig: Record<string, any> = {
 let mockScenes: Array<Record<string, unknown>> = [];
 let mockStoryboard: unknown = null;
 let mockPromptTemplate: Record<string, any> | null = null;
+let mockGroups: Array<Record<string, unknown>> = [];
 
 window.chrome = {
   webview: {
@@ -64,7 +65,7 @@ window.chrome = {
               },
               content: {
                 templateId: "tpl_script_custom",
-                templateText: "Kịch bản video TikTok về {chu_de}.",
+                templateText: "Kịch bản video TikTok.",
                 variableDefinitionsJson: "[]",
                 createdAtUtc: "2026-10-27T00:00:00Z",
               },
@@ -72,6 +73,9 @@ window.chrome = {
             break;
           case "workflow.get_config":
             responseData = mockConfig;
+            break;
+          case "projectgroup.list":
+            responseData = { groups: mockGroups };
             break;
           case "workflow.list_scenes":
             responseData = { scenes: mockScenes };
@@ -234,6 +238,22 @@ test("Video hoàn tất chuyển đúng Project sang Đăng video; stale bị kh
   assert.equal(Array.from(staleContainer.querySelectorAll("button")).find(b => b.textContent?.trim() === "Đăng video")!.disabled, true);
   await React.act(async () => staleRoot.unmount()); staleContainer.remove();
 });
+test("Nhiều video: đủ clip mọi cảnh thì hiện màn hoàn tất và cho đăng", async () => {
+  const previousConfig = mockConfig;
+  mockConfig = { ...mockConfig, projectId: "prj_multi", runState: "Completed", videoStrategy: "MultiVideo", targetSceneCount: 2, finalVideoAssetId: null };
+  mockScenes = [1, 2].map(n => ({ sceneId: `scn_${n}`, projectId: "prj_multi", name: `Cảnh ${n}`, sequenceOrder: n,
+    targetDurationSeconds: 15, videoAssetId: `ast_clip_${n}`, workflowStatus: "VideoCompleted", isStale: false }));
+  const container = document.createElement("div"); document.body.append(container);
+  const root = ReactDOMClient.createRoot(container);
+  await React.act(async () => { root.render(React.createElement(VideoProductionTab, { projectId: "prj_multi", onOpenPublishing: () => {} })); });
+  await React.act(async () => { await new Promise(resolve => setTimeout(resolve, 100)); });
+  assert.match(container.textContent ?? "", /2 clip đã sẵn sàng/);
+  assert.equal(Array.from(container.querySelectorAll("button")).find(b => b.textContent?.trim() === "Đăng video")!.disabled, false);
+  await React.act(async () => root.unmount()); container.remove();
+  mockConfig = previousConfig;
+  mockScenes = [];
+});
+
 test("VideoProductionTab: Một video đầu ra, duration theo capability & tóm tắt", async () => {
   executedCommands = [];
   mockConfig = {
@@ -534,9 +554,18 @@ test("VideoProductionTab: CD11 & CD13 - Xem trước yêu cầu gửi AI writer 
   container.remove();
 });
 
-test("VideoProductionTab: Render biến ở frontend và chỉ lưu biến riêng của dự án", async () => {
+test("VideoProductionTab: prompt áp dụng theo thứ tự Dự án > Nhóm > mẫu toàn cục, không còn biến", async () => {
   executedCommands = [];
-  localStorage.removeItem("titoai_workflow_prompt_values_prj_test_dyn_vars");
+  mockGroups = [{
+    groupId: "grp_fashion",
+    name: "Quần áo nữ",
+    description: "",
+    scriptGuidance: "Prompt kịch bản của nhóm",
+    videoGuidance: "Prompt video của nhóm",
+    projectCount: 1,
+    createdAtUtc: "2026-10-27T00:00:00Z",
+    updatedAtUtc: "2026-10-27T00:00:00Z",
+  }];
   mockPromptTemplate = {
     template: {
       templateId: "tpl_script_fashion",
@@ -546,13 +575,14 @@ test("VideoProductionTab: Render biến ở frontend và chỉ lưu biến riên
     },
     content: {
       templateId: "tpl_script_fashion",
-      templateText: "Tạo kịch bản video TikTok về chủ đề {chu_de} cho sản phẩm {san_pham}.",
+      templateText: "Tạo kịch bản video TikTok.",
       variableDefinitionsJson: "[]",
       createdAtUtc: "2026-10-27T00:00:00Z",
     },
   };
   mockConfig = {
     projectId: "prj_test_dyn_vars",
+    groupId: "grp_fashion",
     workflowMode: "ModelAndProduct",
     goalPrompt: "",
     modelAssetId: "ast_model_01",
@@ -567,8 +597,7 @@ test("VideoProductionTab: Render biến ở frontend và chỉ lưu biến riên
     currentRunId: null,
     updatedAtUtc: "2026-10-27T01:00:00Z",
     scriptGuidance: null,
-    videoGuidance: null,
-    promptVariables: null,
+    videoGuidance: "Prompt video của dự án",
   };
   mockScenes = [];
 
@@ -591,67 +620,15 @@ test("VideoProductionTab: Render biến ở frontend và chỉ lưu biến riên
   // 1. Kiểm tra badge/thông báo mẫu prompt áp dụng
   const badgeArea = container.textContent || "";
   assert(badgeArea.includes("Mẫu prompt áp dụng"), "Phải có thông báo mẫu prompt áp dụng.");
-  assert(badgeArea.includes("Toàn cục"), "Phải hiển thị phạm vi template toàn cục.");
+  // Kịch bản: dự án trống nên dùng nhóm; Video: dự án có prompt nên dùng dự án.
+  assert(badgeArea.includes("Kịch bản: Nhóm · Video: Dự án"), "Phải hiển thị nguồn prompt đang áp dụng theo thứ tự ưu tiên.");
+  assert(badgeArea.includes("Prompt tùy chỉnh"), "Có prompt nhóm/dự án thì không phải mẫu toàn cục.");
 
-  // 2. Kiểm tra ô nhập dynamic variable {chu_de} có id 'var-input-chu_de'
-  const chuDeInput = container.querySelector("#var-input-chu_de") as HTMLInputElement;
-  assert(chuDeInput, "Phải hiển thị ô nhập liệu id='var-input-chu_de' cho biến {chu_de}.");
+  // 2. Không còn ô nhập biến.
+  assert(!container.querySelector("[id^='var-input-']"), "Không còn ô nhập biến theo mẫu prompt ở dự án.");
+  assert(!badgeArea.includes("Biến số theo Mẫu Prompt"), "Không còn khối biến số theo mẫu prompt.");
 
-  // Kiểm tra ô nhập {san_pham}
-  const sanPhamInput = container.querySelector("#var-input-san_pham") as HTMLInputElement;
-  assert(sanPhamInput, "Phải hiển thị ô nhập liệu id='var-input-san_pham' cho biến {san_pham}.");
-
-  await React.act(async () => {
-    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype,
-      "value"
-    )?.set;
-    nativeInputValueSetter?.call(sanPhamInput, "Áo lụa cao cấp");
-    sanPhamInput.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-
-  // 3. Nhập giá trị cho {chu_de}
-  await React.act(async () => {
-    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype,
-      "value"
-    )?.set;
-    nativeInputValueSetter?.call(chuDeInput, "Thời trang dạo phố mùa hè");
-    chuDeInput.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-
-  await React.act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  });
-
-  // 4. Bấm nút "Lưu cấu hình"
-  const saveButton = Array.from(container.querySelectorAll("button")).find((b) =>
-    b.textContent?.includes("Lưu cấu hình")
-  );
-  assert(saveButton, "Phải có nút 'Lưu cấu hình'.");
-  assert(!saveButton.disabled, "Nút Lưu cấu hình phải enabled khi có thay đổi.");
-
-  await React.act(async () => {
-    saveButton.click();
-  });
-
-  await React.act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  });
-
-  // Kiểm tra lệnh workflow.save_config chỉ gửi biến riêng của dự án và hướng dẫn riêng (không gửi text đã render)
-  assert(executedCommands.includes("workflow.save_config"), "Bấm lưu phải gọi 'workflow.save_config'.");
-  assert(lastBridgePayload, "Phải có payload gửi sang bridge.");
-  assert.deepStrictEqual((lastBridgePayload as any)?.promptVariables, {
-    chu_de: "Thời trang dạo phố mùa hè",
-    san_pham: "Áo lụa cao cấp",
-  }, "Payload phải chứa đúng biến riêng của dự án.");
-  assert.strictEqual((lastBridgePayload as any)?.scriptGuidance, "",
-    "Hướng dẫn kịch bản riêng để trống thì gửi chuỗi rỗng.");
-  assert.strictEqual("scriptPromptText" in (lastBridgePayload as any), false,
-    "Payload không còn gửi text mẫu đã render.");
-
-  // 5. Bấm bắt đầu dùng biến đã lưu và khởi chạy workflow
+  // 3. Bắt đầu: lưu cấu hình rồi khởi chạy
   const startButton = Array.from(container.querySelectorAll("button")).find((b) =>
     b.textContent?.includes("Bắt đầu tạo video")
   );
@@ -665,15 +642,17 @@ test("VideoProductionTab: Render biến ở frontend và chỉ lưu biến riên
     await new Promise((resolve) => setTimeout(resolve, 50));
   });
 
+  assert(executedCommands.includes("workflow.save_config"), "Bắt đầu phải lưu cấu hình trước.");
   assert(executedCommands.includes("workflow.start"), "Bấm bắt đầu phải kích hoạt 'workflow.start'.");
-  assert.deepStrictEqual(mockConfig.promptVariables, {
-    chu_de: "Thời trang dạo phố mùa hè",
-    san_pham: "Áo lụa cao cấp",
-  }, "Config phải giữ biến riêng của dự án sau khi workflow bắt đầu.");
+  assert.strictEqual("promptVariables" in mockConfig, false, "Payload không còn gửi biến.");
+  assert.strictEqual(mockConfig.scriptGuidance, "", "Prompt kịch bản riêng để trống thì gửi chuỗi rỗng.");
+  assert.strictEqual(mockConfig.videoGuidance, "Prompt video của dự án", "Prompt video riêng của dự án được lưu nguyên văn.");
+  assert.strictEqual("scriptPromptText" in mockConfig, false, "Payload không còn gửi text mẫu đã render.");
 
   React.act(() => root.unmount());
   container.remove();
   mockPromptTemplate = null;
+  mockGroups = [];
 
   React.act(() => root.unmount());
   container.remove();

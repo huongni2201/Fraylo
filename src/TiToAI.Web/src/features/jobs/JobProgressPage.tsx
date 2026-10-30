@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, Check, Copy, Inbox, Loader2, RefreshCw, SearchCheck } from "lucide-react";
+import { AlertCircle, Inbox, Loader2, RefreshCw, SearchCheck } from "lucide-react";
+import { PromptCell } from "@/components/PromptCell";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,6 @@ import {
   isPipelineRow,
   jobRowText,
   mergeJobs,
-  outputPreview,
   videoProjectIds,
   type VideoJobText,
 } from "./jobProgressModel";
@@ -59,31 +59,6 @@ function formatDateTime(utc: string): string {
   return Number.isNaN(date.getTime())
     ? utc
     : date.toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "medium" });
-}
-
-/** Nội dung dài được rút gọn một dòng, kèm nút sao chép bản đầy đủ. */
-function CopyableText({ value }: { value: string | undefined }) {
-  const [copied, setCopied] = useState(false);
-  const preview = outputPreview(value);
-  if (!preview) return <span className="text-muted-foreground">—</span>;
-
-  const copy = () => {
-    void navigator.clipboard.writeText(value ?? "").then(() => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    });
-  };
-
-  return (
-    <div className="flex items-start gap-1.5">
-      <p className="line-clamp-3 flex-1 text-foreground" title={value}>
-        {preview}
-      </p>
-      <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={copy} aria-label="Sao chép">
-        {copied ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5 text-muted-foreground" />}
-      </Button>
-    </div>
-  );
 }
 
 export interface JobProgressPageProps {
@@ -247,11 +222,11 @@ export function JobProgressPage({ active }: JobProgressPageProps) {
           <TableHeader>
             <TableRow>
               <TableHead className="w-12 text-right">STT</TableHead>
-              <TableHead className="max-w-[140px]">Dự án</TableHead>
+              <TableHead className="min-w-[160px]">Dự án</TableHead>
               <TableHead className="min-w-[240px]">Kịch bản (AI)</TableHead>
               <TableHead className="min-w-[240px]">Prompt video</TableHead>
+              <TableHead className="min-w-[240px]">Nội dung đăng TikTok</TableHead>
               <TableHead className="text-right">Lần thử</TableHead>
-              <TableHead className="whitespace-nowrap">Thời gian tạo</TableHead>
               <TableHead className="min-w-[220px]">Output</TableHead>
               <TableHead>
                 <span className="sr-only">Thao tác</span>
@@ -272,20 +247,28 @@ export function JobProgressPage({ active }: JobProgressPageProps) {
                   <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
                     {index + 1}
                   </TableCell>
-                  <TableCell className="max-w-[140px] truncate text-xs" title={job.projectId}>
-                    {projectNames[job.projectId] ?? job.projectId.slice(0, 8)}
+                  <TableCell className="min-w-[160px] align-top text-xs">
+                    <div className="flex flex-col gap-2">
+                      <p className="font-medium break-words" title={job.projectId}>
+                        {projectNames[job.projectId] ?? job.projectId.slice(0, 8)}
+                      </p>
+                      {text.imageAssetId && (
+                        <AssetMediaPreview assetId={text.imageAssetId} assetType="Image" fileName={`Ảnh tham chiếu ${index + 1}`} />
+                      )}
+                      <span className="whitespace-nowrap text-muted-foreground">{formatDateTime(job.createdAtUtc)}</span>
+                    </div>
                   </TableCell>
-                  <TableCell className="max-w-[300px] text-xs">
-                    <CopyableText value={text.script} />
+                  <TableCell className="max-w-[300px] align-top text-xs">
+                    <PromptCell text={text.script} emptyText="—" title="Kịch bản (AI)" />
                   </TableCell>
-                  <TableCell className="max-w-[300px] text-xs">
-                    <CopyableText value={text.prompt} />
+                  <TableCell className="max-w-[300px] align-top text-xs">
+                    <PromptCell text={text.prompt} emptyText="—" title="Prompt video" />
+                  </TableCell>
+                  <TableCell className="max-w-[300px] align-top text-xs">
+                    <PromptCell text={text.tiktok} emptyText="—" title="Nội dung đăng TikTok" />
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-xs">
                     {job.attempts}/{job.maxAttempts ?? "—"}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-xs">
-                    {formatDateTime(job.createdAtUtc)}
                   </TableCell>
                   <TableCell className="max-w-[260px] text-xs">
                     {job.taskType === "VideoRender" && job.resultReference ? (

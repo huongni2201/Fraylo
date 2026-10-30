@@ -194,13 +194,6 @@ public sealed partial class ProjectWorkflowService
         return JsonSerializer.Serialize(ToStoredConfig(config, group), JsonOptions);
     }
 
-    private static bool SamePromptVariables(IReadOnlyDictionary<string, string>? left, IReadOnlyDictionary<string, string>? right)
-    {
-        left ??= new Dictionary<string, string>();
-        right ??= new Dictionary<string, string>();
-        return left.Count == right.Count && left.All(pair => right.TryGetValue(pair.Key, out var value) && value == pair.Value);
-    }
-
     /// <summary>
     /// Lưu cấu hình quy trình sản xuất video cấp Dự án.
     /// </summary>
@@ -234,11 +227,9 @@ public sealed partial class ProjectWorkflowService
             await ValidateAssetBelongsToProjectAsync(dbContext, normalizedProjectId, request.AudioAssetId, "tệp âm thanh", cancellationToken);
         }
 
-        var guidanceError = PromptGuidance.Validate(request.ScriptGuidance, "Hướng dẫn kịch bản")
-            ?? PromptGuidance.Validate(request.VideoGuidance, "Hướng dẫn video");
+        var guidanceError = PromptGuidance.Validate(request.ScriptGuidance, "Prompt kịch bản")
+            ?? PromptGuidance.Validate(request.VideoGuidance, "Prompt video");
         if (guidanceError is not null) throw new ProjectWorkflowValidationException(guidanceError);
-        var variablesError = PromptGuidance.ValidateVariables(request.PromptVariables);
-        if (variablesError is not null) throw new ProjectWorkflowValidationException(variablesError);
 
         // Lấy config hiện tại để bảo toàn foundation image và runState nếu có; trường null nghĩa là giữ nguyên
         var existing = await GetWorkflowConfigAsync(normalizedProjectId, cancellationToken);
@@ -249,7 +240,6 @@ public sealed partial class ProjectWorkflowService
         }
         var scriptGuidance = request.ScriptGuidance is null ? existing.ScriptGuidance : PromptGuidance.Normalize(request.ScriptGuidance);
         var videoGuidance = request.VideoGuidance is null ? existing.VideoGuidance : PromptGuidance.Normalize(request.VideoGuidance);
-        var promptVariables = request.PromptVariables is null ? existing.PromptVariables : PromptGuidance.NormalizeVariables(request.PromptVariables);
         bool workflowInputsChanged = existing.WorkflowMode != request.WorkflowMode ||
                                      existing.VideoStrategy != videoStrategy ||
                                      existing.GoalPrompt != (request.GoalPrompt ?? string.Empty) ||
@@ -260,8 +250,7 @@ public sealed partial class ProjectWorkflowService
                                      existing.AudioAssetId != (request.AudioOption == AudioOptions.CustomAudio ? request.AudioAssetId : null) ||
                                      (request.TargetDurationPerSceneSeconds > 0 && existing.TargetDurationPerSceneSeconds != request.TargetDurationPerSceneSeconds) ||
                                      existing.ScriptGuidance != scriptGuidance ||
-                                     existing.VideoGuidance != videoGuidance ||
-                                     !SamePromptVariables(existing.PromptVariables, promptVariables);
+                                     existing.VideoGuidance != videoGuidance;
         if (workflowInputsChanged && existing.RunState is WorkflowRunState.Running or WorkflowRunState.Paused)
         {
             throw new ProjectWorkflowValidationException(
@@ -282,7 +271,6 @@ public sealed partial class ProjectWorkflowService
             TargetDurationPerSceneSeconds = request.TargetDurationPerSceneSeconds > 0 ? request.TargetDurationPerSceneSeconds : (existing.TargetDurationPerSceneSeconds > 0 ? existing.TargetDurationPerSceneSeconds : 15),
             ScriptGuidance = scriptGuidance,
             VideoGuidance = videoGuidance,
-            PromptVariables = promptVariables,
             UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("o")
         };
 
@@ -318,8 +306,9 @@ public sealed partial class ProjectWorkflowService
         bool audioChanged = existing.AudioOption != request.AudioOption || existing.AudioAssetId != request.AudioAssetId;
         bool briefChanged = existing.GoalPrompt != updated.GoalPrompt;
         bool strategyChanged = existing.VideoStrategy != videoStrategy;
+        bool guidanceChanged = existing.ScriptGuidance != scriptGuidance || existing.VideoGuidance != videoGuidance;
 
-        if (!isInitialConfig && (modelOrProductChanged || workflowModeChanged || durationChanged || audioChanged || briefChanged || strategyChanged))
+        if (!isInitialConfig && (modelOrProductChanged || workflowModeChanged || durationChanged || audioChanged || briefChanged || strategyChanged || guidanceChanged))
         {
             var scenes = await dbContext.Scenes
                 .Where(s => s.ProjectId == normalizedProjectId)
@@ -359,7 +348,7 @@ public sealed partial class ProjectWorkflowService
                         staleTasks.Add(JobTaskType.Image);
                     }
                 }
-                if (commonImageChanged || durationChanged || audioChanged || briefChanged || strategyChanged)
+                if (commonImageChanged || durationChanged || audioChanged || briefChanged || strategyChanged || guidanceChanged)
                 {
                     staleTasks.Add(JobTaskType.VideoPrompt);
                     staleTasks.Add(JobTaskType.VideoRender);
@@ -369,6 +358,7 @@ public sealed partial class ProjectWorkflowService
                                 durationChanged ? "Thời lượng clip đã thay đổi." :
                                 audioChanged ? "Âm thanh dùng cho clip đã thay đổi." :
                                 strategyChanged ? "Chiến lược video đã thay đổi." :
+                                guidanceChanged ? "Prompt riêng của dự án đã thay đổi." :
                                 "Yêu cầu nội dung chung đã thay đổi.";
 
                 var metaObj = new SceneWorkflowDetailDto(

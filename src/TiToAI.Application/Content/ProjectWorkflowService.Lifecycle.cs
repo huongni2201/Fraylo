@@ -34,12 +34,21 @@ public sealed partial class ProjectWorkflowService
     /// - ProductOnly: Bắt buộc Product.
     /// Tự động lập danh sách cảnh nếu chưa có cảnh nào, gán ảnh nền tảng và viết prompt.
     /// </summary>
-    public async Task<StartProjectWorkflowResponseData> StartWorkflowAsync(
+    public Task<StartProjectWorkflowResponseData> StartWorkflowAsync(
         StartProjectWorkflowRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         var normalizedProjectId = NormalizeAndValidateGuid(request.ProjectId, nameof(request.ProjectId));
+        // Dưới khóa Project như hủy/tiếp tục/apply: kiểm ClientRequestId và RunState rồi mới commit run, nên hai lệnh Start cùng lúc không tạo hai run.
+        return RunUnderProjectGateAsync(normalizedProjectId, () => StartWorkflowLockedAsync(request, normalizedProjectId, cancellationToken), cancellationToken);
+    }
+
+    private async Task<StartProjectWorkflowResponseData> StartWorkflowLockedAsync(
+        StartProjectWorkflowRequest request,
+        string normalizedProjectId,
+        CancellationToken cancellationToken)
+    {
 
         await using var dbContext = new TiToAIDbContext(_dbOptions);
         var config = await GetWorkflowConfigAsync(normalizedProjectId, cancellationToken);
@@ -162,6 +171,17 @@ public sealed partial class ProjectWorkflowService
             throw new ProjectWorkflowValidationException(
                 $"Cảnh '{invalidDurationScene.Name}' có thời lượng {Convert.ToInt32(invalidDurationScene.TargetDurationSeconds)}s không được hỗ trợ bởi nhà cung cấp video. Vui lòng chọn lại thời lượng ({string.Join("s, ", supportedDurations)}s) trước khi bắt đầu.");
         }
+
+        // Prompt dự án > nhóm > mẫu toàn cục: báo thiếu ngay lúc bấm chạy, không đợi tới giữa pipeline.
+        if (existingScenes.Count == 0)
+        {
+            await VideoWorkflowPromptComposer.ResolvePromptAsync(dbContext, config, JobTaskType.Script, cancellationToken);
+        }
+        if (CanGenerateImage(config.WorkflowMode, config.VideoStrategy))
+        {
+            await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(dbContext, JobTaskType.Image, cancellationToken);
+        }
+        await VideoWorkflowPromptComposer.ResolvePromptAsync(dbContext, config, JobTaskType.VideoPrompt, cancellationToken);
 
         // NGUYÊN TẮC MỐC 1 & MỐC 4:
         // - Không dùng 3 cảnh/prompt hardcode mẫu tĩnh giả mạo là kết quả AI production.

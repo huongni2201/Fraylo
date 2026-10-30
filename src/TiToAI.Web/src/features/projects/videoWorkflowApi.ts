@@ -62,7 +62,6 @@ export interface ProjectWorkflowConfigDto {
   updatedAtUtc: string;
   scriptGuidance?: string | null;
   videoGuidance?: string | null;
-  promptVariables?: Record<string, string> | null;
   finalVideoAssetId?: string | null;
   groupId?: string | null;
   groupName?: string | null;
@@ -84,7 +83,6 @@ export interface SaveProjectWorkflowConfigRequest {
   targetDurationPerSceneSeconds: number;
   scriptGuidance?: string | null;
   videoGuidance?: string | null;
-  promptVariables?: Record<string, string> | null;
   videoStrategy?: VideoStrategy;
 }
 
@@ -183,6 +181,17 @@ export interface CreateSceneVideoRequest {
   itemId: string;
 }
 
+// Backend (VideoContentItemDto C#) giữ tên snake_case của schema AI cho kịch bản/prompt/caption.
+type WireVideoContentItem = Omit<VideoContentItemDto, "videoScript" | "videoPrompt" | "tiktokContent"> & {
+  video_script?: string | null;
+  video_prompt?: string | null;
+  tiktok_content?: string | null;
+};
+
+function fromWireContentItem({ video_script, video_prompt, tiktok_content, ...item }: WireVideoContentItem): VideoContentItemDto {
+  return { ...item, videoScript: video_script ?? "", videoPrompt: video_prompt ?? "", tiktokContent: tiktok_content ?? "" };
+}
+
 export const DEFAULT_SUPPORTED_DURATIONS = [10, 15] as const;
 
 export const videoWorkflowApi = {
@@ -211,7 +220,7 @@ export const videoWorkflowApi = {
   async startWorkflow(projectId: string): Promise<StartProjectWorkflowResponseData> {
     const data = await bridgeClient.invoke<StartProjectWorkflowResponseData>(
       "workflow.start",
-      { projectId },
+      { projectId, clientRequestId: crypto.randomUUID() },
     );
     return data!;
   },
@@ -257,33 +266,27 @@ export const videoWorkflowApi = {
   },
 
   async listContentItems(projectId: string): Promise<VideoContentItemDto[]> {
-    // Backend trả mảng thuần và giữ tên snake_case của schema AI cho kịch bản/prompt
-    const items = await bridgeClient.invoke<
-      (Omit<VideoContentItemDto, "videoScript" | "videoPrompt"> & {
-        video_script?: string;
-        video_prompt?: string;
-      })[]
-    >("workflow.list_content_items", { projectId });
-    return (items ?? []).map((item) => ({
-      ...item,
-      videoScript: item.video_script ?? "",
-      videoPrompt: item.video_prompt ?? "",
-    }));
+    const items = await bridgeClient.invoke<WireVideoContentItem[]>("workflow.list_content_items", { projectId });
+    return (items ?? []).map(fromWireContentItem);
   },
 
   async updateContentItem(req: UpdateVideoContentItemRequest): Promise<VideoContentItemDto> {
-    const data = await bridgeClient.invoke<{ item: VideoContentItemDto }>(
-      "workflow.update_content_item",
-      req,
-    );
-    return data?.item!;
+    const data = await bridgeClient.invoke<WireVideoContentItem>("workflow.update_content_item", {
+      projectId: req.projectId,
+      id: req.itemId,
+      idea: req.idea,
+      hook: req.hook,
+      video_script: req.videoScript,
+      video_prompt: req.videoPrompt,
+      tiktok_content: req.tiktokContent,
+    });
+    return fromWireContentItem(data!);
   },
 
   async createSceneVideo(req: CreateSceneVideoRequest): Promise<unknown> {
-    const data = await bridgeClient.invoke<unknown>(
-      "workflow.create_scene_video",
-      req,
-    );
-    return data;
+    return bridgeClient.invoke<unknown>("workflow.create_scene_video", {
+      projectId: req.projectId,
+      contentItemId: req.itemId,
+    });
   },
 };

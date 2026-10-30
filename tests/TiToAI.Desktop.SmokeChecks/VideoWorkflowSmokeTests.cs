@@ -149,6 +149,7 @@ public static class VideoWorkflowSmokeTests
         using (var db = new TiToAIDbContext(dbOptions))
         {
             db.Database.EnsureCreated();
+            SeedRequiredPromptTemplates(db);
 
             var now = DateTimeOffset.UtcNow.ToString("o");
             var prjId = Guid.NewGuid().ToString("D").ToLowerInvariant();
@@ -178,6 +179,17 @@ public static class VideoWorkflowSmokeTests
             }
         }
         catch { }
+    }
+
+    /// <summary>Prompt chung là bắt buộc nên test chạy workflow phải có sẵn mẫu đang dùng cho mỗi purpose.</summary>
+    internal static void SeedRequiredPromptTemplates(TiToAIDbContext db)
+    {
+        var now = DateTimeOffset.UtcNow.ToString("o");
+        foreach (var purpose in new[] { "Script", "Image", "VideoPrompt" })
+        {
+            db.PromptTemplates.Add(new PromptTemplate { Id = $"seed-{purpose}", Purpose = purpose, Name = purpose, IsActive = true, TemplateText = $"Mẫu {purpose} của test.", CreatedAtUtc = now, UpdatedAtUtc = now });
+        }
+        db.SaveChanges();
     }
 
     private static string SeedAsset(DbContextOptions<TiToAIDbContext> dbOptions, string assetType, string relativePath, string? ownerProjectId = null)
@@ -423,7 +435,20 @@ public static class VideoWorkflowSmokeTests
             {
                 var sceneCount = await db.Scenes.CountAsync(s => s.ProjectId == prjId);
                 Assert(sceneCount == 0, $"Không được tự ý chèn cảnh mẫu hardcode vào DB, thực tế số cảnh: {sceneCount}");
+                // Prompt chung bắt buộc: bỏ mẫu đang dùng thì Start phải báo thiếu Prompt, backend không tự thay bằng prompt dựng sẵn.
+                db.PromptTemplates.RemoveRange(db.PromptTemplates);
+                await db.SaveChangesAsync();
             }
+            bool rejectedNoTemplate = false;
+            try
+            {
+                await service.StartWorkflowAsync(new StartProjectWorkflowRequest(prjId));
+            }
+            catch (ProjectWorkflowValidationException ex) when (ex.Message.Contains("Chưa có Prompt Script"))
+            {
+                rejectedNoTemplate = true;
+            }
+            Assert(rejectedNoTemplate, "Thiếu Prompt Script toàn ứng dụng phải bị từ chối với thông báo rõ ràng.");
         }
         finally
         {
@@ -981,6 +1006,7 @@ public static class VideoWorkflowSmokeTests
                 var count = await db.Scenes.CountAsync(s => s.ProjectId == prjId);
                 Assert(count == 0, "Dự án ban đầu phải có đúng 0 cảnh.");
                 var now = DateTimeOffset.UtcNow.ToString("o");
+                db.PromptTemplates.RemoveRange(db.PromptTemplates);
                 db.PromptTemplates.AddRange(
                     new PromptTemplate { Id = "script-active", Purpose = "Script", Name = "Script", IsActive = true, TemplateText = "SCRIPT_DANG_DUNG", CreatedAtUtc = now, UpdatedAtUtc = now },
                     new PromptTemplate { Id = "script-inactive", Purpose = "Script", Name = "Cũ", IsActive = false, TemplateText = "SCRIPT_KHONG_DUNG", CreatedAtUtc = now, UpdatedAtUtc = now },
@@ -1302,7 +1328,7 @@ public static class VideoWorkflowSmokeTests
             // CD14: Kiểm tra Preview AI Prompt
             var preview = await workflowService.PreviewAiPromptAsync(new PreviewAiPromptRequest(prjId, sceneId));
             Assert(preview.ComposedPrompt.Contains(uniqueToken), "ComposedPrompt trong Preview phải chứa chuỗi nhận diện độc nhất.");
-            Assert(preview.ComposedPrompt.Contains("[HƯỚNG DẪN BỔ SUNG CỦA DỰ ÁN]" + Environment.NewLine + uniqueToken), "ComposedPrompt phải nối hướng dẫn riêng của Dự án sau mẫu chung.");
+            Assert(preview.TemplateName.Contains("dự án"), "Preview phải cho biết đang dùng prompt riêng của Dự án.");
             Assert(preview.ComposedPrompt.Contains("[OUTPUT_CONTRACT]"), "ComposedPrompt phải có block OUTPUT_CONTRACT.");
             Assert(preview.ComposedPrompt.Contains("\"video_prompt\""), "OUTPUT_CONTRACT phải yêu cầu JSON có video_prompt.");
 

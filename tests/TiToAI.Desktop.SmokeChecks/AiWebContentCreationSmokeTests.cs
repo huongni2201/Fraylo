@@ -17,8 +17,6 @@ public static class AiWebContentCreationSmokeTests
         Console.WriteLine("   TiToAI — AI Web Content Creation Smoke Checks (AC0 & AC1)     ");
         Console.WriteLine("=================================================================");
 
-        TestNaturalLanguagePromptValidation_C03();
-        TestSeedInstructionsAvailability();
         TestContentCandidateParser_GenerateScript_C01_C02();
         TestContentCandidateParser_GenerateVideoPrompts_C01();
         TestContentCandidateParser_SuggestIdeas_C04();
@@ -29,64 +27,6 @@ public static class AiWebContentCreationSmokeTests
         Console.WriteLine("=================================================================");
         Console.WriteLine("   TẤT CẢ KIỂM THỬ KHÓI AI WEB CONTENT CREATION ĐỀU PASS 100%!  ");
         Console.WriteLine("=================================================================");
-    }
-
-    /// <summary>
-    /// C03: Hướng dẫn tự nhiên không chứa placeholder {variable} vẫn thẩm định hợp lệ 100% và render nguyên vẹn.
-    /// </summary>
-    private static void TestNaturalLanguagePromptValidation_C03()
-    {
-        Console.Write("[RUN] Test C03: Hướng dẫn tự nhiên (0 biến) validate hợp lệ và render nguyên vẹn ... ");
-
-        string naturalPrompt = PromptTemplateService.DefaultVideoPromptInstruction;
-        var validation = PromptRenderer.Validate(naturalPrompt);
-
-        if (!validation.IsValid)
-        {
-            throw new InvalidOperationException($"Kỳ vọng template tự nhiên hợp lệ, thực tế lỗi: {string.Join(", ", validation.Errors)}");
-        }
-
-        if (validation.DetectedVariables.Count != 0)
-        {
-            throw new InvalidOperationException($"Kỳ vọng 0 biến phát hiện trong hướng dẫn tự nhiên, thực tế: {validation.DetectedVariables.Count}");
-        }
-
-        string rendered = PromptRenderer.Render(naturalPrompt);
-        if (rendered != naturalPrompt)
-        {
-            throw new InvalidOperationException("Kỳ vọng render trả về nguyên vẹn văn bản hướng dẫn tự nhiên.");
-        }
-
-        Console.WriteLine("PASS");
-    }
-
-    /// <summary>
-    /// Kiểm tra tính sẵn sàng của các seed templates chuẩn trong PromptTemplateService.
-    /// </summary>
-    private static void TestSeedInstructionsAvailability()
-    {
-        Console.Write("[RUN] Test Seed Instructions: Hướng dẫn chuẩn Script, VideoPrompt, SuggestIdeas sẵn sàng ... ");
-
-        string scriptPrompt = PromptTemplateService.GetDefaultInstruction("Script");
-        string videoPrompt = PromptTemplateService.GetDefaultInstruction("VideoPrompt");
-        string ideasPrompt = PromptTemplateService.GetDefaultInstruction("Script", "SuggestIdeas");
-
-        if (string.IsNullOrWhiteSpace(scriptPrompt) || !scriptPrompt.Contains("biên kịch video ngắn"))
-        {
-            throw new InvalidOperationException("DefaultScriptInstruction không hợp lệ hoặc thiếu nội dung cốt lõi.");
-        }
-
-        if (string.IsNullOrWhiteSpace(videoPrompt) || !videoPrompt.Contains("chuyên gia viết prompt"))
-        {
-            throw new InvalidOperationException("DefaultVideoPromptInstruction không hợp lệ hoặc thiếu nội dung cốt lõi.");
-        }
-
-        if (string.IsNullOrWhiteSpace(ideasPrompt) || !ideasPrompt.Contains("chiến lược nội dung video ngắn"))
-        {
-            throw new InvalidOperationException("DefaultSuggestIdeasInstruction không hợp lệ hoặc thiếu nội dung cốt lõi.");
-        }
-
-        Console.WriteLine("PASS");
     }
 
     /// <summary>

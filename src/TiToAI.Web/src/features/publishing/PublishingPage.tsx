@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Film, Loader2, RefreshCw, Send, Settings } from "lucide-react";
+import { Loader2, RefreshCw, Send, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/PageHeader";
+import { TikTokPostPreview } from "../projects/TikTokPostPreview";
 import type { TikTokAnalyticsAccount } from "../analytics/analyticsApi";
 import { blocksAnotherPublish, publishingError, type PublishingApi, type PublishingList, type PublishPrivacy, type PublishState } from "./publishingApi";
 
@@ -131,23 +132,30 @@ export function PublishingPage({ active, api, initialProjectId, selectionRevisio
       />
       {error && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
       {message && <p role="status" className="rounded-lg border bg-muted/40 p-3 text-sm">{message}</p>}
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-        <Card><CardHeader><CardTitle className="text-base">Video đã tạo</CardTitle></CardHeader>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <Card><CardHeader><CardTitle className="text-base">Xem trước bài đăng</CardTitle></CardHeader>
           <CardContent className="space-y-4">
+            <div className="flex justify-center">
+              <TikTokPostPreview
+                key={video?.assetId ?? "none"}
+                videoSrc={video ? `https://media.titoai.local/media/${encodeURIComponent(video.assetId)}` : null}
+                caption={caption}
+                handle={account?.accountIdentity}
+                showCopy={false}
+              />
+            </div>
             <Label htmlFor="publish-video">Video</Label>
             <select id="publish-video" className={selectClass} value={assetId} disabled={publishing || loading} onChange={e => {
               setAssetId(e.target.value); setCaption(data.videos.find(v => v.assetId === e.target.value)?.caption ?? ""); setMessage(null);
             }}><option value="">Chọn video hoàn chỉnh</option>
               {data.videos.map(v => <option key={v.assetId} value={v.assetId}>{v.projectName} · {v.fileName}</option>)}
             </select>
-            {video ? <div className="flex flex-col items-center gap-3 rounded-lg border bg-muted/30 p-6 text-center">
-              <Film className="size-10 text-primary" aria-hidden="true" />
-              <p className="max-w-full break-all text-sm font-medium">{video.fileName}</p>
-              <p className="text-sm text-muted-foreground">{(video.byteSize / 1024 / 1024).toFixed(1)} MB</p>
-              <Button variant="outline" onClick={() => {
+            {video ? <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span className="min-w-0 truncate">{video.fileName} · {(video.byteSize / 1024 / 1024).toFixed(1)} MB</span>
+              <Button variant="outline" size="sm" onClick={() => {
                 void Promise.resolve().then(() => onReviewVideo(video.projectId)).catch(err => setError(publishingError(err)));
               }} disabled={publishing}>Xem lại video trong dự án</Button>
-            </div> : <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+            </div> : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
               {loading ? "Đang tải video…" : data.videos.length ? "Chọn một video để chuẩn bị đăng." : "Chưa có video sẵn sàng. Hoàn tất một video trong Dự án rồi tải lại."}
             </p>}
             <p className="text-xs leading-relaxed text-muted-foreground">Phiên đăng nhập được giữ trong profile TikTok riêng trên máy. Video chỉ được gửi khi bạn bấm Đăng lên TikTok.</p>

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using TiToAI.Application.Content;
 using TiToAI.Application.Prompts;
 using TiToAI.Contracts.Projects;
 using TiToAI.Infrastructure.Persistence;
@@ -53,13 +54,9 @@ public sealed class ProjectGroupService
         var description = request.Description?.Trim() ?? string.Empty;
         if (description.Length > 500) throw new ProjectValidationException("Mô tả nhóm không được vượt quá 500 ký tự.");
 
-        var guidanceError = PromptGuidance.Validate(request.ScriptGuidance, "Hướng dẫn kịch bản")
-            ?? PromptGuidance.Validate(request.VideoGuidance, "Hướng dẫn video");
+        var guidanceError = PromptGuidance.Validate(request.ScriptGuidance, "Prompt kịch bản")
+            ?? PromptGuidance.Validate(request.VideoGuidance, "Prompt video");
         if (guidanceError is not null) throw new ProjectValidationException(guidanceError);
-
-        var variables = PromptGuidance.NormalizeVariables(request.PromptVariables) ?? new Dictionary<string, string>(StringComparer.Ordinal);
-        var variablesError = PromptGuidance.ValidateVariables(variables);
-        if (variablesError is not null) throw new ProjectValidationException(variablesError);
 
         var groupId = string.IsNullOrWhiteSpace(request.GroupId) ? null : NormalizeAndValidateGuid(request.GroupId, nameof(request.GroupId));
 
@@ -99,6 +96,7 @@ public sealed class ProjectGroupService
             .Where(p => p.GroupId == group.Id)
             .Select(p => p.Id)
             .ToListAsync(cancellationToken);
+        var originalInputs = InheritedInputs(group);
         group.ModelAssetId = await ResolveGroupAssetAsync(dbContext, group.Id, memberProjectIds, request.ModelAssetId, "ảnh mẫu", "Image", cancellationToken);
         group.ProductAssetId = await ResolveGroupAssetAsync(dbContext, group.Id, memberProjectIds, request.ProductAssetId, "ảnh sản phẩm", "Image", cancellationToken);
         group.ReadyImageAssetId = await ResolveGroupAssetAsync(dbContext, group.Id, memberProjectIds, request.ReadyImageAssetId, "ảnh có sẵn", "Image", cancellationToken);
@@ -108,8 +106,14 @@ public sealed class ProjectGroupService
         group.Description = description;
         group.ScriptGuidance = PromptGuidance.Normalize(request.ScriptGuidance) ?? string.Empty;
         group.VideoGuidance = PromptGuidance.Normalize(request.VideoGuidance) ?? string.Empty;
-        group.PromptVariablesJson = JsonSerializer.Serialize(variables);
         group.UpdatedAtUtc = nowUtc;
+
+        // Dự án đọc hướng dẫn/tệp của Nhóm ở từng bước: không đổi giữa run, và kết quả cũ trở thành stale.
+        if (InheritedInputs(group) != originalInputs)
+        {
+            await EnsureNoActiveRunAsync(dbContext, memberProjectIds, cancellationToken);
+            await WorkflowInputGuard.MarkProjectVideosStaleAsync(dbContext, memberProjectIds, "Prompt hoặc tệp mặc định của nhóm đã thay đổi.", cancellationToken);
+        }
         await dbContext.SaveChangesAsync(cancellationToken);
 
         var projectCount = await dbContext.Projects.CountAsync(p => p.GroupId == group.Id, cancellationToken);
@@ -128,10 +132,31 @@ public sealed class ProjectGroupService
         var group = await dbContext.ProjectGroups.FirstOrDefaultAsync(g => g.Id == normalizedGroupId, cancellationToken)
             ?? throw new ProjectGroupNotFoundException(normalizedGroupId);
 
+        var memberProjectIds = await dbContext.Projects.AsNoTracking()
+            .Where(p => p.GroupId == normalizedGroupId)
+            .Select(p => p.Id)
+            .ToListAsync(cancellationToken);
+        if (InheritedInputs(group) != (null, null, null, null, "", ""))
+        {
+            await EnsureNoActiveRunAsync(dbContext, memberProjectIds, cancellationToken);
+            await WorkflowInputGuard.MarkProjectVideosStaleAsync(dbContext, memberProjectIds, "Nhóm của dự án đã bị xóa.", cancellationToken);
+        }
+
         dbContext.ProjectGroups.Remove(group);
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return new ProjectGroupDeleteResponseData(normalizedGroupId, true);
+    }
+
+    private static (string?, string?, string?, string?, string, string) InheritedInputs(ProjectGroup group) =>
+        (group.ModelAssetId, group.ProductAssetId, group.ReadyImageAssetId, group.AudioAssetId, group.ScriptGuidance ?? "", group.VideoGuidance ?? "");
+
+    internal static async Task EnsureNoActiveRunAsync(TiToAIDbContext dbContext, IReadOnlyCollection<string> projectIds, CancellationToken cancellationToken)
+    {
+        if (await WorkflowInputGuard.HasActiveRunAsync(dbContext, projectIds, cancellationToken))
+        {
+            throw new ProjectValidationException("Có dự án trong nhóm đang chạy hoặc tạm dừng run. Hủy hoặc chờ run hoàn tất trước khi đổi nhóm.");
+        }
     }
 
     private static ProjectGroupDto ToDto(ProjectGroup group, int projectCount) => new(
@@ -140,7 +165,6 @@ public sealed class ProjectGroupService
         group.Description,
         group.ScriptGuidance,
         group.VideoGuidance,
-        PromptGuidance.ParseVariablesJson(group.PromptVariablesJson),
         projectCount,
         group.CreatedAtUtc,
         group.UpdatedAtUtc,

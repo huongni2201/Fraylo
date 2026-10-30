@@ -345,11 +345,9 @@ public sealed partial class ProjectWorkflowService
                 CanGenerateImage(config.WorkflowMode, config.VideoStrategy))
             {
                 var prompt = scenePurpose ?? scene.PromptText ?? config.GoalPrompt;
-                var imageTemplate = await dbContext.PromptTemplates.AsNoTracking()
-                    .FirstOrDefaultAsync(t => t.Purpose == JobTaskType.Image && t.IsActive, cancellationToken).ConfigureAwait(false);
-                var imageInstruction = imageTemplate == null ? string.Empty :
-                    (await new PromptTemplateService(dbContext).PreviewAsync(
-                        new PromptPreviewRequest(imageTemplate.Id, null, null, null), cancellationToken).ConfigureAwait(false)).RenderedText + "\n\n";
+                var imageTemplate = await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(dbContext, JobTaskType.Image, cancellationToken).ConfigureAwait(false);
+                var imageInstruction = (await new PromptTemplateService(dbContext).PreviewAsync(
+                    new PromptPreviewRequest(imageTemplate.Id, null, null, null), cancellationToken).ConfigureAwait(false)).RenderedText + "\n\n";
                 nextRequest = new JobEnqueueRequest(
                     ProjectId: projectId,
                     SceneId: scene.Id,
