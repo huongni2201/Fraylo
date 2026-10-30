@@ -90,9 +90,7 @@ public sealed class GeminiPlaywrightAutomation
                 }
                 await fileInput.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 15000 }).WaitAsync(ct).ConfigureAwait(false);
                 await fileInput.SetInputFilesAsync(imagePaths).WaitAsync(ct).ConfigureAwait(false);
-                await page.WaitForFunctionAsync(
-                    "expected => document.querySelector('input[type=file][accept*=image]')?.files?.length === expected",
-                    imagePaths.Count, new() { Timeout = 30000 }).WaitAsync(ct).ConfigureAwait(false);
+                // Do not poll input.files: job log showed a 30s timeout here, and the send-button wait below covers the upload.
             }
             await composer.ClickAsync().WaitAsync(ct).ConfigureAwait(false);
             await page.Keyboard.InsertTextAsync(prompt).WaitAsync(ct).ConfigureAwait(false);
