@@ -6,7 +6,7 @@
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         xmlns:local="clr-namespace:TiToAI.Desktop"
         mc:Ignorable="d"
-        Title="TiToAI" Height="960" Width="1560" MinHeight="700" MinWidth="1100"
+        Title="TiToAI" Height="960" Width="1360" MinHeight="700" MinWidth="1100"
         WindowStartupLocation="CenterScreen"
         Background="#0B1220">
     <Grid x:Name="RootGrid">

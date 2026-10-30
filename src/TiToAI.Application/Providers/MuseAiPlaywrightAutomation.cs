@@ -120,7 +120,7 @@ public sealed class MuseAiPlaywrightAutomation
                 await _activity.WriteAsync(job.JobId, "media", $"Không thấy ảnh xem trước dạng blob nhưng input đã nhận đủ file, tiếp tục: {snapshot}", ct).ConfigureAwait(false);
             }
             var quietSince = DateTime.UtcNow;
-            var uploadDeadline = DateTime.UtcNow.AddSeconds(90);
+            var uploadDeadline = DateTime.UtcNow.AddSeconds(30);
             while (DateTime.UtcNow - quietSince < TimeSpan.FromSeconds(3) && DateTime.UtcNow < uploadDeadline)
             {
                 if (!pendingRequests.IsEmpty) quietSince = DateTime.UtcNow;
@@ -130,7 +130,12 @@ public sealed class MuseAiPlaywrightAutomation
             page.RequestFinished -= UploadEnded;
             page.RequestFailed -= UploadEnded;
             if (!pendingRequests.IsEmpty)
-                throw new InvalidOperationException("Ảnh tham chiếu chưa tải lên xong trên MuseAI sau 90 giây.");
+            {
+                // shortcut: a long-lived POST (telemetry/stream) also keeps this set non-empty, so it must not abort the render;
+                // blob previews + the enabled Send button below gate the send. Upgrade by filtering to the real upload URL once logged.
+                var stuck = string.Join(", ", pendingRequests.Keys.Take(5).Select(r => $"{r.Method} {new Uri(r.Url).GetLeftPart(UriPartial.Path)}"));
+                await _activity.WriteAsync(job.JobId, "media", $"Còn request ghi chưa xong sau 30 giây, tiếp tục điền prompt: {stuck}", ct).ConfigureAwait(false);
+            }
             await _activity.WriteAsync(job.JobId, "media", $"Đã đính kèm {imagePaths.Count} ảnh theo thứ tự.", ct).ConfigureAwait(false);
 
             await composer.FillAsync(fullPrompt).WaitAsync(ct).ConfigureAwait(false);

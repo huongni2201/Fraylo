@@ -38,6 +38,9 @@ public sealed class ChatGptPlaywrightAutomation
     private const string AssistantSelector = "[data-message-author-role='assistant'], [data-markdown-text-style='assistant-message']";
     private const string CopySelector = "[data-testid='copy-turn-action-button'], button[aria-label='Copy']";
 
+    // Seen 2026-10-30: generated images live in this gallery with a blob: src (not https), and image-only replies have no assistant-message attributes.
+    private const string GeneratedImages = "[...document.querySelectorAll(\"[data-testid='generated-image-gallery'] img\")].filter(img => img.naturalWidth >= 256 && img.naturalHeight >= 256 && img.currentSrc)";
+
     public async Task<JobExecutionResult> ExecuteTextAsync(
         JobExecutionContext job,
         Func<Task> beforeSubmit,
@@ -130,35 +133,18 @@ public sealed class ChatGptPlaywrightAutomation
             await _activity.WriteAsync(job.JobId, "submit", "Đã bấm gửi trên ChatGPT.", ct).ConfigureAwait(false);
             if (progress is not null) await progress(50, "Đang chờ ChatGPT trả lời").ConfigureAwait(false);
 
-            await page.WaitForFunctionAsync("previous => document.querySelectorAll('[data-message-author-role=assistant], [data-markdown-text-style=assistant-message]').length > previous",
-                initialAssistantCount, new() { Timeout = 120000 }).WaitAsync(ct).ConfigureAwait(false);
-            var response = assistantMessages.Last;
-            await response.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 120000 }).WaitAsync(ct).ConfigureAwait(false);
-            // The copy action sits beside the reply, not inside it. Wait for a new one: the previous turn's copy button is already visible while this reply is still streaming.
-            await page.WaitForFunctionAsync($"previous => document.querySelectorAll(\"{CopySelector}\").length > previous",
-                initialCopyCount, new() { Timeout = 180000 }).WaitAsync(ct).ConfigureAwait(false);
-            await page.Locator(CopySelector).Last
-                .WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 180000 }).WaitAsync(ct).ConfigureAwait(false);
             if (job.TaskType == JobTaskType.Image)
             {
-                await page.WaitForFunctionAsync("() => { const message = [...document.querySelectorAll('[data-message-author-role=assistant], [data-markdown-text-style=assistant-message]')].at(-1); return !!message && [...message.querySelectorAll('img')].some(img => img.naturalWidth >= 256 && img.naturalHeight >= 256); }",
-                    null, new() { Timeout = 180000 }).WaitAsync(ct).ConfigureAwait(false);
-                var source = await response.EvaluateAsync<string>("message => [...message.querySelectorAll('img')].filter(img => img.naturalWidth >= 256 && img.naturalHeight >= 256).at(-1)?.currentSrc || ''").WaitAsync(ct).ConfigureAwait(false);
+                // An image-only reply has neither the assistant-message attributes nor a Copy button, so gate on a generated image outside the user's turn plus a finished stream.
+                await page.WaitForFunctionAsync($"() => {GeneratedImages}.length > 0 && !document.querySelector(\"[data-testid='stop-button'], button[aria-label='Stop streaming']\")",
+                    null, new() { Timeout = 600000 }).WaitAsync(ct).ConfigureAwait(false);
+                var source = await page.EvaluateAsync<string>($"() => {GeneratedImages}.at(-1)?.currentSrc || ''").WaitAsync(ct).ConfigureAwait(false);
                 if (string.IsNullOrWhiteSpace(source))
                     throw new InvalidOperationException("Không tìm thấy ảnh tạo đủ kích thước trong phản hồi ChatGPT.");
-                if (!Uri.TryCreate(source, UriKind.Absolute, out var imageUri) || imageUri.Scheme != Uri.UriSchemeHttps)
-                    throw new InvalidOperationException("URL ảnh ChatGPT không hợp lệ.");
+                await _activity.WriteAsync(job.JobId, "result", "Đã thấy ảnh kết quả; đang tải về.", ct).ConfigureAwait(false);
 
-                using var playwright = await Playwright.CreateAsync().WaitAsync(ct).ConfigureAwait(false);
-                await using var request = await playwright.APIRequest.NewContextAsync(new()
-                {
-                    StorageState = await handle.Context.StorageStateAsync().WaitAsync(ct).ConfigureAwait(false)
-                }).WaitAsync(ct).ConfigureAwait(false);
-                var imageResponse = await request.GetAsync(source, new() { Timeout = 30000 }).WaitAsync(ct).ConfigureAwait(false);
-                if (!imageResponse.Ok) throw new InvalidOperationException("Không tải được ảnh kết quả từ ChatGPT.");
-                var imageBytes = await imageResponse.BodyAsync().WaitAsync(ct).ConfigureAwait(false);
-                var contentType = imageResponse.Headers.TryGetValue("content-type", out var header) ? header.Split(';')[0].Trim() : "";
-                var dataUrl = $"data:{contentType};base64,{Convert.ToBase64String(imageBytes)}";
+                // Fetch inside the page so the request carries the real browser's cookies and TLS fingerprint.
+                var dataUrl = await page.EvaluateAsync<string>("async src => { const r = await fetch(src, { credentials: 'include' }); if (!r.ok) throw new Error('HTTP ' + r.status); const blob = await r.blob(); return await new Promise((resolve, reject) => { const f = new FileReader(); f.onload = () => resolve(f.result); f.onerror = reject; f.readAsDataURL(blob); }); }", source).WaitAsync(ct).ConfigureAwait(false);
                 var (fileName, base64) = ValidateGeneratedImage(dataUrl);
                 var uploaded = await _assets.UploadAssetAsync(new UploadAssetRequest(job.ProjectId, "Image", fileName, base64, StorageRootId: job.StorageRootId), ct).ConfigureAwait(false);
                 if (uploaded.Asset is null)
@@ -166,6 +152,15 @@ public sealed class ChatGptPlaywrightAutomation
                 await _activity.WriteAsync(job.JobId, "result", "Đã lưu ảnh kết quả thành Asset.", ct).ConfigureAwait(false);
                 return new(true, ResultReference: uploaded.Asset.AssetId, SideEffectSubmitted: true);
             }
+            await page.WaitForFunctionAsync("previous => document.querySelectorAll('[data-message-author-role=assistant], [data-markdown-text-style=assistant-message]').length > previous",
+                initialAssistantCount, new() { Timeout = 300000 }).WaitAsync(ct).ConfigureAwait(false);
+            var response = assistantMessages.Last;
+            await response.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 300000 }).WaitAsync(ct).ConfigureAwait(false);
+            // The copy action sits beside the reply, not inside it. Wait for a new one: the previous turn's copy button is already visible while this reply is still streaming.
+            await page.WaitForFunctionAsync($"previous => document.querySelectorAll(\"{CopySelector}\").length > previous",
+                initialCopyCount, new() { Timeout = 600000 }).WaitAsync(ct).ConfigureAwait(false);
+            await page.Locator(CopySelector).Last
+                .WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 600000 }).WaitAsync(ct).ConfigureAwait(false);
             var result = (await response.InnerTextAsync().WaitAsync(ct).ConfigureAwait(false)).Trim();
             if (string.IsNullOrWhiteSpace(result))
                 return new(false, ReasonCode: "empty_response", ErrorMessage: "ChatGPT trả về nội dung rỗng.", SideEffectSubmitted: true);

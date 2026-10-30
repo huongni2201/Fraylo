@@ -225,6 +225,9 @@ public sealed class PlaywrightBrowserController : IBrowserProcessController
                     // Playwright tắt sandbox mặc định; bật lại để giữ sandbox của Chrome.
                     ChromiumSandbox = true
                 };
+                // Cloudflare của ChatGPT/Gemini chặn cờ automation mặc định; TikTok giữ nguyên, không che.
+                if (profile.Kind != BrowserProfileKind.TikTok)
+                    launchOptions.Args = ["--disable-blink-features=AutomationControlled"];
 
             IBrowserContext browserContext;
 

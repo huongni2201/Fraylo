@@ -6,6 +6,7 @@ import { StorageSettingsPanel } from "./StorageSettingsPanel";
 import { AiProviderSettingsPanel } from "./AiProviderSettingsPanel";
 import { cn } from "../../lib/utils";
 import { PageHeader } from "../../components/PageHeader";
+import { updatesApi, type UpdateInfo } from "./updatesApi";
 
 export type SettingsTab = "accounts" | "storage" | "ai" | "appearance";
 
@@ -110,6 +111,59 @@ function AlertTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingEle
 
 function AlertDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
   return <div className={cn("text-sm [&_p]:leading-relaxed", className)} {...props} />;
+}
+
+function AppUpdateCard() {
+  const [info, setInfo] = useState<UpdateInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async (action: () => Promise<unknown>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+    } catch (e) {
+      setError((e as { message?: string })?.message ?? "Không thể cập nhật.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Phiên bản & cập nhật</CardTitle>
+        <CardDescription>
+          Kiểm tra bản mới trên GitHub Releases. Dữ liệu được sao lưu tự động trước khi cập nhật.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {info && (
+          <p className="text-sm">
+            Hiện tại <b>{info.currentVersion}</b>
+            {info.hasUpdate ? <> — có bản mới <b>{info.latestVersion}</b></> : " — đang là bản mới nhất."}
+          </p>
+        )}
+        {info?.hasUpdate && info.releaseNotes.length > 0 && (
+          <ul className="list-disc pl-5 text-sm text-muted-foreground">
+            {info.releaseNotes.map((note) => <li key={note}>{note}</li>)}
+          </ul>
+        )}
+        {error && <Alert variant="destructive">{error}</Alert>}
+        <div className="flex gap-2">
+          <Button variant="outline" disabled={busy} onClick={() => run(async () => setInfo(await updatesApi.check()))}>
+            Kiểm tra cập nhật
+          </Button>
+          {info?.hasUpdate && (
+            <Button disabled={busy} onClick={() => run(() => updatesApi.apply())}>
+              {busy ? "Đang tải..." : `Cập nhật lên ${info.latestVersion}`}
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export function SettingsPage({ initialTab = "accounts", onDirtyChange, resetSignal, accountsNavigationSignal }: SettingsPageProps) {
@@ -414,6 +468,8 @@ export function SettingsPage({ initialTab = "accounts", onDirtyChange, resetSign
               </Alert>
             </CardContent>
           </Card>
+
+          <AppUpdateCard />
         </div>
       </div>
     </div>

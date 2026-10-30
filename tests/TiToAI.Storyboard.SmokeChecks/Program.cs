@@ -40,6 +40,29 @@ foreach (var invalidGrid in new[] { Grid(8), Grid(9, motion: false), Grid(9, dur
     catch (ProjectWorkflowValidationException) { }
 }
 
+// Phản hồi thật từ Gemini (shot 1–2 giây, bọc trong khối ```json) phải qua kiểm tra 9 ô.
+const string geminiGrid = """
+Đây là storyboard:
+```json
+{"durationSeconds":15,"shots":[
+{"startSeconds":0,"endSeconds":2,"description":"a","imagePrompt":"a","motionPrompt":"a"},
+{"startSeconds":2,"endSeconds":4,"description":"b","imagePrompt":"b","motionPrompt":"b"},
+{"startSeconds":4,"endSeconds":5,"description":"c","imagePrompt":"c","motionPrompt":"c"},
+{"startSeconds":5,"endSeconds":7,"description":"d","imagePrompt":"d","motionPrompt":"d"},
+{"startSeconds":7,"endSeconds":9,"description":"e","imagePrompt":"e","motionPrompt":"e"},
+{"startSeconds":9,"endSeconds":10,"description":"f","imagePrompt":"f","motionPrompt":"f"},
+{"startSeconds":10,"endSeconds":12,"description":"g","imagePrompt":"g","motionPrompt":"g"},
+{"startSeconds":12,"endSeconds":13,"description":"h","imagePrompt":"h","motionPrompt":"h"},
+{"startSeconds":13,"endSeconds":15,"description":"i","imagePrompt":"i","motionPrompt":"i"}]}
+```
+""";
+try { StoryboardContentService.ParseGrid(geminiGrid, 15); }
+catch (ProjectWorkflowValidationException ex) { throw new Exception("Gemini grid: " + ex.Message); }
+// innerText của khối code Gemini: không có ```, có nhãn "JSON" phía trước.
+var plainGrid = "JSON\n" + geminiGrid.Split("```json")[1].Split("```")[0] + "\nSao chép";
+try { StoryboardContentService.ParseGrid(plainGrid, 15); }
+catch (ProjectWorkflowValidationException ex) { throw new Exception("Gemini innerText grid: " + ex.Message); }
+
 await using var connection = new SqliteConnection("Data Source=:memory:");
 await connection.OpenAsync();
 var options = new DbContextOptionsBuilder<TiToAIDbContext>().UseSqlite(connection).Options;

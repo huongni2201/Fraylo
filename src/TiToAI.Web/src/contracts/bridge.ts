@@ -118,6 +118,9 @@ export const bridgeCommandAllowlist = [
   "publishing.list",
   "publishing.publish",
   "publishing.reconcile",
+
+  "updates.check",
+  "updates.apply",
 ] as const;
 
 export const g1CommandAllowlist = bridgeCommandAllowlist;

@@ -1,0 +1,39 @@
+name: Release TiToAI
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: src/TiToAI.Web/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - run: pnpm install --frozen-lockfile
+        working-directory: src/TiToAI.Web
+      - name: Cài Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Đóng gói
+        shell: pwsh
+        run: scripts/package-release.ps1 -Version "${{ github.ref_name }}".TrimStart('v')
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            dist/releases/TiToAI-*-win-x64.zip
+            dist/releases/TiToAI-Setup-v*.exe
+            dist/releases/manifest.json
+          generate_release_notes: true

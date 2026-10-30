@@ -148,12 +148,12 @@ export function TikTokSyncDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="sm:max-w-[520px] p-6 gap-5"
+        className="sm:max-w-[520px] grid-cols-[minmax(0,1fr)] p-6 gap-5"
         data-testid="tiktok-sync-dialog"
       >
         <DialogHeader className="space-y-1.5">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-white shadow-xs">
+          <div className="flex items-center gap-2 pr-6">
+            <div className="w-8 h-8 shrink-0 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-white shadow-xs">
               <Layers className="w-4 h-4" />
             </div>
             <DialogTitle className="text-lg font-bold text-foreground">
@@ -165,13 +165,13 @@ export function TikTokSyncDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4 break-words">
           {/* 1. TikTok Account & Session Status Box */}
           <div
             className="p-3.5 rounded-xl border border-border/70 bg-card/60 space-y-2.5"
             data-testid="tiktok-session-status"
           >
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                 <Globe className="w-3.5 h-3.5 text-muted-foreground" />
                 Phiên trình duyệt TikTok
@@ -205,8 +205,8 @@ export function TikTokSyncDialog({
 
             {/* Session Details / Account Info */}
             {!checkingSession && sessionData && (
-              <div className="text-xs text-muted-foreground pt-1 border-t border-border/40 flex items-center justify-between">
-                <span>
+              <div className="text-xs text-muted-foreground pt-1 border-t border-border/40 flex flex-wrap items-center justify-between gap-2">
+                <span className="min-w-0 break-all">
                   Tài khoản:{" "}
                   <strong className="text-foreground font-mono">
                     {sessionData.accountIdentity || (sessionData.isLoggedIn ? "Đã xác thực" : "Chưa liên kết")}

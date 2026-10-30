@@ -107,18 +107,18 @@ public sealed class GeminiPlaywrightAutomation
             if (progress is not null) await progress(50, "Đang chờ Gemini trả lời").ConfigureAwait(false);
 
             await page.WaitForFunctionAsync("previous => document.querySelectorAll('message-content, .model-response-text').length > previous",
-                initialAssistantCount, new() { Timeout = 120000 }).WaitAsync(ct).ConfigureAwait(false);
+                initialAssistantCount, new() { Timeout = 300000 }).WaitAsync(ct).ConfigureAwait(false);
             var response = assistantMessages.Last;
-            await response.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 120000 }).WaitAsync(ct).ConfigureAwait(false);
+            await response.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 300000 }).WaitAsync(ct).ConfigureAwait(false);
             // The prompt's own "Sao chép câu lệnh" button sits before the reply, so the copy gate is scoped to the reply container.
             await page.Locator("response-container").Last.Locator("button[aria-label*='Copy' i], button[aria-label*='Sao chép' i]").First
-                .WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 180000 }).WaitAsync(ct).ConfigureAwait(false);
+                .WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 600000 }).WaitAsync(ct).ConfigureAwait(false);
             if (job.TaskType == JobTaskType.Image)
             {
                 // Gemini renders generated images next to the text (message-content), not inside it, so search the whole reply container.
                 var reply = page.Locator("response-container").Last;
                 await page.WaitForFunctionAsync("() => { const reply = [...document.querySelectorAll('response-container')].at(-1); return !!reply && [...reply.querySelectorAll('img')].some(img => img.naturalWidth >= 256 && img.naturalHeight >= 256); }",
-                    null, new() { Timeout = 180000 }).WaitAsync(ct).ConfigureAwait(false);
+                    null, new() { Timeout = 300000 }).WaitAsync(ct).ConfigureAwait(false);
                 var source = await reply.EvaluateAsync<string>("reply => [...reply.querySelectorAll('img')].filter(img => img.naturalWidth >= 256 && img.naturalHeight >= 256).at(-1)?.currentSrc || ''").WaitAsync(ct).ConfigureAwait(false);
                 if (string.IsNullOrWhiteSpace(source))
                     throw new InvalidOperationException("Không tìm thấy ảnh tạo đủ kích thước trong phản hồi Gemini.");

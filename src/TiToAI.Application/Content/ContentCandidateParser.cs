@@ -39,7 +39,11 @@ public static class ContentCandidateParser
             }
         }
 
-        return rawText.Trim();
+        // innerText của khối code trên web AI không có dấu ```, thường kèm nhãn "JSON"/"Copy" trước và sau JSON.
+        var trimmed = rawText.Trim();
+        var first = trimmed.IndexOf('{');
+        var last = trimmed.LastIndexOf('}');
+        return first >= 0 && last > first ? trimmed[first..(last + 1)] : trimmed;
     }
 
     /// <summary>

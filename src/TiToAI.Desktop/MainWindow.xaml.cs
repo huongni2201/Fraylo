@@ -48,6 +48,7 @@ public partial class MainWindow : Window
     private WorkflowHandlers? _workflowHandlers;
     private AnalyticsHandlers? _analyticsHandlers;
     private PublishingHandlers? _publishingHandlers;
+    private UpdateHandlers? _updateHandlers;
     private BrowserHandlers? _browserHandlers;
     private SettingsHandlers? _settingsHandlers;
     private AssetHandlers? _assetHandlers;
@@ -123,7 +124,7 @@ public partial class MainWindow : Window
         {
             // Tối ưu kích thước ban đầu: chiếm khoảng 85% diện tích màn hình làm việc
             // Giúp ứng dụng rộng rãi, thoáng đãng trên cả màn hình 2K, 3K lẫn Full HD
-            double targetWidth = Math.Min(1680, Math.Max(1440, workArea.Width * 0.85));
+            double targetWidth = Math.Min(1360, Math.Max(1200, workArea.Width * 0.7));
             double targetHeight = Math.Min(1020, Math.Max(880, workArea.Height * 0.85));
 
             // Bảo đảm không vượt quá diện tích làm việc của màn hình nhỏ
@@ -353,6 +354,9 @@ public partial class MainWindow : Window
             _publishingHandlers = new PublishingHandlers(publishingService);
             _publishingHandlers.Register(DispatcherInstance);
 
+            _updateHandlers = new UpdateHandlers(new AppUpdateService(() => Dispatcher.BeginInvoke(() => System.Windows.Application.Current.Shutdown())));
+            _updateHandlers.Register(DispatcherInstance);
+
             var snapshotFactory = new JobSnapshotFactory(settingsService, dbOptions: dbOptions);
             var reservation = new JobReservation(dbOptions);
             var executor = new ProductionJobExecutor(providerRegistry);
@@ -580,6 +584,11 @@ public partial class MainWindow : Window
             _publishingHandlers.Unregister(DispatcherInstance);
             _publishingHandlers = null;
         }
+        if (_updateHandlers != null)
+        {
+            _updateHandlers.Unregister(DispatcherInstance);
+            _updateHandlers = null;
+        }
 
         if (_browserGatekeeper != null)
         {
@@ -688,6 +697,11 @@ public partial class MainWindow : Window
         {
             _publishingHandlers.Unregister(DispatcherInstance);
             _publishingHandlers = null;
+        }
+        if (_updateHandlers != null)
+        {
+            _updateHandlers.Unregister(DispatcherInstance);
+            _updateHandlers = null;
         }
 
         if (_browserGatekeeper != null)
