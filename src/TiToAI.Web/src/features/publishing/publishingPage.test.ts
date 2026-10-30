@@ -1,20 +1,7 @@
-import { register } from "node:module";
-import { GlobalWindow } from "happy-dom";
+import "../../test/setupDom.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { PublishingApi, PublishRequest, PublishAttempt } from "./publishingApi";
-
-register("../prompts/test-loader.mjs", import.meta.url);
-const dom = new GlobalWindow({ url: "http://localhost:3000" });
-Object.assign(globalThis, {
-  window: dom, document: dom.document, HTMLElement: dom.HTMLElement,
-  HTMLButtonElement: dom.HTMLButtonElement, HTMLInputElement: dom.HTMLInputElement,
-  HTMLSelectElement: dom.HTMLSelectElement, HTMLTextAreaElement: dom.HTMLTextAreaElement,
-  Event: dom.Event, MouseEvent: dom.MouseEvent, MutationObserver: dom.MutationObserver,
-  getComputedStyle: dom.getComputedStyle.bind(dom),
-  requestAnimationFrame: (cb: () => void) => setTimeout(cb, 0), cancelAnimationFrame: clearTimeout,
-  IS_REACT_ACT_ENVIRONMENT: true,
-});
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { PublishingPage } = await import("./PublishingPage");

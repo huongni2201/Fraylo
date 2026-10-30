@@ -253,7 +253,7 @@ export function getStateBadgeInfo(state: JobState, cancelRequested?: boolean): S
       variant: "warning",
       icon: Clock,
       animate: true,
-      badgeClass: "border-amber-500/50 text-amber-600 dark:text-amber-400 bg-amber-500/10",
+      badgeClass: "border-warning/50 text-warning dark:text-warning bg-warning/10",
     };
   }
 
@@ -263,14 +263,14 @@ export function getStateBadgeInfo(state: JobState, cancelRequested?: boolean): S
         label: "Đang chờ",
         variant: "warning",
         icon: Clock,
-        badgeClass: "border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/10",
+        badgeClass: "border-warning/30 text-warning dark:text-warning bg-warning/10",
       };
     case "Reserved":
       return {
         label: "Đã giữ chỗ",
         variant: "info",
         icon: Clock,
-        badgeClass: "border-sky-500/30 text-sky-600 dark:text-sky-400 bg-sky-500/10",
+        badgeClass: "border-info/30 text-info dark:text-info bg-info/10",
       };
     case "Running":
       return {
@@ -285,14 +285,14 @@ export function getStateBadgeInfo(state: JobState, cancelRequested?: boolean): S
         label: "Cần xử lý",
         variant: "info",
         icon: AlertCircle,
-        badgeClass: "border-orange-500/50 text-orange-600 dark:text-orange-400 bg-orange-500/10",
+        badgeClass: "border-warning/50 text-warning dark:text-warning bg-warning/10",
       };
     case "Succeeded":
       return {
         label: "Thành công",
         variant: "success",
         icon: CheckCircle2,
-        badgeClass: "border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10",
+        badgeClass: "border-success/30 text-success dark:text-success bg-success/10",
       };
     case "Failed":
       return {

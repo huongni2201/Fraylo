@@ -1,24 +1,6 @@
-import { register } from "node:module";
-import { GlobalWindow } from "happy-dom";
+import { domWindow } from "../../test/setupDom.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-
-register("../prompts/test-loader.mjs", import.meta.url);
-
-const domWindow = new GlobalWindow({ url: "http://localhost:3000" });
-globalThis.window = domWindow as unknown as Window & typeof globalThis;
-globalThis.document = domWindow.document as unknown as Document;
-globalThis.HTMLElement = domWindow.HTMLElement as unknown as typeof HTMLElement;
-globalThis.HTMLButtonElement = domWindow.HTMLButtonElement as unknown as typeof HTMLButtonElement;
-globalThis.HTMLDivElement = domWindow.HTMLDivElement as unknown as typeof HTMLDivElement;
-globalThis.HTMLInputElement = domWindow.HTMLInputElement as unknown as typeof HTMLInputElement;
-globalThis.KeyboardEvent = domWindow.KeyboardEvent as unknown as typeof KeyboardEvent;
-globalThis.MouseEvent = domWindow.MouseEvent as unknown as typeof MouseEvent;
-globalThis.Event = domWindow.Event as unknown as typeof Event;
-globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
-(globalThis as unknown as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
-
 const initialScenes: Array<{
   sceneId: string;
   projectId: string;

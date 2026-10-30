@@ -3,6 +3,7 @@ import {
   projectApi,
   type ProjectDetailDto,
   type SceneDto,
+  STATUS_LABEL,
 } from "./projectApi";
 import { SceneTable } from "./SceneTable";
 import { SceneForm } from "./SceneForm";
@@ -180,7 +181,7 @@ export function ProjectPage({ projectId, onBack, onOpenPublishing }: ProjectPage
                       : "secondary"
                   }
                 >
-                  ● {project.status}
+                  {STATUS_LABEL[project.status] ?? project.status}
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -291,7 +292,7 @@ export function ProjectPage({ projectId, onBack, onOpenPublishing }: ProjectPage
                 </div>
                 <Progress
                   value={scenes.length ? (stats.withPrompt / scenes.length) * 100 : 0}
-                  className="h-2 [&>div]:bg-emerald-500"
+                  className="h-2 [&>div]:bg-success"
                 />
               </div>
 
@@ -319,7 +320,7 @@ export function ProjectPage({ projectId, onBack, onOpenPublishing }: ProjectPage
                 </div>
                 <Progress
                   value={scenes.length ? (stats.withAudio / scenes.length) * 100 : 0}
-                  className="h-2 [&>div]:bg-sky-500"
+                  className="h-2 [&>div]:bg-info"
                 />
               </div>
 
@@ -333,7 +334,7 @@ export function ProjectPage({ projectId, onBack, onOpenPublishing }: ProjectPage
                 </div>
                 <Progress
                   value={scenes.length ? (stats.withVideo / scenes.length) * 100 : 0}
-                  className="h-2 [&>div]:bg-amber-500"
+                  className="h-2 [&>div]:bg-warning"
                 />
               </div>
             </CardContent>

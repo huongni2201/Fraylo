@@ -5,6 +5,7 @@ import { AccountSettingsPanel } from "./AccountSettingsPanel";
 import { StorageSettingsPanel } from "./StorageSettingsPanel";
 import { AiProviderSettingsPanel } from "./AiProviderSettingsPanel";
 import { cn } from "../../lib/utils";
+import { PageHeader } from "../../components/PageHeader";
 
 export type SettingsTab = "accounts" | "storage" | "ai" | "appearance";
 
@@ -86,9 +87,9 @@ function Alert({
   const variantClasses = {
     default: "bg-background text-foreground border-border",
     destructive: "border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive",
-    warning: "border-amber-500/50 text-amber-600 dark:text-amber-400 [&>svg]:text-amber-500",
-    info: "border-sky-500/50 text-sky-600 dark:text-sky-400 [&>svg]:text-sky-500",
-    success: "border-emerald-500/50 text-emerald-600 dark:text-emerald-400 [&>svg]:text-emerald-500",
+    warning: "border-warning/50 text-warning dark:text-warning [&>svg]:text-warning",
+    info: "border-info/50 text-info dark:text-info [&>svg]:text-info",
+    success: "border-success/50 text-success dark:text-success [&>svg]:text-success",
   };
   return (
     <div
@@ -206,19 +207,17 @@ export function SettingsPage({ initialTab = "accounts", onDirtyChange, resetSign
   );
 
   return (
-    <div className="flex flex-col gap-6 p-6 max-w-6xl mx-auto w-full" ref={containerRef}>
-      {/* HEADER CÀI ĐẶT TRONG APP SHELL */}
-      <div className="flex flex-wrap items-center justify-between gap-4 pb-2 border-b border-border/50">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <Settings className="h-6 w-6 text-primary" />
-            <h2 className="text-2xl font-bold tracking-tight text-foreground">Cài đặt hệ thống</h2>
-          </div>
-          <p className="text-sm text-muted-foreground mt-1">
-            Quản lý tài khoản AI &amp; mạng xã hội, đường dẫn lưu trữ, dịch vụ AI và giao diện ứng dụng
-          </p>
-        </div>
-      </div>
+    <div className="flex flex-col gap-6 max-w-6xl mx-auto w-full" ref={containerRef}>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2.5">
+            <Settings className="h-6 w-6 text-primary" aria-hidden="true" />
+            Cài đặt hệ thống
+          </span>
+        }
+        description="Quản lý tài khoản AI & mạng xã hội, đường dẫn lưu trữ, dịch vụ AI và giao diện ứng dụng"
+        className="border-b border-border/50 pb-4"
+      />
 
       {/* 4 TAB NGANG NẰM TRONG APP SHELL (WAI-ARIA TABLIST) */}
       <div
@@ -238,7 +237,7 @@ export function SettingsPage({ initialTab = "accounts", onDirtyChange, resetSign
               aria-selected={isSelected}
               tabIndex={isSelected ? 0 : -1}
               className={cn(
-                "inline-flex items-center justify-center whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+                "inline-flex items-center justify-center whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium transition-[color,background-color,border-color,box-shadow,opacity,transform] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
                 isSelected
                   ? "bg-background text-foreground shadow-xs font-semibold"
                   : "text-muted-foreground hover:bg-background/50 hover:text-foreground"
@@ -326,7 +325,7 @@ export function SettingsPage({ initialTab = "accounts", onDirtyChange, resetSign
                   id="theme-option-system"
                   aria-checked={preference === "system"}
                   className={cn(
-                    "flex flex-col text-left rounded-xl border-2 p-4 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "flex flex-col text-left rounded-xl border-2 p-4 transition-[color,background-color,border-color,box-shadow,opacity,transform] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     preference === "system"
                       ? "border-primary bg-primary/5 shadow-xs"
                       : "border-border hover:border-muted-foreground/30 bg-card"
@@ -347,7 +346,7 @@ export function SettingsPage({ initialTab = "accounts", onDirtyChange, resetSign
                   id="theme-option-light"
                   aria-checked={preference === "light"}
                   className={cn(
-                    "flex flex-col text-left rounded-xl border-2 p-4 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "flex flex-col text-left rounded-xl border-2 p-4 transition-[color,background-color,border-color,box-shadow,opacity,transform] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     preference === "light"
                       ? "border-primary bg-primary/5 shadow-xs"
                       : "border-border hover:border-muted-foreground/30 bg-card"
@@ -368,7 +367,7 @@ export function SettingsPage({ initialTab = "accounts", onDirtyChange, resetSign
                   id="theme-option-dark"
                   aria-checked={preference === "dark"}
                   className={cn(
-                    "flex flex-col text-left rounded-xl border-2 p-4 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "flex flex-col text-left rounded-xl border-2 p-4 transition-[color,background-color,border-color,box-shadow,opacity,transform] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     preference === "dark"
                       ? "border-primary bg-primary/5 shadow-xs"
                       : "border-border hover:border-muted-foreground/30 bg-card"

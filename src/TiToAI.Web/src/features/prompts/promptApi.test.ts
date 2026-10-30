@@ -1,7 +1,5 @@
-import { register } from "node:module";
+import "../../test/setupDom.ts";
 import type { IPromptTransport } from "./promptApi.ts";
-
-register("./test-loader.mjs", import.meta.url);
 const { promptApi } = await import("./promptApi.ts");
 
 function assert(condition: unknown, message: string): asserts condition {

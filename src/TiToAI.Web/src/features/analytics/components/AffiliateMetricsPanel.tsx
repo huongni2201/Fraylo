@@ -116,7 +116,7 @@ export function AffiliateMetricsPanel({
                 <span className="text-xs font-medium text-muted-foreground">
                   Lượt click sản phẩm / Affiliate
                 </span>
-                <MousePointerClick className="w-4 h-4 text-orange-500" />
+                <MousePointerClick className="w-4 h-4 text-warning" />
               </div>
               <div
                 className="text-2xl font-bold tracking-tight text-foreground mt-1"

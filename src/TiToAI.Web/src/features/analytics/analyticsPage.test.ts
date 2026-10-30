@@ -1,57 +1,6 @@
-import { register } from "node:module";
-import { GlobalWindow } from "happy-dom";
+import { domWindow } from "../../test/setupDom.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-
-register("../prompts/test-loader.mjs", import.meta.url);
-
-// Cấu hình môi trường giả lập DOM với happy-dom
-const domWindow = new GlobalWindow({ url: "http://localhost:3000" });
-globalThis.window = domWindow as unknown as Window & typeof globalThis;
-globalThis.document = domWindow.document as unknown as Document;
-globalThis.HTMLElement = domWindow.HTMLElement as unknown as typeof HTMLElement;
-globalThis.HTMLButtonElement = domWindow.HTMLButtonElement as unknown as typeof HTMLButtonElement;
-globalThis.HTMLDivElement = domWindow.HTMLDivElement as unknown as typeof HTMLDivElement;
-globalThis.HTMLInputElement = domWindow.HTMLInputElement as unknown as typeof HTMLInputElement;
-globalThis.HTMLTextAreaElement = domWindow.HTMLTextAreaElement as unknown as typeof HTMLTextAreaElement;
-globalThis.KeyboardEvent = domWindow.KeyboardEvent as unknown as typeof KeyboardEvent;
-globalThis.MouseEvent = domWindow.MouseEvent as unknown as typeof MouseEvent;
-globalThis.Event = domWindow.Event as unknown as typeof Event;
-globalThis.CustomEvent = domWindow.CustomEvent as unknown as typeof CustomEvent;
-globalThis.getComputedStyle = domWindow.getComputedStyle.bind(domWindow);
-globalThis.MutationObserver = domWindow.MutationObserver;
-globalThis.NodeFilter = domWindow.NodeFilter as unknown as typeof NodeFilter;
-
-class ResizeObserverMock {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
-globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
-(globalThis as unknown as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
-
-// Patch dispatchEvent cho happy-dom để chấp nhận CustomEvent từ mọi nguồn (Node/Radix UI)
-function wrapDispatchEvent(targetProto: any) {
-  if (!targetProto || !targetProto.dispatchEvent) return;
-  const orig = targetProto.dispatchEvent;
-  targetProto.dispatchEvent = function (event: any) {
-    if (event && !(event instanceof domWindow.Event)) {
-      const wrapped = new domWindow.CustomEvent(event.type, {
-        bubbles: event.bubbles,
-        cancelable: event.cancelable,
-        detail: event.detail,
-      });
-      return orig.call(this, wrapped);
-    }
-    return orig.call(this, event);
-  };
-}
-wrapDispatchEvent(domWindow.document);
-wrapDispatchEvent(domWindow);
-wrapDispatchEvent(domWindow.Node?.prototype);
-wrapDispatchEvent(domWindow.EventTarget?.prototype);
 
 // Mock control state
 type MockMode = "empty" | "null_metrics" | "populated";
@@ -358,7 +307,7 @@ test("T25-Test 1: Render đúng Empty State khi chưa có dữ liệu (totalVide
   const importCta = container.querySelector('[data-testid="empty-state-import-cta"]');
   assert.ok(importCta, "Phải có nút CTA nhập dữ liệu phân tích");
 
-  root.unmount();
+  act(() => root.unmount());
   container.remove();
 });
 
@@ -426,7 +375,7 @@ test("T25-Test 2: Xử lý giá trị null hiển thị ký tự '—' (không h
     "Giao diện tuyệt đối không được hiển thị NaN"
   );
 
-  root.unmount();
+  act(() => root.unmount());
   container.remove();
 });
 
@@ -469,7 +418,7 @@ test("T25-Test 3: Thay đổi bộ lọc kỳ ngày (7 ngày -> 30 ngày) kích 
   );
   assert.ok(filter7Call, "Bấm lọc 7 ngày phải kích hoạt bridge call analytics.get_summary với periodDays = 7");
 
-  root.unmount();
+  act(() => root.unmount());
   container.remove();
 });
 
@@ -530,7 +479,7 @@ test("T25-Test 4: Mở dialog Import, nhập dữ liệu và submit thành công
   const successNotice = document.querySelector('[data-testid="import-success"]');
   assert.ok(successNotice, "Phải hiển thị thông báo thành công sau khi import");
 
-  root.unmount();
+  act(() => root.unmount());
   container.remove();
 });
 
@@ -579,7 +528,7 @@ test("T25-Test 5: Mở modal TikTok Sync Dialog và hiển thị trạng thái k
   const startSyncBtn = document.querySelector('[data-testid="tiktok-start-sync-btn"]') as HTMLButtonElement;
   assert.ok(startSyncBtn, "Phải có nút Bắt đầu kéo dữ liệu về");
 
-  root.unmount();
+  act(() => root.unmount());
   container.remove();
 });
 
@@ -637,7 +586,7 @@ test("T25-Test 6: TikTok Sync Dialog xử lý trạng thái chưa đăng nhập 
   assert.ok(openLoginReq, "Phải kích hoạt bridge command analytics.open_tiktok_login");
   assert.equal(openLoginReq.payload.accountId, "acc_test_01");
 
-  root.unmount();
+  act(() => root.unmount());
   container.remove();
   mockTikTokSessionOverride = null;
 });
@@ -698,7 +647,7 @@ test("T25-Test 7: Kích hoạt nút Kéo dữ liệu từ kênh TikTok và nhậ
     "Phải hiển thị chi tiết số lượng video và handle kênh trả về"
   );
 
-  root.unmount();
+  act(() => root.unmount());
   container.remove();
   mockTikTokSessionOverride = null;
 });

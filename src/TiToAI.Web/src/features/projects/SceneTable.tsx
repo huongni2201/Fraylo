@@ -307,9 +307,9 @@ export function SceneTable({
                       <div className="flex items-center gap-1">
                         <div
                           className={cn(
-                            "w-12 h-9 rounded border text-xs font-medium flex items-center justify-center transition-all",
+                            "w-12 h-9 rounded border text-xs font-medium flex items-center justify-center transition-[color,background-color,border-color,box-shadow,opacity,transform]",
                             hasImage
-                              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                              ? "border-success/40 bg-success/10 text-success dark:text-success"
                               : "border-dashed border-border bg-muted/40 text-muted-foreground"
                           )}
                           title={hasImage ? `Mã ảnh: ${scene.imageAssetId}` : "Chưa có ảnh minh họa"}
@@ -397,7 +397,7 @@ export function SceneTable({
                     <TableCell className="text-center">
                       {hasImage ? (
                         <span
-                          className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                          className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-success/20 text-success dark:text-success"
                           title="Đã có ảnh minh họa"
                         >
                           <Check className="h-3 w-3" />
@@ -414,7 +414,7 @@ export function SceneTable({
                     <TableCell className="text-center">
                       {hasPrompt ? (
                         <span
-                          className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                          className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-success/20 text-success dark:text-success"
                           title="Đã có prompt chuyển động"
                         >
                           <Check className="h-3 w-3" />
@@ -431,7 +431,7 @@ export function SceneTable({
                     <TableCell className="text-center">
                       {hasVideo ? (
                         <span
-                          className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                          className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-success/20 text-success dark:text-success"
                           title="Đã kết xuất video"
                         >
                           <Check className="h-3 w-3" />
@@ -451,7 +451,7 @@ export function SceneTable({
                           className={cn(
                             "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium border transition-colors",
                             hasAudio
-                              ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                              ? "border-success/30 bg-success/15 text-success dark:text-success"
                               : "border-dashed border-border bg-transparent text-muted-foreground"
                           )}
                           title={hasAudio ? `Mã audio: ${scene.audioAssetId}` : "Chưa có âm thanh"}

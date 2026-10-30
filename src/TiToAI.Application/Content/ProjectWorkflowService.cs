@@ -139,6 +139,31 @@ public sealed partial class ProjectWorkflowService
         {
             throw new UnauthorizedAccessException($"Tệp {assetName} '{assetId}' thuộc Project '{asset.ProjectId}', không dùng được trong Project '{projectId}'.");
         }
+
+        if (asset.GroupId is not null)
+        {
+            var projectGroupId = await dbContext.Projects
+                .AsNoTracking()
+                .Where(p => p.Id == projectId)
+                .Select(p => p.GroupId)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (asset.GroupId != projectGroupId)
+            {
+                throw new UnauthorizedAccessException($"Tệp {assetName} '{assetId}' thuộc Nhóm khác, không dùng được trong Project '{projectId}'.");
+            }
+        }
+    }
+
+    private static async Task<ProjectGroup?> FindProjectGroupAsync(TiToAIDbContext dbContext, string projectId, CancellationToken cancellationToken)
+    {
+        var groupId = await dbContext.Projects
+            .AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => p.GroupId)
+            .FirstOrDefaultAsync(cancellationToken);
+        return groupId is null
+            ? null
+            : await dbContext.ProjectGroups.AsNoTracking().FirstOrDefaultAsync(g => g.Id == groupId, cancellationToken);
     }
 
     private static string NormalizeAndValidateGuid(string? id, string paramName)

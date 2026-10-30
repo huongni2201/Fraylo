@@ -12,7 +12,7 @@ export async function resolve(specifier, context, nextResolve) {
     };
   }
   if (specifier.startsWith("@/")) {
-    const srcDir = fileURLToPath(new URL("../../", import.meta.url));
+    const srcDir = fileURLToPath(new URL("../", import.meta.url));
     const subPath = specifier.slice(2);
     const resolvedPath = path.join(srcDir, subPath);
     for (const ext of ["", ".ts", ".tsx", "/index.ts", "/index.tsx"]) {

@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.app.json && vite build",
+    "test": "node --test \"src/**/*.test.ts\"",
     "preview": "vite preview"
   },
   "dependencies": {

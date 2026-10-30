@@ -134,7 +134,7 @@ export function AnalyticsChart({
                 key={metricKey}
                 variant={isSelected ? "secondary" : "ghost"}
                 size="sm"
-                className={`h-7 px-2.5 text-xs font-medium rounded-md transition-all gap-1.5 ${
+                className={`h-7 px-2.5 text-xs font-medium rounded-md transition-[color,background-color,border-color,box-shadow,opacity,transform] gap-1.5 ${
                   isSelected
                     ? "bg-background text-foreground shadow-xs"
                     : "text-muted-foreground hover:text-foreground"
@@ -188,7 +188,7 @@ export function AnalyticsChart({
               {yTicks.map((tickVal, idx) => {
                 const y = padding.top + innerHeight - (tickVal / yDomainMax) * innerHeight;
                 return (
-                  <g key={idx} className="transition-all">
+                  <g key={idx} className="transition-[color,background-color,border-color,box-shadow,opacity,transform]">
                     <line
                       x1={padding.left}
                       y1={y}
@@ -213,7 +213,7 @@ export function AnalyticsChart({
 
               {/* Area fill */}
               {areaPathD && (
-                <path d={areaPathD} fill={`url(#${gradientId})`} className="transition-all duration-300" />
+                <path d={areaPathD} fill={`url(#${gradientId})`} className="transition-[color,background-color,border-color,box-shadow,opacity,transform] duration-300" />
               )}
 
               {/* Trend line */}
@@ -225,7 +225,7 @@ export function AnalyticsChart({
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className="transition-all duration-300"
+                  className="transition-[color,background-color,border-color,box-shadow,opacity,transform] duration-300"
                 />
               )}
 
@@ -273,12 +273,12 @@ export function AnalyticsChart({
                       fill="var(--card, #fff)"
                       stroke={activeConfig.color}
                       strokeWidth={isHovered ? "3" : "2"}
-                      className="transition-all duration-150"
+                      className="transition-[color,background-color,border-color,box-shadow,opacity,transform] duration-150"
                     />
 
                     {/* Tooltip on hover */}
                     {isHovered && (
-                      <g className="pointer-events-none transition-all">
+                      <g className="pointer-events-none transition-[color,background-color,border-color,box-shadow,opacity,transform]">
                         {/* Vertical indicator line */}
                         <line
                           x1={c.x}

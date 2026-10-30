@@ -122,25 +122,31 @@ public sealed partial class ProjectWorkflowService
                 return true;
             }
 
-            var storyboard = TryParseStoryboard(job.ResultText, config.TargetDurationPerSceneSeconds);
-            if (storyboard != null)
+            IReadOnlyList<ScenePlanItemDto> sceneItems;
+            if (config.VideoStrategy == VideoStrategies.SingleVideo)
             {
-                await new StoryboardContentService(_dbOptions).SaveAsync(job.ProjectId, job.ResultText, config.TargetDurationPerSceneSeconds, cancellationToken).ConfigureAwait(false);
+                var storyboard = TryParseStoryboard(job.ResultText, config.TargetDurationPerSceneSeconds);
+                if (storyboard != null)
+                {
+                    await new StoryboardContentService(_dbOptions).SaveAsync(job.ProjectId, job.ResultText, config.TargetDurationPerSceneSeconds, cancellationToken).ConfigureAwait(false);
+                }
+                sceneItems = storyboard != null ? StoryboardScenePlan(storyboard) : Array.Empty<ScenePlanItemDto>();
             }
-            var sceneItems = storyboard != null
-                ? StoryboardScenePlan(storyboard)
-                : ExtractScenePlanItems(job.ResultText, config.TargetSceneCount, config.TargetDurationPerSceneSeconds);
+            else
+            {
+                sceneItems = ExtractScenePlanItems(job.ResultText, config.TargetSceneCount, config.TargetDurationPerSceneSeconds);
+            }
             if (sceneItems.Count == 0)
             {
                 var cfgSetting = await dbContext.AppSettings.FirstOrDefaultAsync(
                     setting => setting.Key == GetConfigKey(job.ProjectId), cancellationToken).ConfigureAwait(false);
                 if (cfgSetting != null)
                 {
-                    cfgSetting.Value = JsonSerializer.Serialize(config with
+                    cfgSetting.Value = await SerializeStoredConfigAsync(dbContext, config with
                     {
                         RunState = WorkflowRunState.Failed,
                         UpdatedAtUtc = nowIso
-                    }, JsonOptions);
+                    }, cancellationToken).ConfigureAwait(false);
                     cfgSetting.UpdatedAtUtc = nowIso;
                 }
                 await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -159,9 +165,10 @@ public sealed partial class ProjectWorkflowService
                         SequenceOrder = i + 1,
                         Name = item.Name,
                         TargetDurationSeconds = item.TargetDurationSeconds > 0 ? item.TargetDurationSeconds : config.TargetDurationPerSceneSeconds,
-                        PromptText = null,
+                        // Nhiều video: prompt video do Script trả sẵn; ảnh theo cảnh tạo riêng, trừ ReadyImage.
+                        PromptText = config.VideoStrategy == VideoStrategies.MultiVideo && !string.IsNullOrWhiteSpace(item.MotionPromptDraft) ? item.MotionPromptDraft : null,
                         ImageAssetId = config.WorkflowMode == WorkflowModes.ReadyImage ? config.ReadyImageAssetId :
-                                       config.WorkflowMode == WorkflowModes.ProductOnly ? config.ProductAssetId : null,
+                                       config.WorkflowMode == WorkflowModes.ProductOnly && config.VideoStrategy == VideoStrategies.SingleVideo ? config.ProductAssetId : null,
                         AudioAssetId = config.AudioOption == AudioOptions.CustomAudio ? config.AudioAssetId : null,
                         Status = "Draft",
                         CreatedAtUtc = nowIso,
@@ -174,6 +181,16 @@ public sealed partial class ProjectWorkflowService
                         Value = item.Purpose,
                         UpdatedAtUtc = nowIso
                     });
+                    if (config.VideoStrategy == VideoStrategies.MultiVideo)
+                    {
+                        // Bảng Project đọc hàng từ AppSettings; cảnh do Script tạo phải có hàng để bấm "Tạo video".
+                        await SaveOrUpdateContentItemAsync(dbContext, job.ProjectId, new VideoContentItemDto(
+                            Id: newScene.Id, ProjectId: job.ProjectId, SceneId: newScene.Id, SequenceOrder: newScene.SequenceOrder,
+                            Idea: newScene.Name, Hook: string.Empty, VideoScript: item.Purpose, VideoPrompt: newScene.PromptText ?? string.Empty,
+                            TikTokContent: string.Empty, ImageAssetId: newScene.ImageAssetId, VideoAssetId: null, AudioAssetId: newScene.AudioAssetId,
+                            Status: newScene.PromptText == null ? "Draft" : "ReadyForVideo", CreatedAtUtc: nowIso, UpdatedAtUtc: nowIso,
+                            ContentText: newScene.Name, ImagePrompt: item.Purpose), cancellationToken).ConfigureAwait(false);
+                    }
                     createdScenes.Add(newScene);
                 }
 
@@ -189,6 +206,11 @@ public sealed partial class ProjectWorkflowService
                 {
                     await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 }
+            }
+            // Nhiều video: cảnh có ảnh và prompt từ Script được render ngay, không chờ bước VideoPrompt.
+            if (!isPaused)
+            {
+                await TryAutoEnqueueVideoRenderAsync(job, cancellationToken).ConfigureAwait(false);
             }
             return true;
         }
@@ -289,8 +311,9 @@ public sealed partial class ProjectWorkflowService
 
             // Kích hoạt bước tiếp theo: VideoPrompt
             // Chú ý: Kể cả khi scene.PromptText đã có draft từ Script, VẪN enqueue VideoPrompt
-            // để AI writer hoàn thiện thành motion prompt đầy đủ với template đã render (§3.3, PV-R5, PV-R11)
-            if (!isPaused)
+            // để AI writer hoàn thiện thành motion prompt đầy đủ với template đã render (§3.3, PV-R5, PV-R11).
+            // Nhiều video đã có prompt từ Script thì bỏ qua bước này (VIDEO_TWO_FLOW_SPLIT §3.2).
+            if (!isPaused && (config.VideoStrategy == VideoStrategies.SingleVideo || string.IsNullOrWhiteSpace(scene.PromptText)))
             {
                 var composition = await composer.ComposeVideoPromptAiRequestAsync(
                     config,
@@ -373,10 +396,10 @@ public sealed partial class ProjectWorkflowService
             scene.UpdatedAtUtc = nowIso;
 
             // Publish only a complete, linked video Asset as the Project's selected revision.
-            // Chỉ render cho cả Project (ảnh của mọi phân cảnh) mới thành video cuối khi có nhiều cảnh; clip một cảnh thì không.
-            var sceneCount = await dbContext.Scenes.CountAsync(s => s.ProjectId == job.ProjectId, cancellationToken).ConfigureAwait(false);
+            // Chỉ Project một cảnh (luồng một video) mới có video cuối; nhiều video thì mỗi cảnh giữ clip của mình.
+            var projectScenes = await dbContext.Scenes.Where(s => s.ProjectId == job.ProjectId).ToListAsync(cancellationToken).ConfigureAwait(false);
             var hasFinalVideo = false;
-            if ((sceneCount == 1 || CountSnapshotImages(job.ConfigSnapshotJson) == sceneCount) && !string.IsNullOrWhiteSpace(job.ResultReference))
+            if (projectScenes.Count == 1 && !string.IsNullOrWhiteSpace(job.ResultReference))
             {
                 var outputAsset = await dbContext.Assets.FirstOrDefaultAsync(
                     a => a.Id == job.ResultReference && a.AssetType == "Video" && a.Status == "Linked",
@@ -422,8 +445,10 @@ public sealed partial class ProjectWorkflowService
                 candidateHistory.Add(job.ResultReference);
             }
 
-            // Một render cho cả Project gắn video với phân cảnh neo; các phân cảnh khác chỉ giữ ảnh.
-            if (hasFinalVideo)
+            // Nhiều video: run hoàn tất khi mọi cảnh đã có video. Scene đã tracked nên VideoAssetId vừa gán có hiệu lực.
+            var multiVideoComplete = config.VideoStrategy == VideoStrategies.MultiVideo &&
+                                     projectScenes.All(s => !string.IsNullOrWhiteSpace(s.VideoAssetId));
+            if (hasFinalVideo || multiVideoComplete)
             {
                 var updatedConfig = config with
                 {
@@ -434,7 +459,7 @@ public sealed partial class ProjectWorkflowService
                 var cfgSetting = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == cfgKey, cancellationToken).ConfigureAwait(false);
                 if (cfgSetting != null)
                 {
-                    cfgSetting.Value = JsonSerializer.Serialize(updatedConfig, JsonOptions);
+                    cfgSetting.Value = await SerializeStoredConfigAsync(dbContext, updatedConfig, cancellationToken).ConfigureAwait(false);
                     cfgSetting.UpdatedAtUtc = nowIso;
                 }
             }
@@ -536,7 +561,7 @@ public sealed partial class ProjectWorkflowService
             }
         }
 
-        if (job.TaskType == JobTaskType.VideoPrompt && !isPaused)
+        if ((job.TaskType == JobTaskType.VideoPrompt || job.TaskType == JobTaskType.Image) && !isPaused)
         {
             await TryAutoEnqueueVideoRenderAsync(job, cancellationToken).ConfigureAwait(false);
         }
@@ -608,6 +633,12 @@ public sealed partial class ProjectWorkflowService
         var config = await GetWorkflowConfigAsync(projectId, cancellationToken).ConfigureAwait(false);
         if (config.RunState != WorkflowRunState.Running || config.CurrentRunId != runId || config.FinalVideoAssetId != null) return;
 
+        if (config.VideoStrategy == VideoStrategies.MultiVideo)
+        {
+            await TryAutoEnqueueSceneRendersAsync(projectId, runId, logJobId, cancellationToken, attempt).ConfigureAwait(false);
+            return;
+        }
+
         var claimKey = $"workflow.auto_render.{projectId}.{runId}";
 
         await using var dbContext = new TiToAIDbContext(_dbOptions);
@@ -657,6 +688,73 @@ public sealed partial class ProjectWorkflowService
             await ReleaseAutoRenderClaimAsync(claimKey, CancellationToken.None).ConfigureAwait(false);
             await WriteAutoRenderLogAsync(logJobId, "error", $"Chưa tự động tạo video: {ex.Message}. Sẽ thử lại tự động; có thể bấm Tạo video.", CancellationToken.None).ConfigureAwait(false);
             ScheduleAutoRenderRetry(projectId, runId, attempt);
+        }
+    }
+
+    /// <summary>
+    /// Nhiều video: mỗi cảnh đã có ảnh và prompt, chưa có video và không có job đang chờ thì đưa render riêng cho cảnh đó.
+    /// Khóa AppSettings theo cảnh chặn gửi trùng; lỗi enqueue thì bỏ khóa và lên lịch thử lại.
+    /// </summary>
+    private async Task TryAutoEnqueueSceneRendersAsync(string projectId, string runId, string? logJobId, CancellationToken cancellationToken, int attempt)
+    {
+        List<Scene> scenes;
+        HashSet<string> busySceneIds;
+        HashSet<string> staleSceneIds;
+        await using (var dbContext = new TiToAIDbContext(_dbOptions))
+        {
+            scenes = await dbContext.Scenes.AsNoTracking()
+                .Where(s => s.ProjectId == projectId)
+                .OrderBy(s => s.SequenceOrder)
+                .ToListAsync(cancellationToken).ConfigureAwait(false);
+            busySceneIds = (await dbContext.Jobs.AsNoTracking().Where(j =>
+                    j.ProjectId == projectId && j.SceneId != null &&
+                    (j.TaskType == JobTaskType.Image || j.TaskType == JobTaskType.VideoPrompt || j.TaskType == JobTaskType.VideoRender) &&
+                    (j.State == JobState.Queued || j.State == JobState.Reserved || j.State == JobState.Running || j.State == JobState.AwaitingUser))
+                .Select(j => j.SceneId!)
+                .ToListAsync(cancellationToken).ConfigureAwait(false)).ToHashSet();
+            var sceneKeys = scenes.Select(s => GetSceneKey(s.Id)).ToList();
+            var sceneSettings = await dbContext.AppSettings.AsNoTracking()
+                .Where(s => sceneKeys.Contains(s.Key))
+                .ToListAsync(cancellationToken).ConfigureAwait(false);
+            staleSceneIds = sceneSettings.Where(s => IsPromptStale(s.Value))
+                .Select(s => s.Key["scene.workflow.".Length..]).ToHashSet();
+        }
+
+        foreach (var scene in scenes)
+        {
+            if (scene.VideoAssetId != null || string.IsNullOrWhiteSpace(scene.ImageAssetId) || string.IsNullOrWhiteSpace(scene.PromptText)) continue;
+            if (busySceneIds.Contains(scene.Id)) continue;
+            if (staleSceneIds.Contains(scene.Id))
+            {
+                await WriteAutoRenderLogAsync(logJobId, "error", $"Chưa tự render cảnh {scene.SequenceOrder}: prompt video cần xem lại.", cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            var claimKey = $"workflow.auto_render.{projectId}.{runId}.{scene.Id}";
+            await using (var claimDb = new TiToAIDbContext(_dbOptions))
+            {
+                claimDb.AppSettings.Add(new AppSetting { Key = claimKey, Value = runId, UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("o") });
+                try
+                {
+                    await claimDb.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (DbUpdateException)
+                {
+                    continue; // Lượt apply khác đã giữ khóa của cảnh này.
+                }
+            }
+
+            try
+            {
+                await CreateSceneVideoAsync(new CreateSceneVideoRequest(projectId, SceneId: scene.Id), cancellationToken).ConfigureAwait(false);
+                await WriteAutoRenderLogAsync(logJobId, "result", $"Đã tự đưa render MuseAI cảnh {scene.SequenceOrder} vào hàng đợi.", cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                await ReleaseAutoRenderClaimAsync(claimKey, CancellationToken.None).ConfigureAwait(false);
+                await WriteAutoRenderLogAsync(logJobId, "error", $"Chưa tự động tạo video cảnh {scene.SequenceOrder}: {ex.Message}. Sẽ thử lại tự động; có thể bấm Tạo video.", CancellationToken.None).ConfigureAwait(false);
+                ScheduleAutoRenderRetry(projectId, runId, attempt);
+            }
         }
     }
 
@@ -888,16 +986,6 @@ public sealed partial class ProjectWorkflowService
         _ => $"{taskType.ToLowerInvariant()}.{sceneId}"
     };
 
-    private static int CountSnapshotImages(string? configSnapshotJson)
-    {
-        if (string.IsNullOrWhiteSpace(configSnapshotJson)) return 0;
-        using var doc = JsonDocument.Parse(configSnapshotJson);
-        return doc.RootElement.TryGetProperty("MediaSnapshot", out var media) &&
-               media.TryGetProperty("ImageAssetIds", out var ids) && ids.ValueKind == JsonValueKind.Array
-            ? ids.GetArrayLength()
-            : 0;
-    }
-
     /// <summary>Storyboard hợp lệ thì trả về; kết quả Script không phải storyboard sẽ đi theo đường scenes cũ.</summary>
     private static StoryboardContent? TryParseStoryboard(string resultText, int durationSeconds)
     {
@@ -911,17 +999,26 @@ public sealed partial class ProjectWorkflowService
         }
     }
 
-    /// <summary>Mỗi shot thành một phân cảnh theo thứ tự; imagePrompt được giữ làm purpose để tạo ảnh.</summary>
+    /// <summary>
+    /// Luồng một video: cả storyboard là một phân cảnh. Mốc thời gian nằm trong purpose để prompt video giữ thứ tự các đoạn.
+    /// </summary>
     private static IReadOnlyList<ScenePlanItemDto> StoryboardScenePlan(StoryboardContent storyboard) =>
-        storyboard.Shots.Select((shot, index) => new ScenePlanItemDto(
-            SequenceOrder: index + 1,
-            Name: shot.Description,
-            Purpose: shot.ImagePrompt,
-            TargetDurationSeconds: shot.EndSeconds - shot.StartSeconds,
-            ImageStrategy: SceneImageStrategy.ReuseFoundation,
-            MotionPromptDraft: string.Empty)).ToArray();
+        new[]
+        {
+            new ScenePlanItemDto(
+                SequenceOrder: 1,
+                Name: "Video",
+                Purpose: string.Join("\n", storyboard.Shots.Select(shot => $"{shot.StartSeconds}–{shot.EndSeconds} giây: {shot.Description}")),
+                TargetDurationSeconds: storyboard.DurationSeconds,
+                ImageStrategy: SceneImageStrategy.ReuseFoundation,
+                MotionPromptDraft: string.Empty)
+        };
 
-    private static IReadOnlyList<ScenePlanItemDto> ExtractScenePlanItems(string resultText, int fallbackCount, int fallbackDuration)
+    /// <summary>
+    /// Luồng nhiều video: Script trả đúng <paramref name="expectedCount"/> cảnh, mỗi cảnh có imagePrompt (bắt buộc)
+    /// và videoPrompt (không có thì cảnh đi qua job VideoPrompt như trước).
+    /// </summary>
+    private static IReadOnlyList<ScenePlanItemDto> ExtractScenePlanItems(string resultText, int expectedCount, int durationSeconds)
     {
         var cleaned = resultText.Trim();
         if (cleaned.StartsWith("```json", StringComparison.OrdinalIgnoreCase))
@@ -941,53 +1038,36 @@ public sealed partial class ProjectWorkflowService
         try
         {
             using var doc = JsonDocument.Parse(cleaned);
-            if (doc.RootElement.TryGetProperty("scenes", out var scenesElement) && scenesElement.ValueKind == JsonValueKind.Array)
+            if (!doc.RootElement.TryGetProperty("scenes", out var scenesElement) || scenesElement.ValueKind != JsonValueKind.Array)
             {
-                var list = new List<ScenePlanItemDto>();
-                int seq = 1;
-                foreach (var el in scenesElement.EnumerateArray())
-                {
-                    string purpose = el.TryGetProperty("purpose", out var p) ? p.GetString() ?? $"Cảnh {seq}" : $"Cảnh {seq}";
-                    string name = el.TryGetProperty("name", out var n) ? n.GetString() ?? $"Cảnh {seq}: {purpose}" : $"Cảnh {seq}: {purpose}";
-                    string motionPrompt = el.TryGetProperty("motionPrompt", out var m) ? m.GetString() ?? string.Empty : string.Empty;
-                    int duration = el.TryGetProperty("targetDurationSeconds", out var d) && d.TryGetInt32(out var dVal) ? dVal : fallbackDuration;
-
-                    list.Add(new ScenePlanItemDto(
-                        SequenceOrder: seq++,
-                        Name: name,
-                        Purpose: purpose,
-                        TargetDurationSeconds: duration,
-                        ImageStrategy: SceneImageStrategy.ReuseFoundation,
-                        MotionPromptDraft: motionPrompt
-                    ));
-                }
-                if (list.Count == Math.Max(1, fallbackCount))
-                {
-                    return list;
-                }
+                return Array.Empty<ScenePlanItemDto>();
             }
 
-            if (doc.RootElement.TryGetProperty("idea", out var ideaEl) || doc.RootElement.TryGetProperty("video_prompt", out _))
+            var list = new List<ScenePlanItemDto>();
+            foreach (var el in scenesElement.EnumerateArray())
             {
-                string idea = doc.RootElement.TryGetProperty("idea", out var ie) ? ie.GetString() ?? "Cảnh 1" : "Cảnh 1";
-                string hook = doc.RootElement.TryGetProperty("hook", out var he) ? he.GetString() ?? "" : "";
-                string prompt = doc.RootElement.TryGetProperty("video_prompt", out var vpe) ? vpe.GetString() ?? "" : "";
-                return new[]
-                {
-                    new ScenePlanItemDto(
-                        SequenceOrder: 1,
-                        Name: idea,
-                        Purpose: hook,
-                        TargetDurationSeconds: fallbackDuration,
-                        ImageStrategy: SceneImageStrategy.ReuseFoundation,
-                        MotionPromptDraft: prompt
-                    )
-                };
+                int seq = list.Count + 1;
+                string name = el.TryGetProperty("name", out var n) ? n.GetString() ?? string.Empty : string.Empty;
+                string imagePrompt = el.TryGetProperty("imagePrompt", out var ip) ? ip.GetString() ?? string.Empty : string.Empty;
+                string videoPrompt = el.TryGetProperty("videoPrompt", out var vp) ? vp.GetString() ?? string.Empty : string.Empty;
+                list.Add(new ScenePlanItemDto(
+                    SequenceOrder: seq,
+                    Name: string.IsNullOrWhiteSpace(name) ? $"Cảnh {seq}" : name,
+                    Purpose: imagePrompt,
+                    TargetDurationSeconds: durationSeconds,
+                    ImageStrategy: SceneImageStrategy.ReuseFoundation,
+                    MotionPromptDraft: videoPrompt
+                ));
+            }
+
+            if (list.Count == Math.Max(1, expectedCount) && list.All(item => !string.IsNullOrWhiteSpace(item.Purpose)))
+            {
+                return list;
             }
         }
-        catch
+        catch (JsonException)
         {
-            // Fallback
+            // Phản hồi không phải JSON: không tạo cảnh, run báo lỗi ở bước Script.
         }
 
         return Array.Empty<ScenePlanItemDto>();

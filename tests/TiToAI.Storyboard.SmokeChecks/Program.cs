@@ -14,11 +14,16 @@ const string valid = """
 
 var storyboard = StoryboardContentService.Parse(valid, 15);
 if (storyboard.Shots.Count != 2) throw new Exception("Thiếu phân cảnh");
-foreach (var invalid in new[] { valid.Replace("\"startSeconds\":5", "\"startSeconds\":6"), valid.Replace("\"endSeconds\":15", "\"endSeconds\":14"), valid.Replace("Cận áo", "") })
+foreach (var invalid in new[] { valid.Replace("\"startSeconds\":5", "\"startSeconds\":6"), valid.Replace("\"endSeconds\":15", "\"endSeconds\":14"), valid.Replace("\"description\":\"Chi tiết\"", "\"description\":\"\""), "{ không phải JSON" })
 {
     try { StoryboardContentService.Parse(invalid, 15); throw new Exception("Đã chấp nhận storyboard sai"); }
     catch (ProjectWorkflowValidationException) { }
 }
+// Luồng một video: imagePrompt không bắt buộc; thời lượng AI đặt lệch trong ±2 giây được chấp nhận, quá dung sai bị từ chối.
+if (StoryboardContentService.Parse(valid.Replace(",\"imagePrompt\":\"Toàn thân\"", ""), 15).Shots.Count != 2) throw new Exception("Bắt buộc imagePrompt của đoạn");
+if (StoryboardContentService.Parse(valid.Replace("\"durationSeconds\":15", "\"durationSeconds\":17").Replace("\"endSeconds\":15", "\"endSeconds\":17"), 15).Shots.Count != 2) throw new Exception("Từ chối thời lượng trong dung sai");
+try { StoryboardContentService.Parse(valid, 18); throw new Exception("Chấp nhận thời lượng ngoài dung sai"); }
+catch (ProjectWorkflowValidationException) { }
 
 await using var connection = new SqliteConnection("Data Source=:memory:");
 await connection.OpenAsync();
@@ -33,7 +38,7 @@ var service = new StoryboardContentService(options);
 await service.SaveAsync("26fd4c1a-e393-4e52-bc3c-7339a2ef9abd", valid, 15);
 if ((await service.GetAsync("26fd4c1a-e393-4e52-bc3c-7339a2ef9abd"))?.Shots.Count != 2)
     throw new Exception("Không tải được storyboard");
-try { await service.SaveAsync("26fd4c1a-e393-4e52-bc3c-7339a2ef9abd", valid.Replace("Cận áo", ""), 15); throw new Exception("Đã lưu nội dung sai"); }
+try { await service.SaveAsync("26fd4c1a-e393-4e52-bc3c-7339a2ef9abd", valid.Replace("\"description\":\"Chi tiết\"", "\"description\":\"\""), 15); throw new Exception("Đã lưu nội dung sai"); }
 catch (ProjectWorkflowValidationException) { }
 var missingImage = valid.Replace("\"imagePrompt\":\"Cận áo\"", "\"imagePrompt\":\"Cận áo\",\"imageAssetId\":\"missing\"");
 try { await service.SaveAsync("26fd4c1a-e393-4e52-bc3c-7339a2ef9abd", missingImage, 15); throw new Exception("Đã lưu ảnh không tồn tại"); }

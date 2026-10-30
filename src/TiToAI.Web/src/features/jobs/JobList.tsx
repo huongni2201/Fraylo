@@ -337,7 +337,7 @@ export function JobList({
               ) : activeTab === "running" ? (
                 <>
                   <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground mb-3">
-                    <CheckCircle2 className="h-6 w-6 text-emerald-500" />
+                    <CheckCircle2 className="h-6 w-6 text-success" />
                   </div>
                   <h4 className="text-sm font-semibold text-foreground">
                     Không có tác vụ đang chạy
@@ -349,7 +349,7 @@ export function JobList({
               ) : activeTab === "awaiting" ? (
                 <>
                   <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground mb-3">
-                    <Sparkles className="h-6 w-6 text-amber-500" />
+                    <Sparkles className="h-6 w-6 text-warning" />
                   </div>
                   <h4 className="text-sm font-semibold text-foreground">
                     Không có tác vụ cần xử lý
@@ -361,7 +361,7 @@ export function JobList({
               ) : activeTab === "failed" ? (
                 <>
                   <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground mb-3">
-                    <ShieldCheck className="h-6 w-6 text-emerald-500" />
+                    <ShieldCheck className="h-6 w-6 text-success" />
                   </div>
                   <h4 className="text-sm font-semibold text-foreground">
                     Không có tác vụ lỗi

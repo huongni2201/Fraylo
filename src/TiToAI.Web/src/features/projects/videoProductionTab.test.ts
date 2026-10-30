@@ -1,39 +1,6 @@
-import { register } from "node:module";
-import { GlobalWindow } from "happy-dom";
+import { domWindow } from "../../test/setupDom.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-
-register("../prompts/test-loader.mjs", import.meta.url);
-
-const domWindow = new GlobalWindow({ url: "http://localhost:3000" });
-globalThis.window = domWindow as unknown as Window & typeof globalThis;
-globalThis.document = domWindow.document as unknown as Document;
-globalThis.localStorage = domWindow.localStorage as unknown as Storage;
-globalThis.HTMLElement = domWindow.HTMLElement as unknown as typeof HTMLElement;
-globalThis.HTMLButtonElement = domWindow.HTMLButtonElement as unknown as typeof HTMLButtonElement;
-globalThis.HTMLDivElement = domWindow.HTMLDivElement as unknown as typeof HTMLDivElement;
-globalThis.HTMLInputElement = domWindow.HTMLInputElement as unknown as typeof HTMLInputElement;
-globalThis.HTMLSelectElement = domWindow.HTMLSelectElement as unknown as typeof HTMLSelectElement;
-globalThis.HTMLTextAreaElement = domWindow.HTMLTextAreaElement as unknown as typeof HTMLTextAreaElement;
-globalThis.KeyboardEvent = domWindow.KeyboardEvent as unknown as typeof KeyboardEvent;
-globalThis.MouseEvent = domWindow.MouseEvent as unknown as typeof MouseEvent;
-globalThis.Event = domWindow.Event as unknown as typeof Event;
-globalThis.CustomEvent = domWindow.CustomEvent as unknown as typeof CustomEvent;
-globalThis.UIEvent = domWindow.UIEvent as unknown as typeof UIEvent;
-globalThis.FocusEvent = domWindow.FocusEvent as unknown as typeof FocusEvent;
-globalThis.NodeFilter = (domWindow.NodeFilter || {
-  SHOW_ALL: -1,
-  SHOW_ELEMENT: 1,
-  FILTER_ACCEPT: 1,
-  FILTER_REJECT: 2,
-  FILTER_SKIP: 3,
-}) as unknown as typeof NodeFilter;
-globalThis.getComputedStyle = domWindow.getComputedStyle.bind(domWindow) as unknown as typeof getComputedStyle;
-globalThis.MutationObserver = domWindow.MutationObserver as unknown as typeof MutationObserver;
-globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
-(globalThis as unknown as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
-
 let lastBridgeCommand: string | null = null;
 let lastBridgePayload: Record<string, unknown> | null = null;
 let lastWorkflowConfigPayload: Record<string, unknown> | null = null;
@@ -284,6 +251,7 @@ test("VideoProductionTab: Một video đầu ra, duration theo capability & tóm
     runState: "Idle",
     currentRunId: null,
     updatedAtUtc: "2026-10-27T01:00:00Z",
+    videoStrategy: "SingleVideo",
   };
   mockScenes = [];
 
@@ -305,9 +273,10 @@ test("VideoProductionTab: Một video đầu ra, duration theo capability & tóm
 
   const fullText = container.textContent || "";
 
-  // Một Project có một video đầu ra; scene/clip chỉ là cấu trúc nội bộ.
-  assert(fullText.includes("Video đầu ra:"), "Phải hiển thị cấu hình video đầu ra.");
-  assert(fullText.includes("1 video cho mỗi dự án"), "Mỗi Project phải có một video đích.");
+  // Luồng một video: chọn chiến lược trên dropdown, không hiện ô số cảnh.
+  const strategySelect = container.querySelector("#video-strategy") as HTMLSelectElement;
+  assert(strategySelect?.value === "SingleVideo", "Chiến lược phải hiển thị 'Một video nhiều phân cảnh'.");
+  assert(!container.querySelector("#scene-count"), "Luồng một video không có ô số cảnh.");
 
   // CD02: Input số tự do của duration bị thay thế bằng select
   const durationSelect = container.querySelector("#target-duration") as HTMLSelectElement;
@@ -336,6 +305,48 @@ test("VideoProductionTab: Một video đầu ra, duration theo capability & tóm
   });
 
   assert(executedCommands.includes("workflow.start"), "Duration 15s hợp lệ phải trigger 'workflow.start'.");
+
+  React.act(() => root.unmount());
+  container.remove();
+});
+
+test("VideoProductionTab: nhiều video có ô số cảnh và tóm tắt theo số cảnh", async () => {
+  executedCommands = [];
+  mockConfig = {
+    projectId: "prj_test_01",
+    workflowMode: "ModelAndProduct",
+    goalPrompt: "BST Váy lụa cao cấp",
+    modelAssetId: "ast_model_01",
+    productAssetId: "ast_product_01",
+    readyImageAssetId: null,
+    foundationImageAssetId: null,
+    audioOption: "None",
+    audioAssetId: null,
+    targetSceneCount: 3,
+    targetDurationPerSceneSeconds: 15,
+    runState: "Idle",
+    currentRunId: null,
+    updatedAtUtc: "2026-10-27T01:00:00Z",
+    videoStrategy: "MultiVideo",
+  };
+  mockScenes = [];
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = ReactDOMClient.createRoot(container);
+
+  await React.act(async () => {
+    root.render(React.createElement(VideoProductionTab, { projectId: "prj_test_01" }));
+  });
+  await React.act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+
+  const strategySelect = container.querySelector("#video-strategy") as HTMLSelectElement;
+  assert(strategySelect?.value === "MultiVideo", "Nhiều video phải được chọn trên dropdown chiến lược.");
+  const sceneCountInput = container.querySelector("#scene-count") as HTMLInputElement;
+  assert(sceneCountInput?.value === "3", "Ô số cảnh phải hiển thị số cảnh đã lưu.");
+  assert((container.textContent || "").includes("Tóm tắt: Tạo 3 video, mỗi video 15 giây"), "Tóm tắt phải theo số cảnh và thời lượng mỗi clip.");
 
   root.unmount();
   container.remove();
@@ -402,7 +413,7 @@ test("VideoProductionTab: CD04 & CD08 - Dữ liệu cũ 5s hiển thị cảnh b
   const errorText = container.textContent || "";
   assert(errorText.includes("không được nhà cung cấp video hỗ trợ"), "Phải có thông báo lỗi cụ thể.");
 
-  root.unmount();
+  React.act(() => root.unmount());
   container.remove();
 });
 
@@ -458,7 +469,7 @@ test("VideoProductionTab: không bắt buộc brief khi template không có bi�
 
   assert(executedCommands.includes("workflow.start"), "Template không có biến phải có thể bắt đầu mà không cần brief.");
 
-  root.unmount();
+  React.act(() => root.unmount());
   container.remove();
 });
 
@@ -519,11 +530,11 @@ test("VideoProductionTab: CD11 & CD13 - Xem trước yêu cầu gửi AI writer 
   assert(bodyText.includes("Mẫu Prompt Video Chuẩn"), "Dialog phải hiển thị tên template.");
   assert(!bodyText.includes("User Brief"), "Preview không hiển thị trường brief đã bỏ.");
 
-  root.unmount();
+  React.act(() => root.unmount());
   container.remove();
 });
 
-test("VideoProductionTab: Render biến ở frontend và chỉ lưu prompt text", async () => {
+test("VideoProductionTab: Render biến ở frontend và chỉ lưu biến riêng của dự án", async () => {
   executedCommands = [];
   localStorage.removeItem("titoai_workflow_prompt_values_prj_test_dyn_vars");
   mockPromptTemplate = {
@@ -555,8 +566,9 @@ test("VideoProductionTab: Render biến ở frontend và chỉ lưu prompt text"
     runState: "Idle",
     currentRunId: null,
     updatedAtUtc: "2026-10-27T01:00:00Z",
-    scriptPromptText: null,
-    videoPromptText: null,
+    scriptGuidance: null,
+    videoGuidance: null,
+    promptVariables: null,
   };
   mockScenes = [];
 
@@ -627,18 +639,19 @@ test("VideoProductionTab: Render biến ở frontend và chỉ lưu prompt text"
     await new Promise((resolve) => setTimeout(resolve, 50));
   });
 
-  // Kiểm tra lệnh workflow.save_config chỉ gửi prompt text đã render
+  // Kiểm tra lệnh workflow.save_config chỉ gửi biến riêng của dự án và hướng dẫn riêng (không gửi text đã render)
   assert(executedCommands.includes("workflow.save_config"), "Bấm lưu phải gọi 'workflow.save_config'.");
   assert(lastBridgePayload, "Phải có payload gửi sang bridge.");
-  assert.strictEqual((lastBridgePayload as any)?.scriptPromptText,
-    "Tạo kịch bản video TikTok về chủ đề Thời trang dạo phố mùa hè cho sản phẩm Áo lụa cao cấp.",
-    "Payload phải chứa prompt Script đã render.");
-  assert.strictEqual((lastBridgePayload as any)?.videoPromptText, (lastBridgePayload as any)?.scriptPromptText,
-    "Mỗi tác vụ lưu text đã render thay vì gửi dictionary biến.");
-  assert.strictEqual("promptVariables" in (lastBridgePayload as any), false,
-    "Payload workflow không còn trường promptVariables.");
+  assert.deepStrictEqual((lastBridgePayload as any)?.promptVariables, {
+    chu_de: "Thời trang dạo phố mùa hè",
+    san_pham: "Áo lụa cao cấp",
+  }, "Payload phải chứa đúng biến riêng của dự án.");
+  assert.strictEqual((lastBridgePayload as any)?.scriptGuidance, "",
+    "Hướng dẫn kịch bản riêng để trống thì gửi chuỗi rỗng.");
+  assert.strictEqual("scriptPromptText" in (lastBridgePayload as any), false,
+    "Payload không còn gửi text mẫu đã render.");
 
-  // 5. Bấm bắt đầu dùng prompt text đã lưu và khởi chạy workflow
+  // 5. Bấm bắt đầu dùng biến đã lưu và khởi chạy workflow
   const startButton = Array.from(container.querySelectorAll("button")).find((b) =>
     b.textContent?.includes("Bắt đầu tạo video")
   );
@@ -653,14 +666,15 @@ test("VideoProductionTab: Render biến ở frontend và chỉ lưu prompt text"
   });
 
   assert(executedCommands.includes("workflow.start"), "Bấm bắt đầu phải kích hoạt 'workflow.start'.");
-  assert.strictEqual(mockConfig.scriptPromptText,
-    "Tạo kịch bản video TikTok về chủ đề Thời trang dạo phố mùa hè cho sản phẩm Áo lụa cao cấp.",
-    "Config phải giữ prompt Script đã render sau khi workflow bắt đầu.");
+  assert.deepStrictEqual(mockConfig.promptVariables, {
+    chu_de: "Thời trang dạo phố mùa hè",
+    san_pham: "Áo lụa cao cấp",
+  }, "Config phải giữ biến riêng của dự án sau khi workflow bắt đầu.");
 
-  root.unmount();
+  React.act(() => root.unmount());
   container.remove();
   mockPromptTemplate = null;
 
-  root.unmount();
+  React.act(() => root.unmount());
   container.remove();
 });

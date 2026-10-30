@@ -50,6 +50,16 @@ public interface IBrowserProcessController : IAsyncDisposable, IDisposable
         LaunchPersistentContextAsync(profileId, isHeadless: false, cancellationToken);
 
     /// <summary>
+    /// Mở cửa sổ đăng nhập thủ công của profile. Bản thật mở Chrome thường trên userDataDir của profile
+    /// (không qua Playwright) và phát ContextClosed khi người dùng đóng cửa sổ.
+    /// </summary>
+    Task LaunchLoginWindowAsync(
+        string profileId,
+        string? initialUrl,
+        CancellationToken cancellationToken = default) =>
+        LaunchPersistentContextAsync(profileId, isHeadless: false, initialUrl, cancellationToken);
+
+    /// <summary>
     /// Khởi chạy persistent context của Chromium cho profile được chỉ định và điều hướng tới initialUrl (nếu có).
     /// </summary>
     Task<IBrowserContextHandle> LaunchPersistentContextAsync(
@@ -77,6 +87,11 @@ public interface IBrowserProcessController : IAsyncDisposable, IDisposable
     /// Kiểm tra xem profileId hiện có đang chạy tiến trình Playwright persistent context hay không.
     /// </summary>
     bool IsRunning(string profileId);
+
+    /// <summary>
+    /// Cho biết cửa sổ đăng nhập Chrome thường của profileId có đang mở (đang giữ .titoai_lock) hay không.
+    /// </summary>
+    bool IsLoginWindowOpen(string profileId) => false;
 
     /// <summary>
     /// Lấy ngữ cảnh trình duyệt Playwright đang hoạt động của profileId (nếu đang chạy).

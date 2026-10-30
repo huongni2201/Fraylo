@@ -87,9 +87,9 @@ function Badge({
     secondary: "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
     destructive: "border-transparent bg-destructive text-destructive-foreground shadow-xs hover:bg-destructive/80",
     outline: "text-foreground border-border",
-    success: "border-emerald-500/30 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-    warning: "border-amber-500/30 bg-amber-500/15 text-amber-600 dark:text-amber-400",
-    info: "border-sky-500/30 bg-sky-500/15 text-sky-600 dark:text-sky-400",
+    success: "border-success/30 bg-success/15 text-success dark:text-success",
+    warning: "border-warning/30 bg-warning/15 text-warning dark:text-warning",
+    info: "border-info/30 bg-info/15 text-info dark:text-info",
   };
   return (
     <div
@@ -113,9 +113,9 @@ function Alert({
   const variantClasses = {
     default: "bg-background text-foreground border-border",
     destructive: "border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive",
-    warning: "border-amber-500/50 text-amber-600 dark:text-amber-400 [&>svg]:text-amber-500",
-    info: "border-sky-500/50 text-sky-600 dark:text-sky-400 [&>svg]:text-sky-500",
-    success: "border-emerald-500/50 text-emerald-600 dark:text-emerald-400 [&>svg]:text-emerald-500",
+    warning: "border-warning/50 text-warning dark:text-warning [&>svg]:text-warning",
+    info: "border-info/50 text-info dark:text-info [&>svg]:text-info",
+    success: "border-success/50 text-success dark:text-success [&>svg]:text-success",
   };
   return (
     <div
@@ -606,7 +606,7 @@ export function AccountSettingsPanel() {
                 aria-selected={isSelected}
                 tabIndex={isSelected ? 0 : -1}
                 className={cn(
-                  "inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1 text-xs font-medium transition-all cursor-pointer",
+                  "inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1 text-xs font-medium transition-[color,background-color,border-color,box-shadow,opacity,transform] cursor-pointer",
                   isSelected
                     ? "bg-background text-foreground shadow-xs font-semibold"
                     : "text-muted-foreground hover:bg-background/50 hover:text-foreground"
@@ -698,7 +698,7 @@ export function AccountSettingsPanel() {
             return (
               <div
                 key={acc.id}
-                className="min-w-0 rounded-xl border border-border bg-card p-4 flex flex-col gap-3 transition-all hover:border-border/80 shadow-xs"
+                className="min-w-0 rounded-xl border border-border bg-card p-4 flex flex-col gap-3 transition-[color,background-color,border-color,box-shadow,opacity,transform] hover:border-border/80 shadow-xs"
               >
                 {/* Tên tài khoản và nhãn: tên dài được cắt bằng "..." */}
                 <div className="flex items-center gap-2 min-w-0">
@@ -713,7 +713,7 @@ export function AccountSettingsPanel() {
                   </Badge>
                   {acc.enabled ? (
                     <Badge variant="success" className="shrink-0 whitespace-nowrap text-[11px] gap-1">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-success" />
                       Đang hoạt động
                     </Badge>
                   ) : (
@@ -728,10 +728,10 @@ export function AccountSettingsPanel() {
                   <span className="flex min-w-0 items-center gap-1">
                     {hasVerifiedSession(acc) ? (
                       <>
-                        <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                        <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-success" />
                         <span className="shrink-0">Danh tính:</span>
                         <strong
-                          className="min-w-0 truncate font-semibold text-emerald-600 dark:text-emerald-400"
+                          className="min-w-0 truncate font-semibold text-success dark:text-success"
                           title={acc.verifiedIdentity ?? undefined}
                         >
                           {acc.verifiedIdentity}
@@ -739,9 +739,9 @@ export function AccountSettingsPanel() {
                       </>
                     ) : (
                       <>
-                        <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                        <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-warning" />
                         <span className="shrink-0">Danh tính:</span>
-                        <span className="italic text-amber-600 dark:text-amber-400">Chưa xác minh</span>
+                        <span className="italic text-warning dark:text-warning">Chưa xác minh</span>
                       </>
                     )}
                   </span>

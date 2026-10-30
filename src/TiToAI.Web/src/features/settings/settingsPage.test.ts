@@ -1,26 +1,4 @@
-import { register } from "node:module";
-import { GlobalWindow } from "happy-dom";
-
-// Đăng ký custom loader hỗ trợ import .tsx, .ts, .css và alias @/*
-register("../prompts/test-loader.mjs", import.meta.url);
-
-// Thiết lập Happy-DOM môi trường trình duyệt thật TRƯỚC KHI import React & ReactDOM
-const domWindow = new GlobalWindow({ url: "http://localhost:3000" });
-globalThis.window = domWindow as unknown as Window & typeof globalThis;
-globalThis.document = domWindow.document as unknown as Document;
-globalThis.HTMLElement = domWindow.HTMLElement as unknown as typeof HTMLElement;
-globalThis.HTMLButtonElement = domWindow.HTMLButtonElement as unknown as typeof HTMLButtonElement;
-globalThis.HTMLDivElement = domWindow.HTMLDivElement as unknown as typeof HTMLDivElement;
-globalThis.HTMLTextAreaElement = domWindow.HTMLTextAreaElement as unknown as typeof HTMLTextAreaElement;
-globalThis.HTMLInputElement = domWindow.HTMLInputElement as unknown as typeof HTMLInputElement;
-globalThis.KeyboardEvent = domWindow.KeyboardEvent as unknown as typeof KeyboardEvent;
-globalThis.MouseEvent = domWindow.MouseEvent as unknown as typeof MouseEvent;
-globalThis.Event = domWindow.Event as unknown as typeof Event;
-globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
-(globalThis as unknown as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
-
-// Mock tài khoản đa provider toàn cục (ChatGPT, Gemini, MuseAI)
+import { domWindow } from "../../test/setupDom.ts";
 const mockAccounts = [
   {
     id: "acc_gpt_1",
@@ -74,6 +52,7 @@ const mockTemplates = [
   {
     templateId: "tmpl_tiktok_script",
     purpose: "Script",
+    name: "Kịch bản TikTok",
     createdAtUtc: new Date().toISOString(),
     updatedAtUtc: new Date().toISOString(),
   }
@@ -401,6 +380,8 @@ async function runTests() {
   await act(async () => {
     appRoot.render(React.createElement(App));
   });
+  // ThemeProvider chỉ render sau khi theme.get_preference trả về (qua timer của mock bridge).
+  await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
 
   // Bước 3.1: Chuyển đến màn hình Mẫu Prompt (nơi render PromptTemplateManager production)
   const navItems = Array.from(appContainer.querySelectorAll<HTMLButtonElement>("button.nav-item, nav button"));

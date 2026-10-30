@@ -141,7 +141,7 @@ export function JobReconcileDialog({
           {/* Header */}
           <DialogHeader className="p-5 pb-4 border-b border-border bg-muted/20">
             <div className="flex items-start gap-3 pr-6">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-warning/30 bg-warning/10 text-warning dark:text-warning">
                 <SearchCheck className="h-5 w-5" />
               </div>
               <div className="space-y-1">
@@ -161,9 +161,9 @@ export function JobReconcileDialog({
             {/* Cảnh báo giải thích rõ ràng */}
             <Alert
               variant="warning"
-              className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 text-xs"
+              className="border-warning/40 bg-warning/10 text-warning dark:text-warning text-xs"
             >
-              <ShieldAlert className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              <ShieldAlert className="h-4 w-4 text-warning dark:text-warning" />
               <AlertTitle className="text-xs font-semibold">
                 {job.state === "Canceled" ? "Đối soát giải phóng tài nguyên tác vụ đã hủy" : "Tại sao cần đối soát?"}
               </AlertTitle>
@@ -211,7 +211,7 @@ export function JobReconcileDialog({
                       htmlFor="opt-succeeded"
                       className="font-medium text-xs text-foreground cursor-pointer flex items-center gap-1.5"
                     >
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                      <CheckCircle2 className="h-3.5 w-3.5 text-success" />
                       <span>Đã có kết quả từ AI (Đánh dấu Thành công)</span>
                     </Label>
                   </div>
@@ -301,7 +301,7 @@ export function JobReconcileDialog({
                       htmlFor="opt-failed"
                       className="font-medium text-xs text-foreground cursor-pointer flex items-center gap-1.5"
                     >
-                      <XCircle className="h-3.5 w-3.5 text-amber-500" />
+                      <XCircle className="h-3.5 w-3.5 text-warning" />
                       <span>Xác nhận AI chưa nhận yêu cầu (Đánh dấu Thất bại để thử lại)</span>
                     </Label>
                   </div>

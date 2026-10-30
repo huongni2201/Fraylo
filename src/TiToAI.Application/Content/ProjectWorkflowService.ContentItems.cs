@@ -304,15 +304,6 @@ public sealed partial class ProjectWorkflowService
         await using var dbContext = new TiToAIDbContext(_dbOptions);
         var config = await GetWorkflowConfigAsync(normalizedProjectId, cancellationToken).ConfigureAwait(false);
 
-        var projectScenes = await dbContext.Scenes.AsNoTracking()
-            .Where(s => s.ProjectId == normalizedProjectId)
-            .OrderBy(s => s.SequenceOrder)
-            .ToListAsync(cancellationToken).ConfigureAwait(false);
-        if (projectScenes.Count > 1)
-        {
-            return await EnqueueProjectRenderAsync(dbContext, normalizedProjectId, config, projectScenes, cancellationToken).ConfigureAwait(false);
-        }
-
         var items = await ListVideoContentItemsAsync(normalizedProjectId, cancellationToken).ConfigureAwait(false);
         var targetItem = !string.IsNullOrWhiteSpace(request.ContentItemId)
             ? items.FirstOrDefault(i => i.Id == request.ContentItemId)
@@ -340,7 +331,8 @@ public sealed partial class ProjectWorkflowService
                 (j.State == JobState.Queued || j.State == JobState.Reserved || j.State == JobState.Running || j.State == JobState.AwaitingUser),
                 cancellationToken)
             .ConfigureAwait(false);
-        if (hasOtherCompletedVideo || hasOtherActiveRender)
+        // Chỉ luồng một video bị giới hạn một video đầu ra; nhiều video thì mỗi cảnh render riêng.
+        if (config.VideoStrategy == VideoStrategies.SingleVideo && (hasOtherCompletedVideo || hasOtherActiveRender))
         {
             throw new ProjectWorkflowValidationException(
                 "Mỗi dự án chỉ có một video đầu ra. Hãy tạo lại video hiện tại thay vì tạo video cho một cảnh khác.");
@@ -465,58 +457,6 @@ public sealed partial class ProjectWorkflowService
         );
     }
 
-    /// <summary>Gửi một job render cho cả Project: ảnh đi theo thứ tự phân cảnh, thời lượng là tổng các phân cảnh.</summary>
-    private async Task<int> EnqueueProjectRenderAsync(
-        TiToAIDbContext dbContext,
-        string projectId,
-        ProjectWorkflowConfigDto config,
-        IReadOnlyList<Scene> scenes,
-        CancellationToken cancellationToken)
-    {
-        var missing = scenes.FirstOrDefault(s => string.IsNullOrWhiteSpace(s.ImageAssetId));
-        if (missing != null)
-        {
-            throw new ProjectWorkflowValidationException(
-                $"Phân cảnh {missing.SequenceOrder} chưa có ảnh. Hãy tạo ảnh cho mọi phân cảnh trước khi render.");
-        }
-        await EnsureScenePromptsRenderableAsync(dbContext, scenes.Select(s => s.Id), cancellationToken).ConfigureAwait(false);
-
-        var hasActiveRender = await dbContext.Jobs.AsNoTracking().AnyAsync(j =>
-            j.ProjectId == projectId && j.TaskType == JobTaskType.VideoRender &&
-            (j.State == JobState.Queued || j.State == JobState.Reserved || j.State == JobState.Running || j.State == JobState.AwaitingUser),
-            cancellationToken).ConfigureAwait(false);
-        if (hasActiveRender)
-        {
-            throw new ProjectWorkflowValidationException("Dự án đã có tác vụ render đang chạy.");
-        }
-
-        var duration = scenes.Sum(s => Convert.ToInt32(s.TargetDurationSeconds));
-        var first = scenes[0];
-        var snapshot = new JobMediaSnapshotDto(
-            ModelAssetId: config.ModelAssetId,
-            ProductAssetId: config.ProductAssetId,
-            ReadyImageAssetId: config.ReadyImageAssetId,
-            SourceImageAssetId: first.ImageAssetId,
-            AudioOption: AudioOptions.None,
-            DurationSeconds: duration,
-            MediaRoles: new Dictionary<string, string> { ["SourceImage"] = first.ImageAssetId! },
-            ImageAssetIds: scenes.Select(s => s.ImageAssetId!).ToArray()
-        );
-
-        var response = await _jobService!.EnqueueAsync(new JobEnqueueRequest(
-            ProjectId: projectId,
-            SceneId: first.Id,
-            TaskType: JobTaskType.VideoRender,
-            CustomPromptText: BuildProjectRenderPrompt(scenes, duration),
-            WorkflowRunId: config.CurrentRunId,
-            WorkflowStepKey: await BuildRenderStepKeyAsync(dbContext, projectId, config.CurrentRunId, "render.project", cancellationToken).ConfigureAwait(false),
-            MediaSnapshot: snapshot), cancellationToken).ConfigureAwait(false);
-        if (response == null) return 0;
-
-        await UpdateContentItemVideoStatusAsync(dbContext, projectId, first.Id, null, "Queued", DateTimeOffset.UtcNow.ToString("o"), cancellationToken).ConfigureAwait(false);
-        return 1;
-    }
-
     /// <summary>
     /// Khóa step theo số lần render trong run: bấm Tạo lại sau job đã kết thúc sẽ tạo job mới,
     /// còn bấm lặp khi job trước chưa kết thúc vẫn bị idempotency và kiểm tra job đang chạy chặn.
@@ -532,17 +472,4 @@ public sealed partial class ProjectWorkflowService
         return $"{baseKey}.{attempts + 1}";
     }
 
-    private static string BuildProjectRenderPrompt(IReadOnlyList<Scene> scenes, int duration)
-    {
-        var lines = new List<string> { $"Tạo một video dọc 9:16 dài {duration} giây, ghép các phân cảnh theo đúng thứ tự sau:" };
-        var start = 0;
-        foreach (var scene in scenes)
-        {
-            var end = start + Convert.ToInt32(scene.TargetDurationSeconds);
-            var detail = string.IsNullOrWhiteSpace(scene.PromptText) ? scene.Name : scene.PromptText;
-            lines.Add($"{start}–{end} giây: {detail}");
-            start = end;
-        }
-        return string.Join('\n', lines);
-    }
 }

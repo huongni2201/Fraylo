@@ -144,23 +144,6 @@ export function getDeletedPromptIds(): Set<string> {
 }
 
 /**
- * Ghi nhận ID prompt đã xóa để preset không tự xuất hiện lại.
- */
-export function recordDeletedPromptId(promptId: string): void {
-  if (typeof window === "undefined" || !window.localStorage) return;
-  try {
-    const current = getDeletedPromptIds();
-    current.add(promptId);
-    window.localStorage.setItem(
-      `${DELETED_PROMPTS_PREFIX}${STORAGE_SCOPE}`,
-      JSON.stringify(Array.from(current))
-    );
-  } catch (err) {
-    console.warn("Lỗi khi lưu danh sách prompt đã xóa:", err);
-  }
-}
-
-/**
  * Lấy danh sách custom prompts toàn ứng dụng, bỏ qua các prompt đã xóa.
  */
 export function getStoredPrompts(): CustomPromptItem[] {
@@ -177,39 +160,6 @@ export function getStoredPrompts(): CustomPromptItem[] {
   } catch (err) {
     console.warn("Lỗi khi đọc danh sách prompts từ localStorage:", err);
     return [];
-  }
-}
-
-/**
- * Lưu danh sách custom prompts toàn ứng dụng.
- */
-export function saveStoredPrompts(prompts: CustomPromptItem[]): void {
-  if (typeof window === "undefined" || !window.localStorage) return;
-  try {
-    window.localStorage.setItem(
-      `${STORAGE_KEY_PREFIX}${STORAGE_SCOPE}`,
-      JSON.stringify(prompts)
-    );
-  } catch (err) {
-    console.warn("Lỗi khi lưu danh sách prompts vào localStorage:", err);
-  }
-}
-
-/**
- * Xóa hoàn toàn một prompt khỏi storage và blacklist vĩnh viễn không để preset tái sinh.
- */
-export function deleteStoredPrompt(promptId: string): void {
-  recordDeletedPromptId(promptId);
-  const current = getStoredPrompts();
-  const next = current.filter((p) => p.id !== promptId);
-  saveStoredPrompts(next);
-
-  // Nếu prompt đang active bị xóa, xóa luôn active pointer
-  for (const purpose of ["Script", "Image", "VideoPrompt"] as PromptPurpose[]) {
-    const active = getActivePromptId(purpose);
-    if (active === promptId) {
-      setActivePromptId(purpose, null);
-    }
   }
 }
 

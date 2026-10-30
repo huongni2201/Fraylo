@@ -11,6 +11,7 @@ public class TiToAIDbContext : DbContext
     }
 
     public DbSet<Project> Projects => Set<Project>();
+    public DbSet<ProjectGroup> ProjectGroups => Set<ProjectGroup>();
     public DbSet<Scene> Scenes => Set<Scene>();
     public DbSet<Asset> Assets => Set<Asset>();
     public DbSet<Job> Jobs => Set<Job>();

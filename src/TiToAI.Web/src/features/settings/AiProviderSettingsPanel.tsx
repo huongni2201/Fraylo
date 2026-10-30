@@ -99,9 +99,9 @@ function Alert({
   const variantClasses = {
     default: "bg-background text-foreground border-border",
     destructive: "border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive",
-    warning: "border-amber-500/50 text-amber-600 dark:text-amber-400 [&>svg]:text-amber-500",
-    info: "border-sky-500/50 text-sky-600 dark:text-sky-400 [&>svg]:text-sky-500",
-    success: "border-emerald-500/50 text-emerald-600 dark:text-emerald-400 [&>svg]:text-emerald-500",
+    warning: "border-warning/50 text-warning dark:text-warning [&>svg]:text-warning",
+    info: "border-info/50 text-info dark:text-info [&>svg]:text-info",
+    success: "border-success/50 text-success dark:text-success [&>svg]:text-success",
   };
   return (
     <div
@@ -148,8 +148,8 @@ function Badge({
     secondary: "border-transparent bg-secondary text-secondary-foreground",
     destructive: "border-transparent bg-destructive text-destructive-foreground",
     outline: "text-foreground border-border",
-    warning: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
-    success: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+    warning: "border-warning/30 bg-warning/10 text-warning dark:text-warning",
+    success: "border-success/30 bg-success/10 text-success dark:text-success",
   };
   return (
     <div
@@ -496,7 +496,7 @@ export function AiProviderSettingsPanel({
                     size="sm"
                     variant="outline"
                     onClick={loadData}
-                    className="gap-1.5 border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10"
+                    className="gap-1.5 border-warning/40 text-warning dark:text-warning hover:bg-warning/10"
                   >
                     <RotateCcw className="h-3.5 w-3.5" />
                     Tải lại cấu hình mới nhất

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Microsoft.Playwright;
 using TiToAI.Browser.Abstractions;
 using TiToAI.Browser.Models;
@@ -19,6 +20,7 @@ public sealed class PlaywrightBrowserController : IBrowserProcessController
     private readonly Func<string, BrowserTypeLaunchPersistentContextOptions, Task<IBrowserContext>>? _customPersistentLauncher;
 
     private readonly ConcurrentDictionary<string, PlaywrightBrowserContextHandle> _activeContexts = new();
+    private readonly ConcurrentDictionary<string, ExternalLoginWindow> _loginWindows = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _profileLaunchCloseLocks = new(StringComparer.OrdinalIgnoreCase);
     private IPlaywright? _playwright;
     private readonly SemaphoreSlim _initLock = new(1, 1);
@@ -42,6 +44,12 @@ public sealed class PlaywrightBrowserController : IBrowserProcessController
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(profileId);
         return _activeContexts.TryGetValue(profileId, out var handle) && !handle.IsDisposed;
+    }
+
+    public bool IsLoginWindowOpen(string profileId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(profileId);
+        return _loginWindows.ContainsKey(profileId);
     }
 
     public IBrowserContextHandle? TryGetContext(string profileId)
@@ -90,6 +98,85 @@ public sealed class PlaywrightBrowserController : IBrowserProcessController
         CancellationToken cancellationToken = default) =>
         LaunchContextAsync(profileId, isHeadless: false, initialUrl: null, notifyLoginClose: false, cancellationToken);
 
+    // Chrome thường (không gắn cờ automation) để người dùng đăng nhập; đóng hẳn trước khi tác vụ Playwright dùng lại profile.
+    public async Task LaunchLoginWindowAsync(
+        string profileId,
+        string? initialUrl,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(profileId);
+
+        var profileLock = _profileLaunchCloseLocks.GetOrAdd(profileId, _ => new SemaphoreSlim(1, 1));
+        await profileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (IsRunning(profileId) || _loginWindows.ContainsKey(profileId))
+            {
+                throw new InvalidOperationException($"Hồ sơ trình duyệt '{profileId}' hiện đang được mở.");
+            }
+
+            var profile = await _profileRegistry.GetProfileAsync(profileId, cancellationToken)
+                ?? throw new InvalidOperationException($"Không tìm thấy hồ sơ trình duyệt '{profileId}' trong hệ thống.");
+            string userDataDir = _profileRegistry.GetUserDataDir(profileId, profile.Kind);
+            Directory.CreateDirectory(userDataDir);
+
+            string chromePath = FindChromeExecutable()
+                ?? throw new InvalidOperationException("Chưa tìm thấy Google Chrome đã cài trên máy. Hãy cài Chrome rồi thử lại.");
+
+            // Giữ .titoai_lock suốt lúc Chrome mở để tác vụ Playwright không chiếm cùng userDataDir
+            var ownerLock = await _profileOwner.AcquireOwnerLockAsync(
+                profileId,
+                $"ChromeLogin-{Guid.NewGuid():N}",
+                TimeSpan.FromSeconds(5),
+                cancellationToken);
+
+            Process? process = null;
+            try
+            {
+                var startInfo = new ProcessStartInfo(chromePath) { UseShellExecute = false };
+                startInfo.ArgumentList.Add($"--user-data-dir={userDataDir}");
+                startInfo.ArgumentList.Add("--no-first-run");
+                startInfo.ArgumentList.Add("--no-default-browser-check");
+                if (!string.IsNullOrWhiteSpace(initialUrl))
+                {
+                    startInfo.ArgumentList.Add(initialUrl);
+                }
+
+                process = Process.Start(startInfo)
+                    ?? throw new InvalidOperationException("Không khởi chạy được Google Chrome.");
+
+                // shortcut: Chrome đã mở cùng userDataDir sẽ chuyển yêu cầu cho tiến trình đó rồi thoát ngay; chỉ phát hiện bằng thời gian thoát sớm
+                await Task.Delay(HandoffCheckDelay, cancellationToken);
+                if (process.HasExited)
+                {
+                    throw new InvalidOperationException(
+                        $"Hồ sơ '{profileId}' đang được mở bởi một cửa sổ Chrome khác. Hãy đóng cửa sổ đó rồi thử lại.");
+                }
+            }
+            catch
+            {
+                if (process != null) await StopProcessAsync(process);
+                await ownerLock.DisposeAsync();
+                throw;
+            }
+
+            var window = new ExternalLoginWindow(process, ownerLock);
+            _loginWindows[profileId] = window;
+            _ = WatchLoginWindowAsync(profileId, window);
+
+            await _profileRegistry.UpdateProfileStateAsync(
+                profileId,
+                operationalState: BrowserOperationalState.Running,
+                visibilityState: BrowserVisibilityState.VisibleActive,
+                cancellationToken: cancellationToken);
+        }
+        finally
+        {
+            profileLock.Release();
+        }
+    }
+
     private async Task<IBrowserContextHandle> LaunchContextAsync(
         string profileId,
         bool isHeadless,
@@ -134,7 +221,9 @@ public sealed class PlaywrightBrowserController : IBrowserProcessController
                 var launchOptions = new BrowserTypeLaunchPersistentContextOptions
                 {
                     Headless = isHeadless,
-                    Channel = "chrome"
+                    Channel = "chrome",
+                    // Playwright tắt sandbox mặc định; bật lại để giữ sandbox của Chrome.
+                    ChromiumSandbox = true
                 };
 
             IBrowserContext browserContext;
@@ -420,6 +509,13 @@ public sealed class PlaywrightBrowserController : IBrowserProcessController
         await profileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (_loginWindows.TryRemove(profileId, out var loginWindow))
+            {
+                await StopProcessAsync(loginWindow.Process);
+                await ReleaseLoginWindowAsync(profileId, loginWindow);
+                return;
+            }
+
             if (_activeContexts.TryRemove(profileId, out var handle))
             {
                 await handle.DisposeAsync();
@@ -489,6 +585,89 @@ public sealed class PlaywrightBrowserController : IBrowserProcessController
         }
     }
 
+    private async Task WatchLoginWindowAsync(string profileId, ExternalLoginWindow window)
+    {
+        try
+        {
+            await window.Process.WaitForExitAsync();
+        }
+        catch
+        {
+        }
+
+        // CloseContextAsync có thể đã gỡ cửa sổ này và tự xử lý
+        if (_loginWindows.TryRemove(new KeyValuePair<string, ExternalLoginWindow>(profileId, window)))
+        {
+            await ReleaseLoginWindowAsync(profileId, window);
+        }
+    }
+
+    private async Task ReleaseLoginWindowAsync(string profileId, ExternalLoginWindow window)
+    {
+        window.Process.Dispose();
+        await window.OwnerLock.DisposeAsync();
+
+        try
+        {
+            await _profileRegistry.UpdateProfileStateAsync(
+                profileId,
+                operationalState: BrowserOperationalState.Stopped,
+                visibilityState: BrowserVisibilityState.Hidden,
+                reasonCode: BrowserReasonCode.AuthClosed);
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            ContextClosed?.Invoke(this, profileId);
+        }
+        catch
+        {
+        }
+    }
+
+    private static async Task StopProcessAsync(Process process)
+    {
+        if (process.HasExited) return;
+
+        try
+        {
+            process.CloseMainWindow();
+        }
+        catch
+        {
+        }
+
+        using var timeout = new CancellationTokenSource(LoginCloseTimeout);
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private static string? FindChromeExecutable() =>
+        new[]
+            {
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+            }
+            .Where(root => !string.IsNullOrEmpty(root))
+            .Select(root => Path.Combine(root, "Google", "Chrome", "Application", "chrome.exe"))
+            .FirstOrDefault(File.Exists);
+
     private void RemoveActiveContext(string profileId, PlaywrightBrowserContextHandle? handle = null)
     {
         if (handle == null)
@@ -537,6 +716,11 @@ public sealed class PlaywrightBrowserController : IBrowserProcessController
     {
         DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
+
+    private static readonly TimeSpan HandoffCheckDelay = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan LoginCloseTimeout = TimeSpan.FromSeconds(5);
+
+    private sealed record ExternalLoginWindow(Process Process, IProfileOwnerLock OwnerLock);
 
     private sealed class PlaywrightBrowserContextHandle : IBrowserContextHandle
     {

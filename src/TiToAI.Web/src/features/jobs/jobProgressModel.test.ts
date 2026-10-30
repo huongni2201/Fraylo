@@ -1,11 +1,8 @@
-import { register } from "node:module";
+import "../../test/setupDom.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { VideoContentItemDto } from "../projects/videoWorkflowApi";
 import type { JobSummaryDto } from "./jobTypes";
-
-register("../prompts/test-loader.mjs", import.meta.url);
-
 const { mergeJobs, outputPreview, indexVideoText, isPipelineRow, OUTPUT_PREVIEW_LENGTH } = await import("./jobProgressModel");
 
 function job(id: string, state: JobSummaryDto["state"], createdAtUtc: string): JobSummaryDto {

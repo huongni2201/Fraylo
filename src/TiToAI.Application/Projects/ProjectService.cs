@@ -46,7 +46,9 @@ public sealed class ProjectService
                 dbContext.Scenes.Count(s => s.ProjectId == p.Id),
                 dbContext.Scenes.Any(s => s.ProjectId == p.Id && s.VideoAssetId != null),
                 p.CreatedAtUtc,
-                p.UpdatedAtUtc))
+                p.UpdatedAtUtc,
+                p.GroupId,
+                dbContext.ProjectGroups.Where(g => g.Id == p.GroupId).Select(g => g.Name).FirstOrDefault()))
             .ToListAsync(cancellationToken);
     }
 
@@ -68,13 +70,7 @@ public sealed class ProjectService
             throw new ProjectNotFoundException(normalizedProjectId);
         }
 
-        return new ProjectDetailDto(
-            project.Id,
-            project.Name,
-            project.Brief,
-            project.Status,
-            project.CreatedAtUtc,
-            project.UpdatedAtUtc);
+        return await ToDetailAsync(dbContext, project, cancellationToken);
     }
 
     /// <summary>
@@ -97,6 +93,7 @@ public sealed class ProjectService
             Name = name,
             Brief = description ?? string.Empty,
             Status = "Draft",
+            GroupId = await ResolveGroupIdAsync(dbContext, request.GroupId, cancellationToken),
             CreatedAtUtc = nowUtc,
             UpdatedAtUtc = nowUtc
         };
@@ -165,19 +162,19 @@ public sealed class ProjectService
             isModified = true;
         }
 
+        if (request.GroupId is not null)
+        {
+            project.GroupId = await ResolveGroupIdAsync(dbContext, request.GroupId, cancellationToken);
+            isModified = true;
+        }
+
         if (isModified)
         {
             project.UpdatedAtUtc = DateTime.UtcNow.ToString("o");
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        return new ProjectDetailDto(
-            project.Id,
-            project.Name,
-            project.Brief,
-            project.Status,
-            project.CreatedAtUtc,
-            project.UpdatedAtUtc);
+        return await ToDetailAsync(dbContext, project, cancellationToken);
     }
 
     /// <summary>
@@ -266,6 +263,39 @@ public sealed class ProjectService
         }
 
         return new ProjectDeleteResponseData(normalizedProjectId, true);
+    }
+
+    private static async Task<ProjectDetailDto> ToDetailAsync(TiToAIDbContext dbContext, Project project, CancellationToken cancellationToken)
+    {
+        var groupName = project.GroupId is null
+            ? null
+            : await dbContext.ProjectGroups
+                .AsNoTracking()
+                .Where(g => g.Id == project.GroupId)
+                .Select(g => g.Name)
+                .FirstOrDefaultAsync(cancellationToken);
+
+        return new ProjectDetailDto(
+            project.Id,
+            project.Name,
+            project.Brief,
+            project.Status,
+            project.CreatedAtUtc,
+            project.UpdatedAtUtc,
+            project.GroupId,
+            groupName);
+    }
+
+    /// <summary>
+    /// Trả về mã nhóm đã kiểm tra tồn tại; chuỗi rỗng nghĩa là không thuộc nhóm nào.
+    /// </summary>
+    private static async Task<string?> ResolveGroupIdAsync(TiToAIDbContext dbContext, string? groupId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(groupId)) return null;
+
+        var normalizedGroupId = NormalizeAndValidateGuid(groupId, nameof(groupId));
+        var exists = await dbContext.ProjectGroups.AnyAsync(g => g.Id == normalizedGroupId, cancellationToken);
+        return exists ? normalizedGroupId : throw new ProjectGroupNotFoundException(normalizedGroupId);
     }
 
     private static (string Name, string? Description) ValidateProjectFields(string? name, string? description)

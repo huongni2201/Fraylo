@@ -1,15 +1,4 @@
-import { register } from "node:module";
-import { GlobalWindow } from "happy-dom";
-
-register("./test-loader.mjs", import.meta.url);
-const dom = new GlobalWindow({ url: "http://localhost" });
-globalThis.window = dom as unknown as Window & typeof globalThis;
-globalThis.document = dom.document as unknown as Document;
-globalThis.HTMLElement = dom.HTMLElement as unknown as typeof HTMLElement;
-globalThis.Event = dom.Event as unknown as typeof Event;
-globalThis.MouseEvent = dom.MouseEvent as unknown as typeof MouseEvent;
-(globalThis as unknown as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
-
+import "../../test/setupDom.ts";
 const React = (await import("react")).default;
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");

@@ -153,11 +153,10 @@ public sealed class LoginCoordinator : ILoginCoordinator, IDisposable
                 {
                     if (!_processController.IsRunning(profileId))
                     {
-                        await _processController.LaunchPersistentContextAsync(
+                        await _processController.LaunchLoginWindowAsync(
                             profileId,
-                            isHeadless: false,
-                            initialUrl: targetUrl,
-                            cancellationToken: cancellationToken);
+                            targetUrl,
+                            cancellationToken);
                     }
                     else if (!string.IsNullOrWhiteSpace(targetUrl))
                     {

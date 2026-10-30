@@ -74,9 +74,9 @@ export function AssetPreviewDialog({ assetId, onClose }: AssetPreviewDialogProps
   const renderIcon = (type: string) => {
     switch (type.toLowerCase()) {
       case "image":
-        return <IconImage size={24} className="text-blue-500" />;
+        return <IconImage size={24} className="text-info" />;
       case "audio":
-        return <IconMusic size={24} className="text-green-500" />;
+        return <IconMusic size={24} className="text-success" />;
       case "video":
         return <IconFilm size={24} className="text-purple-500" />;
       default:
@@ -159,7 +159,7 @@ export function AssetPreviewDialog({ assetId, onClose }: AssetPreviewDialogProps
             {/* Trạng thái kiểm tra tệp vật lý */}
             <div className="pt-2">
               {preview.isRootOffline ? (
-                <div className="flex items-center gap-2 p-2.5 rounded bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300">
+                <div className="flex items-center gap-2 p-2.5 rounded bg-warning/10 dark:bg-warning/10/30 border border-warning/40 dark:border-warning text-warning dark:text-warning">
                   <IconWarning size={18} className="shrink-0" />
                   <span className="text-xs">
                     Thư mục lưu trữ ngoại tuyến hoặc không truy cập được (Root Offline).
@@ -173,7 +173,7 @@ export function AssetPreviewDialog({ assetId, onClose }: AssetPreviewDialogProps
                   </span>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 p-2.5 rounded bg-green-50 dark:bg-green-950/30 border border-green-300 dark:border-green-700 text-green-800 dark:text-green-300">
+                <div className="flex items-center gap-2 p-2.5 rounded bg-success/10 dark:bg-success/10/30 border border-success/40 dark:border-success text-success dark:text-success">
                   <IconCheck size={18} className="shrink-0" />
                   <span className="text-xs">Tệp vật lý sẵn sàng.</span>
                 </div>

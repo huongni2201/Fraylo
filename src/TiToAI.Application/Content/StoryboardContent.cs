@@ -28,6 +28,13 @@ public sealed class StoryboardContentService
         return value == null ? null : JsonSerializer.Deserialize<StoryboardContent>(value, JsonOptions);
     }
 
+    /// <summary>Lệch cho phép giữa thời lượng AI đặt và thời lượng cấu hình (VIDEO_TWO_FLOW_SPLIT D3; chỉnh sau khi thử Muse thật).</summary>
+    public const int DurationToleranceSeconds = 2;
+
+    /// <summary>
+    /// Kiểm tra storyboard của luồng một video: các đoạn liên tiếp từ 0, kết thúc tại thời lượng AI đặt,
+    /// thời lượng đó nằm trong dung sai quanh thời lượng cấu hình. Đoạn không cần prompt ảnh riêng.
+    /// </summary>
     public static StoryboardContent Parse(string text, int durationSeconds)
     {
         StoryboardContent? storyboard;
@@ -40,21 +47,21 @@ public sealed class StoryboardContentService
             throw new ProjectWorkflowValidationException($"Storyboard không phải JSON hợp lệ: {ex.Message}");
         }
 
-        if (storyboard == null || durationSeconds <= 0 || storyboard.DurationSeconds != durationSeconds ||
+        if (storyboard == null || durationSeconds <= 0 || storyboard.DurationSeconds <= 0 ||
+            Math.Abs(storyboard.DurationSeconds - durationSeconds) > DurationToleranceSeconds ||
             storyboard.Shots == null || storyboard.Shots.Count == 0 || storyboard.Shots.Count > 30)
-            throw new ProjectWorkflowValidationException("Storyboard thiếu phân cảnh hoặc sai thời lượng video.");
+            throw new ProjectWorkflowValidationException("Storyboard thiếu phân cảnh hoặc thời lượng lệch quá dung sai so với cấu hình.");
 
         var end = 0;
         foreach (var shot in storyboard.Shots)
         {
             if (shot == null || shot.StartSeconds != end || shot.EndSeconds <= end ||
-                shot.EndSeconds > durationSeconds || string.IsNullOrWhiteSpace(shot.Description) ||
-                string.IsNullOrWhiteSpace(shot.ImagePrompt))
-                throw new ProjectWorkflowValidationException("Phân cảnh phải liên tiếp, có thời lượng, mô tả và prompt ảnh hợp lệ.");
+                shot.EndSeconds > storyboard.DurationSeconds || string.IsNullOrWhiteSpace(shot.Description))
+                throw new ProjectWorkflowValidationException("Phân cảnh phải liên tiếp, có thời lượng và mô tả hợp lệ.");
             end = shot.EndSeconds;
         }
 
-        if (end != durationSeconds)
+        if (end != storyboard.DurationSeconds)
             throw new ProjectWorkflowValidationException("Tổng thời lượng phân cảnh không khớp thời lượng video.");
         return storyboard;
     }

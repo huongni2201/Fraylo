@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, useCallback } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { bridgeClient } from "./services/bridgeClient";
 import {
@@ -7,27 +7,34 @@ import {
   HardDrive,
   SunMedium,
   Moon,
+  Monitor,
+  Check,
+  ChevronRight,
   ListOrdered,
-  Search,
   Sparkles,
   Images,
   BarChart3,
+  type LucideIcon,
 } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
+import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { QueueDrawer } from "./components/QueueDrawer";
 import { jobApi } from "./features/jobs/jobApi";
 import type { JobSummaryDto, JobDetailDto } from "./features/jobs/jobTypes";
 import { ProjectListPage } from "./features/projects/ProjectListPage";
-import { ProjectPage } from "./features/projects/ProjectPage";
-import { PromptTemplateManager } from "./features/prompts";
-import { LibraryPage } from "./features/library/LibraryPage";
 import { JobProgressPage } from "./features/jobs/JobProgressPage";
 import { PublishingNavItem } from "./features/publishing/PublishingNavItem";
 import { createPublishingApi } from "./features/publishing/publishingApi";
 import { projectApi } from "./features/projects/projectApi";
 import { cn } from "@/lib/utils";
+import type { ThemePreference } from "./contracts/dtos";
 
 export type ActiveRoute =
   | "projects"
@@ -42,14 +49,91 @@ export type ActiveRoute =
 const publishingApi = createPublishingApi((command, payload, options) =>
   bridgeClient.invoke(command, payload, options));
 
-// Các màn hình ít dùng chỉ tải khi mở lần đầu, giảm JS khởi động của trang Dự án.
+// Các màn hình chỉ tải khi mở lần đầu, giảm JS khởi động của trang Dự án.
+const ProjectPage = lazy(() => import("./features/projects/ProjectPage").then(m => ({ default: m.ProjectPage })));
+const PromptTemplateManager = lazy(() => import("./features/prompts/PromptTemplateManager").then(m => ({ default: m.PromptTemplateManager })));
+const LibraryPage = lazy(() => import("./features/library/LibraryPage").then(m => ({ default: m.LibraryPage })));
 const SettingsPage = lazy(() => import("./features/settings/SettingsPage").then(m => ({ default: m.SettingsPage })));
 const AnalyticsPage = lazy(() => import("./features/analytics/AnalyticsPage").then(m => ({ default: m.AnalyticsPage })));
 const PublishingPage = lazy(() => import("./features/publishing/PublishingPage").then(m => ({ default: m.PublishingPage })));
 
-function AppContent() {
-  const { preference, effectiveTheme, toggleTheme } = useTheme();
+const THEME_OPTIONS: { value: ThemePreference; label: string; icon: LucideIcon }[] = [
+  { value: "system", label: "Theo hệ thống", icon: Monitor },
+  { value: "light", label: "Sáng", icon: SunMedium },
+  { value: "dark", label: "Tối", icon: Moon },
+];
 
+/** Mục điều hướng: viền trái và nền nhạt cho mục đang mở, vùng bấm đủ lớn để dùng bằng chuột và bàn phím. */
+const navItemClass = (active: boolean) =>
+  cn(
+    "nav-item relative flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-sm transition-colors cursor-pointer",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar",
+    active
+      ? "bg-primary/15 font-medium text-primary-text before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-full before:bg-primary"
+      : "text-sidebar-foreground hover:bg-muted hover:text-foreground",
+  );
+
+function NavItem({
+  active,
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  icon: LucideIcon;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" className={navItemClass(active)} onClick={onClick} aria-current={active ? "page" : undefined}>
+      <Icon className="size-4 shrink-0" aria-hidden="true" />
+      <span className="truncate">{label}</span>
+    </button>
+  );
+}
+
+function NavGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+      {children}
+    </div>
+  );
+}
+
+function ThemeMenu() {
+  const { preference, effectiveTheme, setThemePreference } = useTheme();
+  const CurrentIcon = effectiveTheme === "dark" ? Moon : SunMedium;
+  const currentLabel = THEME_OPTIONS.find((o) => o.value === preference)?.label ?? "Theo hệ thống";
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-9 rounded-lg text-muted-foreground hover:text-foreground"
+          aria-label={`Giao diện: ${currentLabel}`}
+          title={`Giao diện: ${currentLabel}`}
+        >
+          <CurrentIcon className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-44">
+        {THEME_OPTIONS.map((option) => (
+          <DropdownMenuItem key={option.value} onSelect={() => setThemePreference(option.value)}>
+            <option.icon className="size-4" aria-hidden="true" />
+            <span>{option.label}</span>
+            {preference === option.value && <Check className="ml-auto size-4 text-primary-text" aria-hidden="true" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function AppContent() {
   const [activeRoute, setActiveRoute] = useState<ActiveRoute>("projects");
   // Đã mở một lần thì giữ mounted (ẩn bằng class) để bảo toàn bản nháp, như trước khi lazy-load.
   const [loadedRoutes, setLoadedRoutes] = useState<ReadonlySet<ActiveRoute>>(() => new Set());
@@ -185,8 +269,7 @@ function AppContent() {
     }
   };
 
-  const isProjectsActive =
-    activeRoute === "projects" || activeRoute === "project-detail";
+  const isProjectsActive = activeRoute === "projects" || activeRoute === "project-detail";
   const isPromptTemplatesActive = activeRoute === "prompt-templates";
   const isLibraryActive = activeRoute === "library";
   const isAnalyticsActive = activeRoute === "analytics";
@@ -195,197 +278,92 @@ function AppContent() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground antialiased font-sans select-none">
-      {/* 1. SIDEBAR TRÁI CỐ ĐỊNH (Khóa tương tác khi modal/drawer mở) */}
+      {/* 1. SIDEBAR TRÁI (khóa tương tác khi hàng đợi đang mở) */}
       <aside
-        className="w-60 min-w-60 border-r border-sidebar-border bg-sidebar flex flex-col h-screen text-sidebar-foreground select-none shrink-0"
+        className="flex h-screen w-60 min-w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground select-none"
         aria-label="Điều hướng chính"
         inert={isModalActive}
         aria-hidden={isModalActive ? true : undefined}
       >
-        {/* Brand Logo trên Sidebar */}
-        <div className="h-14 flex items-center gap-3 px-4 border-b border-sidebar-border shrink-0">
-          <BrandLogo size={24} className="text-primary shrink-0" />
-          <div className="flex flex-col min-w-0">
-            <span className="font-bold text-foreground tracking-tight text-base leading-none">
-              TiToAI
-            </span>
-            <span className="text-[10px] text-muted-foreground font-medium mt-1 leading-none">
-              Desktop Studio
-            </span>
+        <div className="flex h-14 shrink-0 items-center gap-3 border-b border-sidebar-border px-4">
+          <BrandLogo size={24} className="shrink-0 text-primary" />
+          <div className="flex min-w-0 flex-col">
+            <span className="text-base font-bold leading-none tracking-tight text-foreground">TiToAI</span>
+            <span className="mt-1 text-[11px] font-medium leading-none text-muted-foreground">Desktop Studio</span>
           </div>
         </div>
 
-        {/* Sidebar Navigation items */}
-        <nav
-          className="sidebar-nav flex flex-col gap-1 px-3 py-4 flex-1 overflow-y-auto"
-          aria-label="Menu chức năng"
-        >
-          <button
-            type="button"
-            className={cn(
-              "nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left font-normal cursor-pointer",
-              isProjectsActive
-                ? "bg-primary/10 text-primary font-medium border-l-2 border-primary"
-                : "text-sidebar-foreground hover:bg-muted/60 hover:text-foreground",
-            )}
-            onClick={() => handleNavigate("projects")}
-            aria-current={isProjectsActive ? "page" : undefined}
-          >
-            <Video className="size-4 shrink-0" />
-            <span>Dự án</span>
-          </button>
+        <nav className="sidebar-nav flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4" aria-label="Menu chức năng">
+          <NavGroup label="Sản xuất">
+            <NavItem active={isProjectsActive} icon={Video} label="Dự án" onClick={() => handleNavigate("projects")} />
+            <NavItem
+              active={isPromptTemplatesActive}
+              icon={Sparkles}
+              label="Prompt"
+              onClick={() => handleNavigate("prompt-templates")}
+            />
+            <NavItem active={isLibraryActive} icon={Images} label="Tài nguyên" onClick={() => handleNavigate("library")} />
+          </NavGroup>
 
-          <button
-            type="button"
-            className={cn(
-              "nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left font-normal cursor-pointer",
-              isPromptTemplatesActive
-                ? "bg-primary/10 text-primary font-medium border-l-2 border-primary"
-                : "text-sidebar-foreground hover:bg-muted/60 hover:text-foreground",
-            )}
-            onClick={() => handleNavigate("prompt-templates")}
-            aria-current={isPromptTemplatesActive ? "page" : undefined}
-          >
-            <Sparkles className="size-4 shrink-0" />
-            <span>Prompt</span>
-          </button>
+          <NavGroup label="Đăng & phân tích">
+            <NavItem
+              active={isAnalyticsActive}
+              icon={BarChart3}
+              label="TikTok Analytics"
+              onClick={() => handleNavigate("analytics")}
+            />
+            <PublishingNavItem active={activeRoute === "publishing"} onClick={() => handleNavigate("publishing")} />
+          </NavGroup>
 
-          <button
-            type="button"
-            className={cn(
-              "nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left font-normal cursor-pointer",
-              isLibraryActive
-                ? "bg-primary/10 text-primary font-medium border-l-2 border-primary"
-                : "text-sidebar-foreground hover:bg-muted/60 hover:text-foreground",
-            )}
-            onClick={() => handleNavigate("library")}
-            aria-current={isLibraryActive ? "page" : undefined}
-          >
-            <Images className="size-4 shrink-0" />
-            <span>Tài nguyên</span>
-          </button>
-
-          <button
-            type="button"
-            className={cn(
-              "nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left font-normal cursor-pointer",
-              isAnalyticsActive
-                ? "bg-primary/10 text-primary font-medium border-l-2 border-primary"
-                : "text-sidebar-foreground hover:bg-muted/60 hover:text-foreground",
-            )}
-            onClick={() => handleNavigate("analytics")}
-            aria-current={isAnalyticsActive ? "page" : undefined}
-          >
-            <BarChart3 className="size-4 shrink-0" />
-            <span>TikTok Analytics</span>
-          </button>
-
-          <PublishingNavItem active={activeRoute === "publishing"} onClick={() => handleNavigate("publishing")} />
-
-          <button
-            type="button"
-            className={cn(
-              "nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left font-normal cursor-pointer",
-              isJobProgressActive
-                ? "bg-primary/10 text-primary font-medium border-l-2 border-primary"
-                : "text-sidebar-foreground hover:bg-muted/60 hover:text-foreground",
-            )}
-            onClick={() => handleNavigate("job-progress")}
-            aria-current={isJobProgressActive ? "page" : undefined}
-          >
-            <ListOrdered className="size-4 shrink-0" />
-            <span>Tiến trình</span>
-          </button>
-
-          <div className="my-2 border-t border-sidebar-border" />
-
-          <button
-            ref={settingsBtnRef}
-            type="button"
-            className={cn(
-              "nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left font-normal cursor-pointer",
-              isSettingsActive
-                ? "bg-primary/10 text-primary font-medium border-l-2 border-primary"
-                : "text-sidebar-foreground hover:bg-muted/60 hover:text-foreground",
-            )}
-            onClick={() => handleNavigate("settings")}
-            aria-current={isSettingsActive ? "page" : undefined}
-          >
-            <Settings className="size-4 shrink-0" />
-            <span>Cài đặt</span>
-          </button>
+          <NavGroup label="Hệ thống">
+            <NavItem
+              active={isJobProgressActive}
+              icon={ListOrdered}
+              label="Tiến trình"
+              onClick={() => handleNavigate("job-progress")}
+            />
+            <button
+              ref={settingsBtnRef}
+              type="button"
+              className={navItemClass(isSettingsActive)}
+              onClick={() => handleNavigate("settings")}
+              aria-current={isSettingsActive ? "page" : undefined}
+            >
+              <Settings className="size-4 shrink-0" aria-hidden="true" />
+              <span className="truncate">Cài đặt</span>
+            </button>
+          </NavGroup>
         </nav>
 
-        {/* Footer của Sidebar */}
-        <div className="p-3 border-t border-sidebar-border mt-auto flex flex-col gap-2 shrink-0">
-          <div className="flex items-center gap-2.5 p-2.5 rounded-lg bg-card/60 border border-sidebar-border/80">
-            <HardDrive className="size-4 text-muted-foreground shrink-0" />
-            <div className="flex flex-col min-w-0">
-              <span className="text-[10px] text-muted-foreground font-medium leading-tight">
-                Lưu trữ cục bộ
-              </span>
-              <span className="text-xs text-foreground font-semibold truncate leading-tight">
-                Sẵn sàng
-              </span>
+        <div className="mt-auto flex shrink-0 flex-col gap-2 border-t border-sidebar-border p-3">
+          <div className="flex items-center gap-2.5 rounded-lg border border-sidebar-border bg-card/60 p-2.5">
+            <HardDrive className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <div className="flex min-w-0 flex-col">
+              <span className="text-[11px] font-medium leading-tight text-muted-foreground">Dữ liệu</span>
+              <span className="truncate text-xs font-semibold leading-tight text-foreground">Lưu trên máy này</span>
             </div>
           </div>
-          <div className="text-[10px] text-center text-muted-foreground/60 font-medium py-0.5">
-            TiToAI v0.1.0
-          </div>
+          <div className="py-0.5 text-center text-[11px] font-medium text-muted-foreground/70">TiToAI v0.1.0</div>
         </div>
       </aside>
 
       {/* 2. KHU VỰC CHÍNH (TOPBAR + NỘI DUNG) */}
       <div
-        className="flex-1 flex flex-col overflow-hidden bg-background"
+        className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background"
         inert={isModalActive}
         aria-hidden={isModalActive ? true : undefined}
       >
-        {/* TOPBAR */}
-        <header className="h-14 border-b border-border bg-card/50 backdrop-blur-sm px-6 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-4">
-            {/* Breadcrumb điều hướng phân cấp */}
-            <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs">
-              <span className="text-muted-foreground font-medium">TiToAI</span>
-              <span className="text-muted-foreground/40 font-light">/</span>
-              <span className="text-foreground font-semibold">
-                {getBreadcrumbTitle()}
-              </span>
-            </nav>
+        <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-background/80 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+          <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
+            <span className="text-muted-foreground">TiToAI</span>
+            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden="true" />
+            <span className="truncate font-medium text-foreground" aria-current="page">
+              {getBreadcrumbTitle()}
+            </span>
+          </nav>
 
-          </div>
-
-                    {/* Search box ở giữa */}
-          <div className="flex-1 max-w-md mx-6">
-            <div className="relative flex items-center">
-              <Search className="absolute left-3 size-3.5 text-muted-foreground pointer-events-none" />
-              <Input
-                type="search"
-                placeholder="Tìm kiếm trong TiToAI…"
-                className="pl-8 h-8 text-xs bg-background/80"
-                aria-label="Tìm kiếm trong TiToAI"
-              />
-            </div>
-          </div>
-
-          {/* Actions bên phải */}
-          <div className="flex items-center gap-2">
-            {/* Quick theme toggle button */}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-8 rounded-lg text-muted-foreground hover:text-foreground"
-              onClick={toggleTheme}
-              title={`Giao diện: ${preference} (Hiện tại: ${effectiveTheme})`}
-              aria-label="Chuyển nhanh giao diện sáng/tối"
-            >
-              {effectiveTheme === "dark" ? (
-                <Moon className="size-4" />
-              ) : (
-                <SunMedium className="size-4" />
-              )}
-            </Button>
+          <div className="flex shrink-0 items-center gap-1">
+            <ThemeMenu />
 
             {/* Nút mở hàng đợi tác vụ kèm badge */}
             <Button
@@ -393,16 +371,19 @@ function AppContent() {
               type="button"
               variant="ghost"
               size="icon"
-              className="queue-btn relative size-8 rounded-lg text-muted-foreground hover:text-foreground"
+              className="queue-btn relative size-9 rounded-lg text-muted-foreground hover:text-foreground"
               onClick={handleOpenQueue}
               title="Hàng đợi tác vụ"
-              aria-label="Mở hàng đợi tác vụ"
+              aria-label={activeJobCount > 0 ? `Mở hàng đợi tác vụ, ${activeJobCount} tác vụ đang chạy` : "Mở hàng đợi tác vụ"}
               aria-haspopup="dialog"
               aria-expanded={isQueueOpen}
             >
               <ListOrdered className="size-4" />
               {activeJobCount > 0 && (
-                <span className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground leading-none animate-in zoom-in-50">
+                <span
+                  className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold leading-none text-primary-foreground tabular-nums animate-in zoom-in-50"
+                  aria-hidden="true"
+                >
                   {activeJobCount > 99 ? "99+" : activeJobCount}
                 </span>
               )}
@@ -411,139 +392,118 @@ function AppContent() {
         </header>
 
         {/* VÙNG NỘI DUNG CHÍNH (BẢO TOÀN DRAFT KHI ĐỔI VIEW/ROUTE) */}
-        <main className="flex-1 overflow-y-auto bg-background p-6">
-          {/* MÀN HÌNH CÀI ĐẶT (TRANG TRONG APP SHELL 4 TAB CON) */}
-          <div className={activeRoute === "settings" ? "block" : "hidden"}>
-            {isLoaded("settings") && (
-              <Suspense fallback={null}>
-                <SettingsPage
-                  onDirtyChange={setIsSettingsDirty}
-                  accountsNavigationSignal={accountsNavigationSignal}
+        <main className="flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-[1400px] px-6 py-6 lg:px-8 lg:py-8">
+            {/* CÀI ĐẶT */}
+            <div className={activeRoute === "settings" ? "block" : "hidden"}>
+              {isLoaded("settings") && (
+                <Suspense fallback={null}>
+                  <SettingsPage
+                    onDirtyChange={setIsSettingsDirty}
+                    accountsNavigationSignal={accountsNavigationSignal}
+                  />
+                </Suspense>
+              )}
+            </div>
+
+            {/* DỰ ÁN & PHÂN CẢNH */}
+            <div className={isProjectsActive ? "block" : "hidden"}>
+              {selectedProjectId ? (
+                <Suspense fallback={null}>
+                  <ProjectPage
+                    projectId={selectedProjectId}
+                    onBack={() => setSelectedProjectId(null)}
+                    onOpenPublishing={handleOpenPublishing}
+                  />
+                </Suspense>
+              ) : (
+                <ProjectListPage
+                  onSelectProject={(projectId) => {
+                    setSelectedProjectId(projectId);
+                  }}
                 />
-              </Suspense>
-            )}
-          </div>
+              )}
+            </div>
 
-          {/* MÀN HÌNH DỰ ÁN & PHÂN CẢNH (PROJECTS & PROJECT-DETAIL) */}
-          <div
-            className={
-              activeRoute === "projects" || activeRoute === "project-detail"
-                ? "block"
-                : "hidden"
-            }
-          >
-            {selectedProjectId ? (
-              <ProjectPage
-                projectId={selectedProjectId}
-                onBack={() => setSelectedProjectId(null)}
-                onOpenPublishing={handleOpenPublishing}
-              />
-            ) : (
-              <ProjectListPage
-                onSelectProject={(projectId) => {
-                  setSelectedProjectId(projectId);
-                }}
-              />
-            )}
-          </div>
-
-          <div className={activeRoute === "prompt-templates" ? "block" : "hidden"}>
-            <div className="flex flex-col gap-4">
-              <div>
-                <h2 className="text-xl font-bold text-foreground tracking-tight">Prompt</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Quản lý các mẫu lời dẫn AI dùng cho video.
-                </p>
+            <div className={isPromptTemplatesActive ? "block" : "hidden"}>
+              <div className="flex flex-col gap-6">
+                <PageHeader title="Prompt" description="Quản lý các mẫu lời dẫn AI dùng cho video." />
+                {isLoaded("prompt-templates") && (
+                  <Suspense fallback={null}>
+                    <PromptTemplateManager />
+                  </Suspense>
+                )}
               </div>
-              <PromptTemplateManager />
+            </div>
+
+            <div className={isLibraryActive ? "block" : "hidden"}>
+              <div className="flex flex-col gap-6">
+                <PageHeader title="Tài nguyên" description="Quản lý hình ảnh, âm thanh và video dùng trong các dự án." />
+                {isLoaded("library") && (
+                  <Suspense fallback={null}>
+                    <LibraryPage />
+                  </Suspense>
+                )}
+              </div>
+            </div>
+
+            <div className={isAnalyticsActive ? "block" : "hidden"}>
+              {isLoaded("analytics") && (
+                <Suspense fallback={null}>
+                  <AnalyticsPage active={isAnalyticsActive} />
+                </Suspense>
+              )}
+            </div>
+
+            <div className={activeRoute === "publishing" ? "block" : "hidden"}>
+              {isLoaded("publishing") && (
+                <Suspense fallback={null}>
+                  <PublishingPage
+                    active={activeRoute === "publishing"}
+                    api={publishingApi}
+                    initialProjectId={publishTarget?.projectId}
+                    selectionRevision={publishTarget?.revision}
+                    onOpenAccounts={handleNavigateToSettingsAccounts}
+                    onReviewVideo={handleReviewPublishedVideo}
+                  />
+                </Suspense>
+              )}
+            </div>
+
+            <div className={isJobProgressActive ? "block" : "hidden"}>
+              <JobProgressPage active={isJobProgressActive} />
             </div>
           </div>
-
-          <div className={activeRoute === "library" ? "block" : "hidden"}>
-            <div className="flex flex-col gap-4">
-              <div>
-                <h2 className="text-xl font-bold text-foreground tracking-tight">Tài nguyên</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Quản lý hình ảnh, âm thanh và video dùng trong các dự án.
-                </p>
-              </div>
-              <LibraryPage />
-            </div>
-          </div>
-
-          <div className={activeRoute === "analytics" ? "block" : "hidden"}>
-            {isLoaded("analytics") && (
-              <Suspense fallback={null}>
-                <AnalyticsPage active={activeRoute === "analytics"} />
-              </Suspense>
-            )}
-          </div>
-
-          <div className={activeRoute === "publishing" ? "block" : "hidden"}>
-            {isLoaded("publishing") && (
-              <Suspense fallback={null}>
-                <PublishingPage
-                  active={activeRoute === "publishing"}
-                  api={publishingApi}
-                  initialProjectId={publishTarget?.projectId}
-                  selectionRevision={publishTarget?.revision}
-                  onOpenAccounts={handleNavigateToSettingsAccounts}
-                  onReviewVideo={handleReviewPublishedVideo}
-                />
-              </Suspense>
-            )}
-          </div>
-
-          <div className={activeRoute === "job-progress" ? "block" : "hidden"}>
-            <JobProgressPage active={isJobProgressActive} />
-          </div>
-
         </main>
       </div>
 
-      {/* DIALOG XÁC NHẬN MẤT BẢN NHÁP DÙNG SHADCN / RADIX VỚI ROLE ALERTDIALOG */}
+      {/* XÁC NHẬN BỎ THAY ĐỔI CHƯA LƯU CỦA CÀI ĐẶT */}
       {pendingRoute && (
         <div
           role="dialog"
           aria-modal="true"
           aria-labelledby="app-dirty-confirm-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs animate-in fade-in-0"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs animate-in fade-in-0"
         >
           <div
             role="alertdialog"
             aria-labelledby="app-dirty-confirm-title"
             aria-describedby="app-dirty-confirm-desc"
-            className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl flex flex-col gap-4 animate-in zoom-in-95"
+            className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-border bg-card p-6 shadow-xl animate-in zoom-in-95"
           >
             <div className="flex flex-col gap-1.5">
-              <h3
-                id="app-dirty-confirm-title"
-                className="text-base font-semibold text-foreground"
-              >
-                Cài đặt chưa được lưu!
+              <h3 id="app-dirty-confirm-title" className="text-base font-semibold text-foreground">
+                Cài đặt chưa được lưu
               </h3>
-              <p
-                id="app-dirty-confirm-desc"
-                className="text-sm text-muted-foreground leading-relaxed"
-              >
-                Bạn đang có các thay đổi chưa lưu trong Cài đặt. Bạn có muốn bỏ thay đổi để chuyển trang không?
+              <p id="app-dirty-confirm-desc" className="text-sm leading-relaxed text-muted-foreground">
+                Bạn đang có thay đổi chưa lưu trong Cài đặt. Bỏ thay đổi để chuyển trang?
               </p>
             </div>
             <div className="flex items-center justify-end gap-2 pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleCancelDiscardSettings}
-              >
+              <Button type="button" variant="outline" size="sm" onClick={handleCancelDiscardSettings}>
                 Ở lại
               </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                onClick={handleConfirmDiscardSettings}
-              >
+              <Button type="button" variant="destructive" size="sm" onClick={handleConfirmDiscardSettings}>
                 Bỏ thay đổi
               </Button>
             </div>

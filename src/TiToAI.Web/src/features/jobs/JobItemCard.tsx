@@ -97,8 +97,8 @@ export function JobItemCard({
   return (
     <div
       className={cn(
-        "group relative flex flex-col gap-3 rounded-lg border border-border bg-card p-3.5 text-card-foreground shadow-xs transition-all hover:border-border/80 hover:shadow-sm",
-        isAwaitingAction && "border-amber-500/40 bg-amber-500/5 dark:border-amber-500/30 dark:bg-amber-500/10",
+        "group relative flex flex-col gap-3 rounded-lg border border-border bg-card p-3.5 text-card-foreground shadow-xs transition-[color,background-color,border-color,box-shadow,opacity,transform] hover:border-border/80 hover:shadow-sm",
+        isAwaitingAction && "border-warning/40 bg-warning/5 dark:border-warning/30 dark:bg-warning/10",
         isFailedState && "border-destructive/30 bg-destructive/5 dark:bg-destructive/10",
         className
       )}
@@ -176,7 +176,7 @@ export function JobItemCard({
       {job.cancelRequested && job.state !== "Canceled" && (
         <Alert
           variant="warning"
-          className="py-2 px-3 text-xs border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+          className="py-2 px-3 text-xs border-warning/40 bg-warning/10 text-warning dark:text-warning"
         >
           <Clock className="h-3.5 w-3.5 animate-spin" />
           <AlertDescription>
@@ -191,7 +191,7 @@ export function JobItemCard({
           className={cn(
             "rounded-md border p-2 text-xs leading-relaxed",
             isAwaitingAction
-              ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+              ? "border-warning/30 bg-warning/10 text-warning dark:text-warning"
               : isFailedState
               ? "border-destructive/30 bg-destructive/10 text-destructive dark:text-destructive"
               : "border-border bg-muted/40 text-muted-foreground"
@@ -312,7 +312,7 @@ export function JobItemCard({
               size="sm"
               disabled={isActionLoading}
               onClick={() => onOpenReconcile?.(job)}
-              className="h-7 gap-1 px-2.5 text-xs bg-amber-600 hover:bg-amber-700 text-white cursor-pointer shadow-xs"
+              className="h-7 gap-1 px-2.5 text-xs bg-warning hover:bg-warning text-white cursor-pointer shadow-xs"
             >
               <SearchCheck className="h-3 w-3" />
               <span>{recommendedAction.label}</span>

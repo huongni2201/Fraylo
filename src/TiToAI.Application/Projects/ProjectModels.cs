@@ -20,6 +20,15 @@ public class ProjectNotFoundException : Exception
 }
 
 /// <summary>
+/// Ngoại lệ ném ra khi không tìm thấy Nhóm dự án tương ứng với mã yêu cầu.
+/// </summary>
+public class ProjectGroupNotFoundException : Exception
+{
+    public ProjectGroupNotFoundException(string groupId)
+        : base($"Không tìm thấy nhóm dự án với mã '{groupId}'.") { }
+}
+
+/// <summary>
 /// Ngoại lệ ném ra khi thao tác với Dự án gặp xung đột đồng thời hoặc vi phạm guard nghiệp vụ.
 /// </summary>
 public class ProjectConcurrencyConflictException : Exception

@@ -9,7 +9,7 @@ namespace TiToAI.Infrastructure.Persistence;
 
 public sealed class SqliteDatabaseBootstrapper : ISqliteDatabaseBootstrapper
 {
-    private const int CurrentSchemaVersion = 3;
+    private const int CurrentSchemaVersion = 6;
     private const string SchemaResourceName = "TiToAI.Infrastructure.Persistence.Sql.final-schema.sql";
     private readonly ILogger<SqliteDatabaseBootstrapper>? _logger;
 
@@ -35,35 +35,24 @@ public sealed class SqliteDatabaseBootstrapper : ISqliteDatabaseBootstrapper
             initialJournalMode = await ExecuteScalarTextAsync(connection, "PRAGMA journal_mode = WAL;", cancellationToken).ConfigureAwait(false);
 
             var schemaVersion = Convert.ToInt32(await ExecuteScalarAsync(connection, "PRAGMA user_version;", cancellationToken).ConfigureAwait(false));
-            if (schemaVersion == 2)
+            if (schemaVersion > CurrentSchemaVersion)
             {
-                await ExecuteNonQueryAsync(connection, """
-                    BEGIN IMMEDIATE;
-                    ALTER TABLE "PromptTemplate" ADD COLUMN "name" TEXT NOT NULL DEFAULT 'Mẫu hiện tại';
-                    ALTER TABLE "PromptTemplate" ADD COLUMN "is_active" INTEGER NOT NULL DEFAULT 1;
-                    DROP INDEX "uq_prompt_template_global_purpose";
-                    CREATE UNIQUE INDEX "uq_prompt_template_active_purpose" ON "PromptTemplate" ("purpose") WHERE "is_active" = 1;
-                    PRAGMA user_version = 3;
-                    COMMIT;
-                    """, cancellationToken).ConfigureAwait(false);
+                throw new InvalidOperationException($"Database schema version {schemaVersion} is not supported; expected {CurrentSchemaVersion}.");
             }
-            else if (schemaVersion < CurrentSchemaVersion)
+
+            if (schemaVersion < CurrentSchemaVersion)
             {
+                // Không còn chuỗi nâng cấp: schema cũ được sao lưu rồi tạo lại từ final-schema.sql (dữ liệu rỗng).
                 var tables = await ListUserTablesAsync(connection, cancellationToken).ConfigureAwait(false);
                 if (tables.Count > 0)
                 {
-                    var backupPath = CreatePreResetBackup(dbPath, connectionString, cancellationToken);
+                    var backupPath = CreateSchemaBackup(dbPath, connectionString, "pre-reset", cancellationToken);
                     _logger?.LogInformation("Created pre-reset SQLite backup at {BackupPath}", backupPath);
                     await DropUserTablesAsync(connection, tables, cancellationToken).ConfigureAwait(false);
                     databaseReset = true;
                 }
 
                 await ExecuteFinalSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
-                await ExecuteNonQueryAsync(connection, $"PRAGMA user_version = {CurrentSchemaVersion};", cancellationToken).ConfigureAwait(false);
-            }
-            else if (schemaVersion > CurrentSchemaVersion)
-            {
-                throw new InvalidOperationException($"Database schema version {schemaVersion} is not supported; expected {CurrentSchemaVersion}.");
             }
 
             await VerifyFinalSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
@@ -180,11 +169,11 @@ public sealed class SqliteDatabaseBootstrapper : ISqliteDatabaseBootstrapper
         }
     }
 
-    private static string CreatePreResetBackup(string databasePath, string connectionString, CancellationToken cancellationToken)
+    private static string CreateSchemaBackup(string databasePath, string connectionString, string label, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var suffix = DateTime.UtcNow.ToString("yyyyMMddTHHmmssfffZ") + "-" + Guid.NewGuid().ToString("N");
-        var backupPath = $"{databasePath}.pre-reset-{suffix}.bak";
+        var backupPath = $"{databasePath}.{label}-{suffix}.bak";
         using var source = new SqliteConnection(connectionString);
         using var destination = new SqliteConnection(DatabasePathHelper.BuildConnectionString(backupPath));
         source.Open();

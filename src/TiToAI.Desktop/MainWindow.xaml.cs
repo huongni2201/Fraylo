@@ -41,6 +41,7 @@ public partial class MainWindow : Window
     private ProviderAccountHandlers? _providerAccountHandlers;
     private PromptHandlers? _promptHandlers;
     private ProjectHandlers? _projectHandlers;
+    private ProjectGroupHandlers? _projectGroupHandlers;
     private SceneHandlers? _sceneHandlers;
     private VideoWorkflowHandlers? _videoWorkflowHandlers;
     private ProviderHandlers? _providerHandlers;
@@ -295,6 +296,9 @@ public partial class MainWindow : Window
             _projectHandlers = new ProjectHandlers(projectService);
             _projectHandlers.Register(DispatcherInstance);
 
+            _projectGroupHandlers = new ProjectGroupHandlers(new ProjectGroupService(dbOptions));
+            _projectGroupHandlers.Register(DispatcherInstance);
+
             var sceneService = new SceneService(dbOptions);
             _sceneHandlers = new SceneHandlers(sceneService);
             _sceneHandlers.Register(DispatcherInstance);
@@ -530,6 +534,11 @@ public partial class MainWindow : Window
             _projectHandlers.Unregister(DispatcherInstance);
             _projectHandlers = null;
         }
+        if (_projectGroupHandlers != null)
+        {
+            _projectGroupHandlers.Unregister(DispatcherInstance);
+            _projectGroupHandlers = null;
+        }
         if (_sceneHandlers != null)
         {
             _sceneHandlers.Unregister(DispatcherInstance);
@@ -628,6 +637,11 @@ public partial class MainWindow : Window
         {
             _projectHandlers.Unregister(DispatcherInstance);
             _projectHandlers = null;
+        }
+        if (_projectGroupHandlers != null)
+        {
+            _projectGroupHandlers.Unregister(DispatcherInstance);
+            _projectGroupHandlers = null;
         }
         if (_browserHandlers != null)
         {

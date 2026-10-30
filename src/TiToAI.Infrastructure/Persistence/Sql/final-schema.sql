@@ -131,6 +131,7 @@ CREATE TABLE "ActiveSlotOccupancy" (
 CREATE TABLE "Asset" (
     "id" TEXT NOT NULL CONSTRAINT "PK_Asset" PRIMARY KEY,
     "project_id" TEXT NULL,
+    "group_id" TEXT NULL,
     "storage_root_id" TEXT NOT NULL,
     "relative_path" TEXT NOT NULL,
     "asset_type" TEXT NOT NULL,
@@ -139,7 +140,28 @@ CREATE TABLE "Asset" (
     "sha256_hash" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'Linked',
     "created_at_utc" TEXT NOT NULL,
+    CONSTRAINT "FK_Asset_ProjectGroup_group_id" FOREIGN KEY ("group_id") REFERENCES "ProjectGroup" ("id") ON DELETE SET NULL,
     CONSTRAINT "FK_Asset_Project_project_id" FOREIGN KEY ("project_id") REFERENCES "Project" ("id")
+);
+
+
+CREATE TABLE "ProjectGroup" (
+    "id" TEXT NOT NULL CONSTRAINT "PK_ProjectGroup" PRIMARY KEY,
+    "name" TEXT NOT NULL,
+    "description" TEXT NOT NULL DEFAULT '',
+    "script_guidance" TEXT NOT NULL DEFAULT '',
+    "video_guidance" TEXT NOT NULL DEFAULT '',
+    "prompt_variables_json" TEXT NOT NULL DEFAULT '{}',
+    "model_asset_id" TEXT NULL,
+    "product_asset_id" TEXT NULL,
+    "ready_image_asset_id" TEXT NULL,
+    "audio_asset_id" TEXT NULL,
+    "created_at_utc" TEXT NOT NULL,
+    "updated_at_utc" TEXT NOT NULL,
+    CONSTRAINT "FK_ProjectGroup_Asset_audio_asset_id" FOREIGN KEY ("audio_asset_id") REFERENCES "Asset" ("id") ON DELETE SET NULL,
+    CONSTRAINT "FK_ProjectGroup_Asset_model_asset_id" FOREIGN KEY ("model_asset_id") REFERENCES "Asset" ("id") ON DELETE SET NULL,
+    CONSTRAINT "FK_ProjectGroup_Asset_product_asset_id" FOREIGN KEY ("product_asset_id") REFERENCES "Asset" ("id") ON DELETE SET NULL,
+    CONSTRAINT "FK_ProjectGroup_Asset_ready_image_asset_id" FOREIGN KEY ("ready_image_asset_id") REFERENCES "Asset" ("id") ON DELETE SET NULL
 );
 
 
@@ -197,9 +219,11 @@ CREATE TABLE "Project" (
     "brief" TEXT NOT NULL DEFAULT '',
     "status" TEXT NOT NULL DEFAULT 'Draft',
     "current_video_revision_id" TEXT NULL,
+    "group_id" TEXT NULL,
     "created_at_utc" TEXT NOT NULL,
     "updated_at_utc" TEXT NOT NULL,
     "revision" INTEGER NOT NULL DEFAULT 1,
+    CONSTRAINT "FK_Project_ProjectGroup_group_id" FOREIGN KEY ("group_id") REFERENCES "ProjectGroup" ("id") ON DELETE SET NULL,
     CONSTRAINT "FK_Project_VideoRevision_current_video_revision_id_id" FOREIGN KEY ("current_video_revision_id", "id") REFERENCES "VideoRevision" ("id", "project_id")
 );
 
@@ -265,6 +289,9 @@ CREATE UNIQUE INDEX "uq_active_slot_occupancy_job" ON "ActiveSlotOccupancy" ("jo
 CREATE INDEX "ix_analytics_snapshot_account_created" ON "AnalyticsSnapshot" ("account_id", "created_at_utc");
 
 
+CREATE INDEX "ix_asset_group_id" ON "Asset" ("group_id");
+
+
 CREATE INDEX "ix_asset_project" ON "Asset" ("project_id");
 
 
@@ -289,7 +316,25 @@ CREATE INDEX "ix_job_state_lease_retry" ON "Job" ("state", "lease_expires_at_utc
 CREATE INDEX "IX_Project_current_video_revision_id_id" ON "Project" ("current_video_revision_id", "id");
 
 
+CREATE INDEX "ix_project_group_id" ON "Project" ("group_id");
+
+
 CREATE INDEX "ix_project_status_updated" ON "Project" ("status");
+
+
+CREATE INDEX "IX_ProjectGroup_audio_asset_id" ON "ProjectGroup" ("audio_asset_id");
+
+
+CREATE INDEX "IX_ProjectGroup_model_asset_id" ON "ProjectGroup" ("model_asset_id");
+
+
+CREATE INDEX "IX_ProjectGroup_product_asset_id" ON "ProjectGroup" ("product_asset_id");
+
+
+CREATE INDEX "IX_ProjectGroup_ready_image_asset_id" ON "ProjectGroup" ("ready_image_asset_id");
+
+
+CREATE UNIQUE INDEX "uq_project_group_name" ON "ProjectGroup" ("name");
 
 
 CREATE UNIQUE INDEX "uq_prompt_template_active_purpose" ON "PromptTemplate" ("purpose") WHERE "is_active" = 1;
@@ -350,4 +395,4 @@ CREATE UNIQUE INDEX "uq_video_revision_project_revision" ON "VideoRevision" ("pr
 
 
 
-PRAGMA user_version = 3;
+PRAGMA user_version = 6;

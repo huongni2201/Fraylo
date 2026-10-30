@@ -1,43 +1,19 @@
 import type { LucideIcon, LucideProps } from "lucide-react";
 import {
-  AlertCircle,
   AlertTriangle,
-  BarChart2,
   Check,
-  CheckCircle2,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
-  Clock,
-  Copy,
-  Edit,
-  ExternalLink,
   Eye,
   Film,
   Folder,
-  Globe,
   HardDrive,
   Image,
   Info,
-  Layers,
-  LayoutDashboard,
-  ListTodo,
-  MoreVertical,
   Music,
-  Pause,
-  Play,
-  Plus,
   RefreshCw,
   Search,
-  Settings,
-  Sliders,
-  Sparkles,
-  Sun,
-  Trash2,
   Upload,
-  User,
-  Video,
   X,
 } from "lucide-react";
 import type { SVGProps } from "react";
@@ -68,44 +44,19 @@ function createIcon(IconComponent: LucideIcon, defaultSize = 16) {
   };
 }
 
-export const IconOverview = createIcon(LayoutDashboard, 18);
-export const IconProject = createIcon(Video, 18);
-export const IconBrowser = createIcon(Globe, 18);
-export const IconLibrary = createIcon(Image, 18);
-export const IconSettings = createIcon(Settings, 18);
-export const IconQueue = createIcon(ListTodo, 18);
-export const IconTheme = createIcon(Sun, 18);
 export const IconSearch = createIcon(Search, 16);
-export const IconPlus = createIcon(Plus, 16);
 export const IconClose = createIcon(X, 16);
 export const IconCheck = createIcon(Check, 16);
 export const IconInfo = createIcon(Info, 16);
 export const IconRefresh = createIcon(RefreshCw, 16);
 export const IconHardDrive = createIcon(HardDrive, 16);
-export const IconChevronDown = createIcon(ChevronDown, 16);
-export const IconChevronUp = createIcon(ChevronUp, 16);
 export const IconChevronRight = createIcon(ChevronRight, 16);
 export const IconChevronLeft = createIcon(ChevronLeft, 16);
-export const IconEdit = createIcon(Edit, 16);
-export const IconTrash = createIcon(Trash2, 16);
-export const IconPlay = createIcon(Play, 16);
-export const IconPause = createIcon(Pause, 16);
 export const IconWarning = createIcon(AlertTriangle, 16);
-export const IconSparkles = createIcon(Sparkles, 16);
 export const IconFilm = createIcon(Film, 16);
-export const IconChart = createIcon(BarChart2, 16);
 export const IconFolder = createIcon(Folder, 16);
 export const IconImage = createIcon(Image, 16);
 export const IconMusic = createIcon(Music, 16);
-export const IconCopy = createIcon(Copy, 16);
-export const IconExternalLink = createIcon(ExternalLink, 16);
-export const IconSliders = createIcon(Sliders, 16);
-export const IconCheckCircle = createIcon(CheckCircle2, 16);
-export const IconAlertCircle = createIcon(AlertCircle, 16);
-export const IconClock = createIcon(Clock, 16);
-export const IconMoreVertical = createIcon(MoreVertical, 16);
-export const IconLayers = createIcon(Layers, 16);
-export const IconUser = createIcon(User, 16);
 export const IconEye = createIcon(Eye, 16);
 export const IconUpload = createIcon(Upload, 16);
 

@@ -10,7 +10,8 @@ public sealed record AssetDto(
     string Sha256Hash,
     string Status,
     string CreatedAtUtc,
-    string? MimeType = null
+    string? MimeType = null,
+    string? GroupId = null
 );
 
 public sealed record ImportAudioRequest(
@@ -39,7 +40,8 @@ public sealed record UploadAssetRequest(
     string? FileName = null,
     string? Base64Data = null,
     string? SourceFilePath = null,
-    string? StorageRootId = null // Root đã chụp trong job; null thì dùng Settings hiện hành
+    string? StorageRootId = null, // Root đã chụp trong job; null thì dùng Settings hiện hành
+    string? GroupId = null // Tải lên thuộc Nhóm dùng chung (không đi cùng ProjectId)
 );
 
 public sealed record UploadAssetResponse(
@@ -65,7 +67,8 @@ public sealed record ListAssetsRequest(
     string? AssetType = null,
     int Page = 1,
     int PageSize = 20,
-    string? Search = null
+    string? Search = null,
+    string? GroupId = null // Tài nguyên của nhóm và của các dự án trong nhóm
 );
 
 public sealed record ListAssetsResponse(

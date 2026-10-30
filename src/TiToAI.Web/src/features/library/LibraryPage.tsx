@@ -136,9 +136,9 @@ export function LibraryPage() {
   const renderIcon = (type: string) => {
     switch (type.toLowerCase()) {
       case "image":
-        return <IconImage size={24} className="text-blue-500" />;
+        return <IconImage size={24} className="text-info" />;
       case "audio":
-        return <IconMusic size={24} className="text-green-500" />;
+        return <IconMusic size={24} className="text-success" />;
       case "video":
         return <IconFilm size={24} className="text-purple-500" />;
       default:

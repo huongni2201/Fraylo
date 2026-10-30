@@ -13,6 +13,9 @@ namespace TiToAI.Application.Content;
 
 public sealed partial class ProjectWorkflowService
 {
+    /// <summary>Số cảnh tối đa của một run nhiều video; quá nhiều cảnh làm số render và chi phí tăng khó kiểm soát.</summary>
+    private const int MaxMultiVideoScenes = 10;
+
     private static bool IsVideoDurationSupported(int durationSeconds, string providerKey = ProviderKeys.MuseAI)
     {
         return ProviderCapabilities.IsDurationSupported(providerKey, durationSeconds);
@@ -128,10 +131,15 @@ public sealed partial class ProjectWorkflowService
 
         var nowIso = DateTimeOffset.UtcNow.ToString("o");
         var runId = Guid.NewGuid().ToString("D").ToLowerInvariant();
+        bool singleVideo = config.VideoStrategy == VideoStrategies.SingleVideo;
+        if (!singleVideo && (config.TargetSceneCount < 1 || config.TargetSceneCount > MaxMultiVideoScenes))
+        {
+            throw new ProjectWorkflowValidationException($"Số cảnh phải từ 1 đến {MaxMultiVideoScenes} khi tạo nhiều video.");
+        }
         var runConfig = config with
         {
             CurrentRunId = runId,
-            TargetSceneCount = 1
+            TargetSceneCount = singleVideo ? 1 : config.TargetSceneCount
         };
 
         // 2. Lấy danh sách các cảnh hiện có của dự án
@@ -140,10 +148,10 @@ public sealed partial class ProjectWorkflowService
             .OrderBy(s => s.SequenceOrder)
             .ToListAsync(cancellationToken);
 
-        if (existingScenes.Count > 1)
+        if (singleVideo && existingScenes.Count > 1)
         {
             throw new ProjectWorkflowValidationException(
-                "Mỗi dự án video chỉ tạo một video đầu ra. Dự án này có nhiều cảnh từ workflow cũ; dữ liệu được giữ nguyên, hãy tạo dự án video mới để bắt đầu theo kiến trúc mới.");
+                $"Chế độ một video chỉ dùng một phân cảnh, dự án đang có {existingScenes.Count} cảnh. Hãy chuyển sang 'Nhiều video' hoặc tạo dự án mới.");
         }
 
         // Kiểm tra thời lượng của từng cảnh hiện có theo capability provider (§2, CD04, CD08)
@@ -218,7 +226,7 @@ public sealed partial class ProjectWorkflowService
         var setting = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == key, cancellationToken);
         if (setting != null)
         {
-            setting.Value = JsonSerializer.Serialize(updatedConfig, JsonOptions);
+            setting.Value = await SerializeStoredConfigAsync(dbContext, updatedConfig, cancellationToken);
             setting.UpdatedAtUtc = nowIso;
         }
 
@@ -290,7 +298,7 @@ public sealed partial class ProjectWorkflowService
         var setting = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == key, cancellationToken);
         if (setting != null)
         {
-            setting.Value = JsonSerializer.Serialize(updated, JsonOptions);
+            setting.Value = await SerializeStoredConfigAsync(dbContext, updated, cancellationToken);
             setting.UpdatedAtUtc = updated.UpdatedAtUtc;
             await dbContext.SaveChangesAsync(cancellationToken);
         }
@@ -327,7 +335,7 @@ public sealed partial class ProjectWorkflowService
         var setting = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == key, cancellationToken).ConfigureAwait(false);
         if (setting != null)
         {
-            setting.Value = JsonSerializer.Serialize(updated, JsonOptions);
+            setting.Value = await SerializeStoredConfigAsync(dbContext, updated, cancellationToken);
             setting.UpdatedAtUtc = updated.UpdatedAtUtc;
         }
 
@@ -398,7 +406,7 @@ public sealed partial class ProjectWorkflowService
         var setting = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == key, cancellationToken).ConfigureAwait(false);
         if (setting != null)
         {
-            setting.Value = JsonSerializer.Serialize(updated, JsonOptions);
+            setting.Value = await SerializeStoredConfigAsync(dbContext, updated, cancellationToken);
             setting.UpdatedAtUtc = updated.UpdatedAtUtc;
         }
 

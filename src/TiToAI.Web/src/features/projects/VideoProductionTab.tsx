@@ -4,10 +4,12 @@ import { ProjectActivityLog } from "./ProjectActivityLog";
 import {
   videoWorkflowApi,
   WorkflowModes,
+  VideoStrategies,
   AudioOptions,
   WorkflowRunState,
   SceneWorkflowStatus,
   type WorkflowMode,
+  type VideoStrategy,
   type AudioOption,
   type ProjectWorkflowConfigDto,
   type SceneWorkflowDetailDto,
@@ -26,6 +28,7 @@ import {
 import { AssetPicker } from "../library/AssetPicker";
 import { AssetMediaPreview } from "../library/AssetMediaPreview";
 import { promptApi, extractTemplateVariables, renderPromptTemplateClient } from "../prompts/promptApi";
+import { projectGroupApi, type ProjectGroupDto } from "./projectApi";
 import {
   getActivePromptId,
   getStoredPrompts,
@@ -77,20 +80,6 @@ const SYSTEM_VARIABLES = new Set([
   "thoi_luong",
 ]);
 
-function promptValuesStorageKey(projectId: string): string {
-  return `titoai_workflow_prompt_values_${projectId}`;
-}
-
-function readPromptValues(projectId: string): Record<string, string> {
-  try {
-    const stored = localStorage.getItem(promptValuesStorageKey(projectId));
-    const values = stored ? JSON.parse(stored) : null;
-    return values && typeof values === "object" && !Array.isArray(values) ? values : {};
-  } catch {
-    return {};
-  }
-}
-
 async function loadActiveTemplateInfo(
   purpose: "Script" | "VideoPrompt"
 ): Promise<ActiveTemplateInfo | null> {
@@ -125,6 +114,19 @@ async function loadActiveTemplateInfo(
       (name) => !SYSTEM_VARIABLES.has(name.trim().toLowerCase())
     ),
   };
+}
+
+const GUIDANCE_FIELDS = [
+  { field: "scriptGuidance", label: "Hướng dẫn kịch bản" },
+  { field: "videoGuidance", label: "Hướng dẫn prompt video" },
+] as const;
+
+/** Nhãn nguồn hướng dẫn đang áp dụng: mẫu chung luôn có, nhóm và dự án nối thêm nếu có nội dung. */
+function guidanceSourceLabel(groupText: string | null | undefined, projectText: string | null | undefined): string {
+  const sources = ["Mẫu chung"];
+  if (groupText?.trim()) sources.push("Nhóm");
+  if (projectText?.trim()) sources.push("Dự án");
+  return sources.join(" + ");
 }
 
 export interface ActiveTemplateInfo {
@@ -209,48 +211,49 @@ export function VideoProductionTab({
   // Active Prompt Template Info & Dynamic Variables
   const [activeTemplateInfo, setActiveTemplateInfo] = useState<ActiveTemplateInfo | null>(null);
   const [videoPromptTemplateInfo, setVideoPromptTemplateInfo] = useState<ActiveTemplateInfo | null>(null);
+  // Giá trị biến riêng của dự án (lưu trong cấu hình); ô trống nghĩa là dùng giá trị của nhóm.
   const [promptValues, setPromptValues] = useState<Record<string, string>>({});
+  const [projectGroup, setProjectGroup] = useState<ProjectGroupDto | null>(null);
 
   const templateValues = useMemo(() => {
     const duration = `${config?.targetDurationPerSceneSeconds ?? 15}s`;
+    const projectValues = Object.fromEntries(
+      Object.entries(promptValues).filter(([, value]) => value.trim() !== ""),
+    );
     return {
-      ...promptValues,
+      ...(projectGroup?.promptVariables ?? {}),
+      ...projectValues,
       duration,
       DURATION: duration,
       thoi_luong: duration,
       THOI_LUONG: duration,
     };
-  }, [config?.targetDurationPerSceneSeconds, promptValues]);
-
-  const scriptPromptRender = useMemo(
-    () => activeTemplateInfo
-      ? renderPromptTemplateClient(activeTemplateInfo.templateText, templateValues)
-      : { renderedText: config?.scriptPromptText ?? "", missingVariables: [] as string[] },
-    [activeTemplateInfo, config?.scriptPromptText, templateValues]
-  );
-
-  const videoPromptRender = useMemo(
-    () => videoPromptTemplateInfo
-      ? renderPromptTemplateClient(videoPromptTemplateInfo.templateText, templateValues)
-      : { renderedText: config?.videoPromptText ?? "", missingVariables: [] as string[] },
-    [videoPromptTemplateInfo, config?.videoPromptText, templateValues]
-  );
+  }, [config?.targetDurationPerSceneSeconds, promptValues, projectGroup]);
 
   const promptVariableNames = useMemo(
     () => [...new Set([...(activeTemplateInfo?.variables ?? []), ...(videoPromptTemplateInfo?.variables ?? [])])],
     [activeTemplateInfo?.variables, videoPromptTemplateInfo?.variables]
   );
 
-  const missingPromptVariables = useMemo(
-    () => [...new Set([...scriptPromptRender.missingVariables, ...videoPromptRender.missingVariables])],
-    [scriptPromptRender.missingVariables, videoPromptRender.missingVariables]
-  );
+  const missingPromptVariables = useMemo(() => {
+    const missing = [
+      ...(activeTemplateInfo ? renderPromptTemplateClient(activeTemplateInfo.templateText, templateValues).missingVariables : []),
+      ...(videoPromptTemplateInfo ? renderPromptTemplateClient(videoPromptTemplateInfo.templateText, templateValues).missingVariables : []),
+    ];
+    return [...new Set(missing)];
+  }, [activeTemplateInfo, videoPromptTemplateInfo, templateValues]);
 
   const saveConfigRequest = () => {
     if (!config) throw new Error("Cấu hình chưa sẵn sàng.");
+    const strategy = config.videoStrategy ?? VideoStrategies.MultiVideo;
     if (missingPromptVariables.length > 0) {
       throw new Error(`Vui lòng điền các biến trong mẫu prompt: ${missingPromptVariables.map((name) => `{${name}}`).join(", ")}.`);
     }
+    const projectPromptVariables = Object.fromEntries(
+      promptVariableNames
+        .map((name) => [name, (promptValues[name] ?? "").trim()] as const)
+        .filter(([, value]) => value !== ""),
+    );
     return {
       projectId,
       workflowMode: config.workflowMode,
@@ -260,10 +263,13 @@ export function VideoProductionTab({
       readyImageAssetId: config.readyImageAssetId,
       audioOption: config.audioOption,
       audioAssetId: config.audioAssetId,
-      targetSceneCount: 1,
+      videoStrategy: strategy,
+      // Một video nhiều phân cảnh luôn có một cảnh trong bảng; nhiều video dùng số cảnh người dùng chọn.
+      targetSceneCount: strategy === VideoStrategies.SingleVideo ? 1 : config.targetSceneCount,
       targetDurationPerSceneSeconds: config.targetDurationPerSceneSeconds,
-      scriptPromptText: scriptPromptRender.renderedText,
-      videoPromptText: videoPromptRender.renderedText,
+      scriptGuidance: config.scriptGuidance ?? "",
+      videoGuidance: config.videoGuidance ?? "",
+      promptVariables: projectPromptVariables,
     };
   };
 
@@ -285,17 +291,19 @@ export function VideoProductionTab({
     try {
       setIsLoading(true);
       setErrorMessage(null);
-      const [cfg, scns, cItems] = await Promise.all([
+      const [cfg, scns, cItems, groups] = await Promise.all([
         videoWorkflowApi.getConfig(projectId),
         videoWorkflowApi.listScenes(projectId),
         videoWorkflowApi.listContentItems(projectId),
+        projectGroupApi.listGroups(),
       ]);
 
-      const initialVars = readPromptValues(projectId);
+      const initialVars: Record<string, string> = { ...(cfg.promptVariables ?? {}) };
       if (cfg.goalPrompt && !initialVars["chu_de"]) {
         initialVars["chu_de"] = cfg.goalPrompt;
       }
       setPromptValues(initialVars);
+      setProjectGroup(groups.find((group) => group.groupId === cfg.groupId) ?? null);
       setConfig({ ...cfg, goalPrompt: "" });
 
       setScenes(scns);
@@ -441,19 +449,31 @@ export function VideoProductionTab({
     setIsDirty(true);
   };
 
-  // Handle Input Changes
-  const handlePromptVariableChange = (varName: string, value: string) => {
-    setPromptValues((prev) => {
-      const next = { ...prev, [varName]: value };
-      try {
-        localStorage.setItem(promptValuesStorageKey(projectId), JSON.stringify(next));
-      } catch {
-        // Keep the current form usable when local storage is unavailable.
-      }
-      return next;
-    });
+  const handleStrategyChange = (strategy: VideoStrategy) => {
+    setConfig((prev) => (prev ? { ...prev, videoStrategy: strategy } : prev));
     setIsDirty(true);
   };
+
+  // Số cảnh của luồng nhiều video: backend giới hạn 1–10.
+  const handleSceneCountChange = (count: number) => {
+    setConfig((prev) => (prev ? { ...prev, targetSceneCount: Math.max(1, Math.min(10, count)) } : prev));
+    setIsDirty(true);
+  };
+
+  // Handle Input Changes
+  const handlePromptVariableChange =(varName: string, value: string) => {
+    setPromptValues((prev) => ({ ...prev, [varName]: value }));
+    setIsDirty(true);
+  };
+
+  // Hướng dẫn riêng của dự án, nối sau hướng dẫn nhóm và mẫu chung ở backend.
+  const handleGuidanceChange = (field: "scriptGuidance" | "videoGuidance", value: string) => {
+    setConfig((prev) => (prev ? { ...prev, [field]: value } : prev));
+    setIsDirty(true);
+  };
+
+  // Ô tệp đang lấy từ tệp mặc định của nhóm (backend đánh dấu theo ô).
+  const isInheritedAsset = (slot: string) => config?.inheritedAssetSlots?.includes(slot) ?? false;
 
   const handleAudioOptionChange = (option: AudioOption) => {
     if (!config) return;
@@ -694,7 +714,7 @@ export function VideoProductionTab({
         <div className="flex items-center gap-2 p-3 text-sm rounded-md bg-destructive/10 text-destructive border border-destructive/20">
           <AlertCircle className="h-4 w-4 shrink-0" />
           <span className="flex-1">{errorMessage}</span>
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setErrorMessage(null)}>
+          <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Đóng thông báo lỗi" onClick={() => setErrorMessage(null)}>
             <X className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -704,7 +724,7 @@ export function VideoProductionTab({
         <div className="flex items-center gap-2 p-3 text-sm rounded-md bg-success/10 text-success border border-success/20">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
           <span className="flex-1">{successMessage}</span>
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setSuccessMessage(null)}>
+          <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Đóng thông báo thành công" onClick={() => setSuccessMessage(null)}>
             <X className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -932,7 +952,7 @@ export function VideoProductionTab({
                   {/* Mode 1: Mẫu + sản phẩm */}
                   <div
                     onClick={() => handleModeChange(WorkflowModes.ModelAndProduct)}
-                    className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                    className={`p-4 rounded-lg border cursor-pointer transition-[color,background-color,border-color,box-shadow,opacity,transform] ${
                       config.workflowMode === WorkflowModes.ModelAndProduct
                         ? "border-primary bg-primary/5 ring-2 ring-primary/20"
                         : "border-border hover:border-primary/40 bg-card"
@@ -950,7 +970,7 @@ export function VideoProductionTab({
                   {/* Mode 2: Ảnh đã sẵn sàng */}
                   <div
                     onClick={() => handleModeChange(WorkflowModes.ReadyImage)}
-                    className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                    className={`p-4 rounded-lg border cursor-pointer transition-[color,background-color,border-color,box-shadow,opacity,transform] ${
                       config.workflowMode === WorkflowModes.ReadyImage
                         ? "border-primary bg-primary/5 ring-2 ring-primary/20"
                         : "border-border hover:border-primary/40 bg-card"
@@ -968,7 +988,7 @@ export function VideoProductionTab({
                   {/* Mode 3: Chỉ sản phẩm */}
                   <div
                     onClick={() => handleModeChange(WorkflowModes.ProductOnly)}
-                    className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                    className={`p-4 rounded-lg border cursor-pointer transition-[color,background-color,border-color,box-shadow,opacity,transform] ${
                       config.workflowMode === WorkflowModes.ProductOnly
                         ? "border-primary bg-primary/5 ring-2 ring-primary/20"
                         : "border-border hover:border-primary/40 bg-card"
@@ -998,6 +1018,7 @@ export function VideoProductionTab({
                       <span className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
                         <ImageIcon className="h-3.5 w-3.5 text-primary" />
                         Ảnh Mẫu người (Bắt buộc)
+                        {isInheritedAsset("Model") && <Badge variant="secondary" className="text-[10px] h-5">Từ nhóm</Badge>}
                       </span>
                       {config.modelAssetId ? (
                         <div className="space-y-2 w-full">
@@ -1075,6 +1096,7 @@ export function VideoProductionTab({
                       <span className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
                         <ImageIcon className="h-3.5 w-3.5 text-primary" />
                         Ảnh Sản Phẩm (Bắt buộc)
+                        {isInheritedAsset("Product") && <Badge variant="secondary" className="text-[10px] h-5">Từ nhóm</Badge>}
                       </span>
                       {config.productAssetId ? (
                         <div className="space-y-2 w-full">
@@ -1151,6 +1173,7 @@ export function VideoProductionTab({
                       <span className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
                         <ImageIcon className="h-3.5 w-3.5 text-primary" />
                         Ảnh Đã Hoàn Thiện (Bắt buộc)
+                        {isInheritedAsset("ReadyImage") && <Badge variant="secondary" className="text-[10px] h-5">Từ nhóm</Badge>}
                       </span>
                       {config.readyImageAssetId ? (
                         <div className="space-y-2 w-full">
@@ -1258,6 +1281,45 @@ export function VideoProductionTab({
                   </Button>
                 </div>
 
+                {/* Nhóm dự án và hướng dẫn riêng: nhóm dùng chung, dự án chỉ nối thêm phần riêng */}
+                <div className="space-y-3 p-3.5 rounded-lg border border-border bg-muted/20">
+                  <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+                    <span>
+                      Nhóm dự án:{" "}
+                      <strong className="text-foreground">{projectGroup?.name ?? config?.groupName ?? "Không thuộc nhóm"}</strong>
+                    </span>
+                    <span className="text-muted-foreground">Chỉnh hướng dẫn nhóm ở tab Cấu hình nhóm trong trang nhóm.</span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {GUIDANCE_FIELDS.map(({ field, label }) => {
+                      const groupText = field === "scriptGuidance" ? projectGroup?.scriptGuidance : projectGroup?.videoGuidance;
+                      const projectText = config?.[field];
+                      return (
+                        <div key={field} className="space-y-1.5">
+                          <Label htmlFor={`guidance-${field}`} className="text-xs font-medium text-foreground">
+                            {label}:
+                          </Label>
+                          <Textarea
+                            id={`guidance-${field}`}
+                            rows={3}
+                            className="resize-y text-xs bg-background"
+                            placeholder="Để trống để chỉ dùng hướng dẫn nhóm và mẫu chung."
+                            value={projectText ?? ""}
+                            disabled={!config}
+                            onChange={(e) => handleGuidanceChange(field, e.target.value)}
+                          />
+                          {groupText?.trim() && (
+                            <p className="text-[11px] text-muted-foreground line-clamp-2">Nhóm: {groupText}</p>
+                          )}
+                          <p className="text-[11px] text-muted-foreground">
+                            Đang áp dụng: {guidanceSourceLabel(groupText, projectText)}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* Khối form các ô nhập liệu động theo mẫu Prompt (Dynamic Variable Inputs) */}
                 {promptVariableNames.length > 0 && (
                   <div className="space-y-3 p-3.5 rounded-lg border border-primary/20 bg-primary/5">
@@ -1277,14 +1339,14 @@ export function VideoProductionTab({
                             id={`var-input-${varName}`}
                             value={promptValues[varName] ?? ""}
                             onChange={(e) => handlePromptVariableChange(varName, e.target.value)}
-                            placeholder={getVariablePlaceholder(varName)}
+                            placeholder={projectGroup?.promptVariables[varName] ?? getVariablePlaceholder(varName)}
                             className="h-9 text-xs bg-background"
                           />
                         </div>
                       ))}
                     </div>
                     <p className="text-[11px] text-muted-foreground">
-                      Giao diện điền biến vào từng mẫu rồi lưu nội dung đã render thành văn bản cho backend.
+                      Biến riêng của dự án; để trống để dùng giá trị mặc định của nhóm (gợi ý hiển thị trong ô).
                     </p>
                   </div>
                 )}
@@ -1321,6 +1383,7 @@ export function VideoProductionTab({
                 {config.audioOption === AudioOptions.CustomAudio && (
                   <div className="flex items-center gap-3 p-3 rounded-md border border-border bg-muted/10 w-full sm:w-auto flex-wrap">
                     <Music className="h-4 w-4 text-primary shrink-0" />
+                    {isInheritedAsset("Audio") && <Badge variant="secondary" className="text-[10px] h-5">Từ nhóm</Badge>}
                     <span className="text-xs text-muted-foreground truncate max-w-[200px]">
                       {config.audioAssetId
                         ? `Tệp âm thanh: ${config.audioAssetId.slice(0, 16)}…`
@@ -1366,19 +1429,45 @@ export function VideoProductionTab({
                 )}
               </div>
 
-              {/* Một Project tạo đúng một video; scene là cấu trúc nội bộ của video. */}
+              {/* Chiến lược video: mỗi cảnh một clip, hoặc một video nhiều phân cảnh (VIDEO_TWO_FLOW_SPLIT §3.1). */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg pt-2">
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">
-                    Video đầu ra:
+                  <Label htmlFor="video-strategy" className="text-xs font-medium">
+                    Chiến lược video:
                   </Label>
-                  <div className="h-9 flex items-center rounded-md border border-input bg-muted/30 px-3 text-xs font-medium">
-                    1 video cho mỗi dự án
-                  </div>
+                  <select
+                    id="video-strategy"
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={config.videoStrategy ?? VideoStrategies.MultiVideo}
+                    onChange={(e) => handleStrategyChange(e.target.value as VideoStrategy)}
+                  >
+                    <option value={VideoStrategies.MultiVideo}>Nhiều video: mỗi cảnh một clip</option>
+                    <option value={VideoStrategies.SingleVideo}>Một video nhiều phân cảnh</option>
+                  </select>
                   <p className="text-[11px] text-muted-foreground">
-                    AI có thể chia storyboard nội bộ; đầu ra đăng là một video.
+                    {(config.videoStrategy ?? VideoStrategies.MultiVideo) === VideoStrategies.SingleVideo
+                      ? "AI viết một storyboard theo mốc thời gian và render một video duy nhất."
+                      : "Mỗi cảnh có ảnh và prompt riêng, render thành clip riêng; TiToAI không ghép các clip."}
                   </p>
                 </div>
+
+                {(config.videoStrategy ?? VideoStrategies.MultiVideo) === VideoStrategies.MultiVideo && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="scene-count" className="text-xs font-medium">
+                      Số cảnh:
+                    </Label>
+                    <input
+                      id="scene-count"
+                      type="number"
+                      min={1}
+                      max={10}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      value={config.targetSceneCount}
+                      onChange={(e) => handleSceneCountChange(parseInt(e.target.value) || 1)}
+                    />
+                    <p className="text-[11px] text-muted-foreground">AI viết đúng số cảnh này, tối đa 10.</p>
+                  </div>
+                )}
 
                 <div className="space-y-1.5">
                   <Label htmlFor="target-duration" className="text-xs font-medium">
@@ -1402,7 +1491,9 @@ export function VideoProductionTab({
                     )}
                   </select>
                   <p className="text-[11px] text-muted-foreground">
-                    AI tự chia các phân cảnh trong từng clip theo nội dung. Các clip được xuất riêng.
+                    {(config.videoStrategy ?? VideoStrategies.MultiVideo) === VideoStrategies.SingleVideo
+                      ? "AI chia các đoạn của video theo nội dung; mốc thời gian có thể lệch tối đa 2 giây."
+                      : "Mỗi cảnh là một clip có thời lượng này. Các clip được xuất riêng."}
                   </p>
                 </div>
 
@@ -1420,10 +1511,16 @@ export function VideoProductionTab({
                 <div className="col-span-1 sm:col-span-2 p-3 rounded-lg bg-muted/40 border border-border text-xs text-foreground space-y-1">
                   <div className="font-semibold flex items-center gap-1.5 text-primary">
                     <Sparkles className="h-3.5 w-3.5" />
-                    <span>Tóm tắt: Tạo 1 video, mục tiêu {config.targetDurationPerSceneSeconds} giây</span>
+                    <span>
+                      {(config.videoStrategy ?? VideoStrategies.MultiVideo) === VideoStrategies.SingleVideo
+                        ? `Tóm tắt: Tạo 1 video, mục tiêu ${config.targetDurationPerSceneSeconds} giây`
+                        : `Tóm tắt: Tạo ${config.targetSceneCount} video, mỗi video ${config.targetDurationPerSceneSeconds} giây`}
+                    </span>
                   </div>
                   <p className="text-muted-foreground text-[11px]">
-                    Mỗi Project tạo một video đầu ra. Nếu provider chỉ trả các clip rời, TiToAI sẽ không ghép chúng thành video.
+                    {(config.videoStrategy ?? VideoStrategies.MultiVideo) === VideoStrategies.SingleVideo
+                      ? "Mỗi Project tạo một video đầu ra. Nếu provider chỉ trả các clip rời, TiToAI sẽ không ghép chúng thành video."
+                      : "Mỗi cảnh là một video riêng. TiToAI không ghép các clip thành một video."}
                   </p>
                 </div>
               </div>
@@ -1445,7 +1542,7 @@ export function VideoProductionTab({
                 size="lg"
                 onClick={handleStartWorkflow}
                 disabled={isStarting}
-                className="gap-2 bg-primary text-primary-foreground font-semibold px-6 shadow-md hover:shadow-lg transition-all"
+                className="gap-2 bg-primary text-primary-foreground font-semibold px-6 shadow-md hover:shadow-lg transition-[color,background-color,border-color,box-shadow,opacity,transform]"
               >
                 {isStarting ? (
                   <>

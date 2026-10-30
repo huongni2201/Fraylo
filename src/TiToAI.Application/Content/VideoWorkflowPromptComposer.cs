@@ -67,7 +67,7 @@ public sealed class VideoWorkflowPromptComposer
         string templateText = template?.TemplateText ?? PromptTemplateService.DefaultVideoPromptInstruction;
 
         // Frontend renders dynamic fields before saving. Backend uses the resulting text.
-        string renderedTemplate = ResolveRenderedTemplate(config.VideoPromptText, templateText, templateName);
+        string renderedTemplate = await ResolveInstructionAsync(dbContext, config, templateText, templateName, isVideoPrompt: true, cancellationToken).ConfigureAwait(false);
 
         // 3. Ghép 4 phần canonical theo §3.1:
         // [HƯỚNG DẪN TỪ TEMPLATE VIDEO PROMPT ĐÃ CHỌN]
@@ -111,21 +111,37 @@ public sealed class VideoWorkflowPromptComposer
         string templateName = template != null ? $"Mẫu {template.Purpose} toàn cục" : "Mẫu Kịch Bản Chuẩn";
         string templateText = template?.TemplateText ?? PromptTemplateService.DefaultScriptInstruction;
 
-        string renderedTemplate = ResolveRenderedTemplate(config.ScriptPromptText, templateText, templateName);
+        string renderedTemplate = await ResolveInstructionAsync(dbContext, config, templateText, templateName, isVideoPrompt: false, cancellationToken).ConfigureAwait(false);
 
         var sb = new StringBuilder();
         sb.AppendLine("[HƯỚNG DẪN TỪ TEMPLATE KỊCH BẢN ĐÃ CHỌN]");
         sb.AppendLine(renderedTemplate.Trim());
         sb.AppendLine();
+        bool singleVideo = config.VideoStrategy == VideoStrategies.SingleVideo;
         sb.AppendLine("[NHIỆM VỤ]");
-        sb.AppendLine($"Lập storyboard cho đúng một video dài {config.TargetDurationPerSceneSeconds} giây cho mục tiêu được cung cấp. Chia video thành các phân cảnh liên tiếp, bắt đầu từ 0 và kết thúc đúng {config.TargetDurationPerSceneSeconds} giây; mỗi phân cảnh có mô tả hành động và prompt ảnh tĩnh riêng.");
+        if (singleVideo)
+        {
+            sb.AppendLine($"Lập storyboard cho đúng một video dài {config.TargetDurationPerSceneSeconds} giây cho mục tiêu được cung cấp. Chia video thành các đoạn liên tiếp, bắt đầu từ 0 và kết thúc tại thời lượng video; mỗi đoạn có mô tả hành động.");
+        }
+        else
+        {
+            sb.AppendLine($"Lập đúng {config.TargetSceneCount} cảnh, mỗi cảnh là một clip riêng dài {config.TargetDurationPerSceneSeconds} giây cho mục tiêu được cung cấp. Mỗi cảnh có prompt ảnh tĩnh và prompt video chuyển động riêng, khác nhau giữa các cảnh.");
+        }
         sb.AppendLine();
         sb.AppendLine("[DỮ LIỆU LẦN TẠO — do app serialize]");
         sb.AppendLine($"TOTAL_DURATION: {config.TargetDurationPerSceneSeconds} giây.");
         sb.AppendLine($"WORKFLOW_MODE: {config.WorkflowMode}.");
+        sb.AppendLine($"VIDEO_STRATEGY: {config.VideoStrategy}.");
         sb.AppendLine();
         sb.AppendLine("[OUTPUT_CONTRACT]");
-        sb.AppendLine($"Chỉ trả về JSON hợp lệ, không markdown. Schema: {{\"durationSeconds\":{config.TargetDurationPerSceneSeconds},\"shots\":[{{\"startSeconds\":0,\"endSeconds\":5,\"description\":\"mô tả hành động\",\"imagePrompt\":\"prompt ảnh tĩnh của phân cảnh\"}}]}}. Các shot liên tiếp, shot đầu bắt đầu từ 0, endSeconds của shot cuối bằng durationSeconds, tối đa 30 shot.");
+        if (singleVideo)
+        {
+            sb.AppendLine($"Chỉ trả về JSON hợp lệ, không markdown. Schema: {{\"durationSeconds\":{config.TargetDurationPerSceneSeconds},\"shots\":[{{\"startSeconds\":0,\"endSeconds\":5,\"description\":\"mô tả hành động của đoạn\"}}]}}. Các shot liên tiếp, shot đầu bắt đầu từ 0, endSeconds của shot cuối bằng durationSeconds, tối đa 30 shot.");
+        }
+        else
+        {
+            sb.AppendLine($"Chỉ trả về JSON hợp lệ, không markdown. Schema: {{\"scenes\":[{{\"name\":\"tên cảnh\",\"imagePrompt\":\"prompt ảnh tĩnh của cảnh\",\"videoPrompt\":\"prompt video chuyển động của cảnh, dài {config.TargetDurationPerSceneSeconds} giây\"}}]}}. Trả đúng {config.TargetSceneCount} cảnh.");
+        }
 
         return new VideoPromptCompositionResult(
             TemplateId: templateId,
@@ -151,7 +167,7 @@ public sealed class VideoWorkflowPromptComposer
         sb.AppendLine("Bạn là chuyên gia biên kịch video ngắn (TikTok/Reels/Shorts) và chuyên gia tạo prompt AI video chuyên nghiệp.");
         sb.AppendLine();
         sb.AppendLine("[HƯỚNG DẪN NỘI DUNG]");
-        sb.AppendLine(config.ScriptPromptText ?? string.Empty);
+        sb.AppendLine(config.ScriptGuidance ?? string.Empty);
         sb.AppendLine($"WORKFLOW_MODE: {config.WorkflowMode}");
         sb.AppendLine($"DURATION: {config.TargetDurationPerSceneSeconds} giây");
         if (scene != null)
@@ -180,23 +196,66 @@ public sealed class VideoWorkflowPromptComposer
         );
     }
 
-    private static string ResolveRenderedTemplate(string? renderedPromptText, string templateText, string templateName)
+    /// <summary>
+    /// Điền biến vào mẫu chung rồi nối hướng dẫn của Nhóm và Dự án ở cuối. Biến lấy theo thứ tự: mặc định dựng sẵn,
+    /// biến Nhóm, biến Dự án (Dự án ghi đè Nhóm).
+    /// </summary>
+    private static async Task<string> ResolveInstructionAsync(
+        TiToAIDbContext dbContext,
+        ProjectWorkflowConfigDto config,
+        string templateText,
+        string templateName,
+        bool isVideoPrompt,
+        CancellationToken cancellationToken)
     {
-        var promptText = string.IsNullOrWhiteSpace(renderedPromptText) ? templateText : renderedPromptText.Trim();
-        var (detectedVariables, malformed) = PromptRenderer.ParseTemplate(promptText);
+        var groupId = await dbContext.Projects
+            .AsNoTracking()
+            .Where(p => p.Id == config.ProjectId)
+            .Select(p => p.GroupId)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var group = groupId is null ? null : await dbContext.ProjectGroups
+            .AsNoTracking()
+            .FirstOrDefaultAsync(g => g.Id == groupId, cancellationToken)
+            .ConfigureAwait(false);
+
+        var variables = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var pair in PromptGuidance.ParseVariablesJson(group?.PromptVariablesJson)) variables[pair.Key] = pair.Value;
+        foreach (var pair in config.PromptVariables ?? new Dictionary<string, string>())
+        {
+            if (!string.IsNullOrWhiteSpace(pair.Value)) variables[pair.Key] = pair.Value;
+        }
+        // Biến hệ thống luôn theo thời lượng cấu hình, không bị nhóm hay dự án ghi đè.
+        var duration = $"{config.TargetDurationPerSceneSeconds}s";
+        foreach (var name in new[] { "duration", "DURATION", "thoi_luong", "THOI_LUONG" }) variables[name] = duration;
+
+        var (detectedVariables, malformed) = PromptRenderer.ParseTemplate(templateText);
         if (malformed.Count > 0)
         {
             throw new ProjectWorkflowValidationException(
                 $"Template '{templateName}' chứa placeholder lỗi cú pháp: {string.Join(", ", malformed)}");
         }
 
-        if (detectedVariables.Count > 0)
+        var missing = detectedVariables.Where(name => !variables.ContainsKey(name)).ToList();
+        if (missing.Count > 0)
         {
             throw new ProjectWorkflowValidationException(
-                $"Prompt '{templateName}' còn biến chưa được điền: {string.Join(", ", detectedVariables)}. Vui lòng điền biến trong giao diện rồi lưu lại.");
+                $"Prompt '{templateName}' còn biến chưa được điền: {string.Join(", ", missing)}. Vui lòng điền biến trong Nhóm hoặc Dự án rồi lưu lại.");
         }
 
-        return promptText;
+        var sb = new StringBuilder(PromptRenderer.Render(templateText, variables).Trim());
+        var groupGuidance = isVideoPrompt ? group?.VideoGuidance : group?.ScriptGuidance;
+        var projectGuidance = isVideoPrompt ? config.VideoGuidance : config.ScriptGuidance;
+        if (!string.IsNullOrWhiteSpace(groupGuidance))
+        {
+            sb.AppendLine().AppendLine().AppendLine("[HƯỚNG DẪN BỔ SUNG CỦA NHÓM]").Append(groupGuidance.Trim());
+        }
+        if (!string.IsNullOrWhiteSpace(projectGuidance))
+        {
+            sb.AppendLine().AppendLine().AppendLine("[HƯỚNG DẪN BỔ SUNG CỦA DỰ ÁN]").Append(projectGuidance.Trim());
+        }
+
+        return sb.ToString();
     }
 
 }

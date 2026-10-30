@@ -34,6 +34,27 @@ public static class WorkflowModes
 }
 
 /// <summary>
+/// Chiến lược video của một run (VIDEO_TWO_FLOW_SPLIT §3.1): nhiều video hoặc một video nhiều phân cảnh.
+/// </summary>
+public static class VideoStrategies
+{
+    /// <summary>Luồng A: mỗi phân cảnh là một clip riêng, có ảnh và prompt riêng.</summary>
+    public const string MultiVideo = "MultiVideo";
+
+    /// <summary>Luồng B: một storyboard theo mốc thời gian, một prompt và một video cho cả run.</summary>
+    public const string SingleVideo = "SingleVideo";
+
+    public static readonly IReadOnlyList<string> All = new[]
+    {
+        MultiVideo,
+        SingleVideo
+    };
+
+    public static bool IsValid(string? strategy) =>
+        !string.IsNullOrWhiteSpace(strategy) && All.Contains(strategy);
+}
+
+/// <summary>
 /// Các vai trò của Asset hình ảnh trong quy trình sản xuất video từ ảnh.
 /// </summary>
 public static class AssetWorkflowRoles
@@ -110,9 +131,14 @@ public sealed record ProjectWorkflowConfigDto(
     [property: JsonPropertyName("runState")] string RunState,
     [property: JsonPropertyName("currentRunId")] string? CurrentRunId,
     [property: JsonPropertyName("updatedAtUtc")] string UpdatedAtUtc,
-    [property: JsonPropertyName("scriptPromptText")] string? ScriptPromptText = null,
-    [property: JsonPropertyName("videoPromptText")] string? VideoPromptText = null,
-    [property: JsonPropertyName("finalVideoAssetId")] string? FinalVideoAssetId = null);
+    [property: JsonPropertyName("scriptGuidance")] string? ScriptGuidance = null,
+    [property: JsonPropertyName("videoGuidance")] string? VideoGuidance = null,
+    [property: JsonPropertyName("promptVariables")] IReadOnlyDictionary<string, string>? PromptVariables = null,
+    [property: JsonPropertyName("finalVideoAssetId")] string? FinalVideoAssetId = null,
+    [property: JsonPropertyName("groupId")] string? GroupId = null,
+    [property: JsonPropertyName("groupName")] string? GroupName = null,
+    [property: JsonPropertyName("inheritedAssetSlots")] IReadOnlyList<string>? InheritedAssetSlots = null,
+    [property: JsonPropertyName("videoStrategy")] string VideoStrategy = VideoStrategies.MultiVideo);
 
 /// <summary>
 /// Thông tin chi tiết quy trình của một Cảnh (Scene Workflow Detail).
@@ -161,8 +187,10 @@ public sealed record SaveProjectWorkflowConfigRequest(
     [property: JsonPropertyName("audioAssetId")] string? AudioAssetId,
     [property: JsonPropertyName("targetSceneCount")] int TargetSceneCount,
     [property: JsonPropertyName("targetDurationPerSceneSeconds")] int TargetDurationPerSceneSeconds,
-    [property: JsonPropertyName("scriptPromptText")] string? ScriptPromptText = null,
-    [property: JsonPropertyName("videoPromptText")] string? VideoPromptText = null);
+    [property: JsonPropertyName("scriptGuidance")] string? ScriptGuidance = null,
+    [property: JsonPropertyName("videoGuidance")] string? VideoGuidance = null,
+    [property: JsonPropertyName("promptVariables")] IReadOnlyDictionary<string, string>? PromptVariables = null,
+    [property: JsonPropertyName("videoStrategy")] string? VideoStrategy = null);
 
 /// <summary>
 /// Yêu cầu bấm "Bắt đầu tạo video" một lần duy nhất cho toàn bộ dự án.

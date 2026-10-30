@@ -213,8 +213,8 @@ export function JobDetailsDialog({
           <div className="flex flex-col gap-5">
             {/* Cảnh báo trạng thái đặc biệt */}
             {currentJob.cancelRequested && currentJob.state !== "Canceled" && (
-              <Alert variant="warning" className="border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300">
-                <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              <Alert variant="warning" className="border-warning/50 bg-warning/10 text-warning dark:text-warning">
+                <AlertTriangle className="h-4 w-4 text-warning dark:text-warning" />
                 <AlertTitle className="text-xs font-semibold">Đang xử lý hủy an toàn</AlertTitle>
                 <AlertDescription className="text-xs">
                   Yêu cầu hủy đã được tiếp nhận. Hệ thống đang tiến hành đối soát và giải phóng tài nguyên với provider AI để tránh thất thoát chi phí.
@@ -228,7 +228,7 @@ export function JobDetailsDialog({
                 className={cn(
                   "text-xs",
                   currentJob.state === "AwaitingUser" &&
-                    "border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                    "border-warning/50 bg-warning/10 text-warning dark:text-warning"
                 )}
               >
                 <AlertTriangle className="h-4 w-4" />
@@ -284,7 +284,7 @@ export function JobDetailsDialog({
                       title="Sao chép ID"
                     >
                       {copiedKey === "jobId" ? (
-                        <Check className="h-3 w-3 text-emerald-500" />
+                        <Check className="h-3 w-3 text-success" />
                       ) : (
                         <Copy className="h-3 w-3 text-muted-foreground" />
                       )}
@@ -374,13 +374,13 @@ export function JobDetailsDialog({
                   <span className="text-muted-foreground">Yêu cầu đã gửi tới AI (Side-Effect)</span>
                   <div className="flex items-center gap-1.5">
                     {currentJob.sideEffectSubmitted === 1 ? (
-                      <Badge variant="warning" className="gap-1 border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                      <Badge variant="warning" className="gap-1 border-warning/40 bg-warning/10 text-warning dark:text-warning">
                         <ShieldAlert className="h-3 w-3" />
                         <span>Đã gửi (Cần đối soát an toàn)</span>
                       </Badge>
                     ) : (
                       <Badge variant="secondary" className="gap-1 border-border text-muted-foreground">
-                        <ShieldCheck className="h-3 w-3 text-emerald-500" />
+                        <ShieldCheck className="h-3 w-3 text-success" />
                         <span>Chưa gửi (An toàn để hủy / thử lại)</span>
                       </Badge>
                     )}
@@ -411,7 +411,7 @@ export function JobDetailsDialog({
                           title="Sao chép kết quả"
                         >
                           {copiedKey === "resultRef" ? (
-                            <Check className="h-3 w-3 text-emerald-500" />
+                            <Check className="h-3 w-3 text-success" />
                           ) : (
                             <Copy className="h-3 w-3 text-muted-foreground" />
                           )}
@@ -517,7 +517,7 @@ export function JobDetailsDialog({
                   onOpenReconcile?.(currentJob);
                   onOpenChange(false);
                 }}
-                className="gap-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white cursor-pointer shadow-xs"
+                className="gap-1.5 text-xs bg-warning hover:bg-warning text-white cursor-pointer shadow-xs"
               >
                 <SearchCheck className="h-3.5 w-3.5" />
                 <span>Đối soát tác vụ</span>

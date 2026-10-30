@@ -1,57 +1,6 @@
-import { register } from "node:module";
-import { GlobalWindow } from "happy-dom";
+import { domWindow } from "../../test/setupDom.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-
-register("../prompts/test-loader.mjs", import.meta.url);
-
-// Cấu hình môi trường giả lập DOM với happy-dom
-const domWindow = new GlobalWindow({ url: "http://localhost:3000" });
-globalThis.window = domWindow as unknown as Window & typeof globalThis;
-globalThis.document = domWindow.document as unknown as Document;
-globalThis.HTMLElement = domWindow.HTMLElement as unknown as typeof HTMLElement;
-globalThis.HTMLButtonElement = domWindow.HTMLButtonElement as unknown as typeof HTMLButtonElement;
-globalThis.HTMLDivElement = domWindow.HTMLDivElement as unknown as typeof HTMLDivElement;
-globalThis.HTMLInputElement = domWindow.HTMLInputElement as unknown as typeof HTMLInputElement;
-globalThis.HTMLFormElement = domWindow.HTMLFormElement as unknown as typeof HTMLFormElement;
-globalThis.KeyboardEvent = domWindow.KeyboardEvent as unknown as typeof KeyboardEvent;
-globalThis.MouseEvent = domWindow.MouseEvent as unknown as typeof MouseEvent;
-globalThis.Event = domWindow.Event as unknown as typeof Event;
-globalThis.CustomEvent = domWindow.CustomEvent as unknown as typeof CustomEvent;
-globalThis.getComputedStyle = domWindow.getComputedStyle.bind(domWindow);
-globalThis.MutationObserver = domWindow.MutationObserver;
-globalThis.NodeFilter = domWindow.NodeFilter as unknown as typeof NodeFilter;
-
-class ResizeObserverMock {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
-globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
-(globalThis as unknown as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
-
-// Patch dispatchEvent cho happy-dom để chấp nhận CustomEvent từ mọi nguồn (Node/Radix UI)
-function wrapDispatchEvent(targetProto: any) {
-  if (!targetProto || !targetProto.dispatchEvent) return;
-  const orig = targetProto.dispatchEvent;
-  targetProto.dispatchEvent = function (event: any) {
-    if (event && !(event instanceof domWindow.Event)) {
-      const wrapped = new domWindow.CustomEvent(event.type, {
-        bubbles: event.bubbles,
-        cancelable: event.cancelable,
-        detail: event.detail,
-      });
-      return orig.call(this, wrapped);
-    }
-    return orig.call(this, event);
-  };
-}
-wrapDispatchEvent(domWindow.document);
-wrapDispatchEvent(domWindow);
-wrapDispatchEvent(domWindow.Node?.prototype);
-wrapDispatchEvent(domWindow.EventTarget?.prototype);
 
 // Trạng thái backend mock chuẩn xác
 let mockActiveJobs: any[] = [];

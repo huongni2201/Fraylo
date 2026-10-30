@@ -1,6 +1,6 @@
 # Tách luồng tạo video: nhiều video và một video nhiều phân cảnh
 
-Cập nhật 2026-10-29. Trạng thái: **PLAN, chưa triển khai**. Liên quan: [MULTISCENE_SINGLE_VIDEO](MULTISCENE_SINGLE_VIDEO.md), [VIDEO_FIRST_ARCHITECTURE_PLAN](VIDEO_FIRST_ARCHITECTURE_PLAN.md), [STATUS](../agents/STATUS.md).
+Cập nhật 2026-10-30. Trạng thái: **ĐÃ TRIỂN KHAI backend và web (chưa kiểm chứng render thật)**; chi tiết và phần còn lại ở [STATUS](../agents/STATUS.md) mục 2026-10-30. Liên quan: [MULTISCENE_SINGLE_VIDEO](MULTISCENE_SINGLE_VIDEO.md), [VIDEO_FIRST_ARCHITECTURE_PLAN](VIDEO_FIRST_ARCHITECTURE_PLAN.md), [STATUS](../agents/STATUS.md).
 
 ## 1. Yêu cầu
 

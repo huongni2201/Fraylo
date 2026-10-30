@@ -461,6 +461,16 @@ public sealed class AssetService
             projectId = NormalizeGuid(request.ProjectId, nameof(request.ProjectId));
         }
 
+        string? groupId = null;
+        if (!string.IsNullOrWhiteSpace(request.GroupId))
+        {
+            if (projectId is not null)
+            {
+                throw new AssetValidationException("Tệp tải lên chỉ thuộc một Project hoặc một Nhóm, không cả hai.");
+            }
+            groupId = NormalizeGuid(request.GroupId, nameof(request.GroupId));
+        }
+
         var assetType = string.IsNullOrWhiteSpace(request.AssetType) ? "Image" : request.AssetType.Trim();
         bool isAudio = assetType.Equals("Audio", StringComparison.OrdinalIgnoreCase);
         bool isImage = assetType.Equals("Image", StringComparison.OrdinalIgnoreCase);
@@ -471,6 +481,19 @@ public sealed class AssetService
         }
 
         await using var dbContext = new TiToAIDbContext(_dbOptions);
+
+        if (groupId is not null)
+        {
+            var groupExists = await dbContext.ProjectGroups
+                .AsNoTracking()
+                .AnyAsync(g => g.Id == groupId, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (!groupExists)
+            {
+                throw new AssetValidationException($"Không tìm thấy nhóm '{groupId}'. Tệp chưa được tải lên.");
+            }
+        }
 
         if (!string.IsNullOrWhiteSpace(projectId))
         {
@@ -558,9 +581,7 @@ public sealed class AssetService
             }
 
             var subDir = isAudio ? "audio" : "images";
-            var relativePath = string.IsNullOrWhiteSpace(projectId)
-                ? $"library/{subDir}/{assetId}{extension}"
-                : $"{projectId}/{subDir}/{assetId}{extension}";
+            var relativePath = BuildUploadRelativePath(projectId, groupId, subDir, assetId, extension);
 
             using var memoryStream = new MemoryStream(fileBytes);
             saveResult = await _fileStore.SaveFileAsync(
@@ -576,6 +597,7 @@ public sealed class AssetService
             {
                 Id = assetId,
                 ProjectId = projectId,
+                GroupId = groupId,
                 AssetType = isAudio ? "Audio" : "Image",
                 StorageRootId = storageRootId,
                 RelativePath = relativePath,
@@ -614,9 +636,7 @@ public sealed class AssetService
             }
 
             var subDir = isAudio ? "audio" : "images";
-            var relativePath = string.IsNullOrWhiteSpace(projectId)
-                ? $"library/{subDir}/{assetId}{extension}"
-                : $"{projectId}/{subDir}/{assetId}{extension}";
+            var relativePath = BuildUploadRelativePath(projectId, groupId, subDir, assetId, extension);
 
             saveResult = await _fileStore.SaveFileFromPathAsync(
                 storageRootPath,
@@ -631,6 +651,7 @@ public sealed class AssetService
             {
                 Id = assetId,
                 ProjectId = projectId,
+                GroupId = groupId,
                 AssetType = isAudio ? "Audio" : "Image",
                 StorageRootId = storageRootId,
                 RelativePath = relativePath,
@@ -650,6 +671,13 @@ public sealed class AssetService
         {
             throw new AssetValidationException("Cần cung cấp dữ liệu tệp (Base64 hoặc SourceFilePath) để tải lên tài nguyên.");
         }
+    }
+
+    private static string BuildUploadRelativePath(string? projectId, string? groupId, string subDir, string assetId, string extension)
+    {
+        if (projectId is not null) return $"{projectId}/{subDir}/{assetId}{extension}";
+        if (groupId is not null) return $"groups/{groupId}/{subDir}/{assetId}{extension}";
+        return $"library/{subDir}/{assetId}{extension}";
     }
 
     private static string ResolveMimeType(string extension, bool isAudio)
@@ -782,7 +810,8 @@ public sealed class AssetService
             Sha256Hash: asset.Sha256Hash,
             Status: asset.Status,
             CreatedAtUtc: asset.CreatedAtUtc,
-            MimeType: asset.MimeType
+            MimeType: asset.MimeType,
+            GroupId: asset.GroupId
         );
     }
 
@@ -802,10 +831,25 @@ public sealed class AssetService
 
         var query = dbContext.Assets.AsNoTracking();
 
+        // Tài nguyên của Project gồm tệp riêng và tệp của Nhóm chứa Project đó.
         if (!string.IsNullOrWhiteSpace(request.ProjectId))
         {
             var projectId = NormalizeGuid(request.ProjectId, nameof(request.ProjectId));
-            query = query.Where(a => a.ProjectId == projectId);
+            var projectGroupId = await dbContext.Projects
+                .AsNoTracking()
+                .Where(p => p.Id == projectId)
+                .Select(p => p.GroupId)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+            query = query.Where(a => a.ProjectId == projectId || (projectGroupId != null && a.GroupId == projectGroupId));
+        }
+
+        // Tài nguyên của Nhóm gồm tệp của Nhóm và tệp của các Project trong Nhóm (để chia sẻ lên Nhóm).
+        if (!string.IsNullOrWhiteSpace(request.GroupId))
+        {
+            var groupId = NormalizeGuid(request.GroupId, nameof(request.GroupId));
+            var memberProjectIds = dbContext.Projects.Where(p => p.GroupId == groupId).Select(p => p.Id);
+            query = query.Where(a => a.GroupId == groupId || (a.ProjectId != null && memberProjectIds.Contains(a.ProjectId)));
         }
 
         if (!string.IsNullOrWhiteSpace(request.AssetType) &&

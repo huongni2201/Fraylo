@@ -10,12 +10,6 @@ import type { G1Command } from "../../contracts/bridge.ts";
  */
 export type PromptPurpose = "Script" | "Image" | "VideoPrompt";
 
-export const PROMPT_PURPOSES: readonly PromptPurpose[] = [
-  "Script",
-  "Image",
-  "VideoPrompt",
-] as const;
-
 export interface PromptVariableDefinition {
   name: string;
   description?: string | null;
@@ -79,13 +73,6 @@ export interface PromptPreviewResponseData {
   variableCount: number;
 }
 
-export interface PromptRenderSnapshotDto {
-  templateId: string;
-  renderedText: string;
-  variables: Record<string, string>;
-  capturedAtUtc: string;
-}
-
 /**
  * Interface cho cơ chế vận chuyển lệnh bridge.
  * Cho phép các component UI hoặc test suites truyền transport giả lập (test fixture)
@@ -115,163 +102,6 @@ export const defaultPromptTransport: IPromptTransport = {
     );
   },
 };
-
-/**
- * Loại bỏ dấu tiếng Việt chuẩn xác (hỗ trợ cả tổ hợp NFD và ký tự đ/Đ).
- */
-export function removeVietnameseAccents(str: string): string {
-  return str
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/Đ/g, "D");
-}
-
-/**
- * Chuẩn hóa tên biến theo quy tắc §2.2:
- * - Không dùng dấu tiếng Việt.
- * - Không chứa khoảng trắng.
- * - Viết thường, dùng dấu _ phân tách từ.
- * - Chỉ cho phép chữ cái a-z, chữ số 0-9 và _.
- * - Ký tự đầu tiên bắt buộc là chữ cái a-z.
- *
- * Ví dụ:
- *  - "chủ_đề" -> "chu_de"
- *  - "sản phẩm" -> "san_pham"
- *  - "Đối Tượng Khách Hàng" -> "doi_tuong_khach_hang"
- *  - "phong cách video" -> "phong_cach_video"
- *  - "thời_lượng" -> "thoi_luong"
- */
-export function normalizeVariableName(raw: string): string {
-  let clean = removeVietnameseAccents(raw).toLowerCase();
-  clean = clean.replace(/[^a-z0-9_]+/g, "_");
-  clean = clean.replace(/_+/g, "_");
-  clean = clean.replace(/^_+|_+$/g, "");
-  if (/^[0-9]/.test(clean)) {
-    clean = "v_" + clean;
-  }
-  if (!clean) {
-    clean = "bien";
-  }
-  return clean;
-}
-
-/**
- * Kiểm tra tên biến có đúng chuẩn {ten_bien}:
- * Bắt đầu bằng a-z, chỉ gồm a-z, 0-9 và _
- */
-export function isValidVariableName(name: string): boolean {
-  return /^[a-z][a-z0-9_]*$/.test(name);
-}
-
-export interface NonStandardVariableInfo {
-  original: string;
-  normalized: string;
-}
-
-/**
- * Phát hiện tất cả biến trong template chưa đạt chuẩn {ten_bien}
- * (ví dụ có dấu tiếng Việt, có khoảng trắng, viết hoa, v.v.)
- */
-export function detectNonStandardVariables(templateText: string | null | undefined): NonStandardVariableInfo[] {
-  if (!templateText) return [];
-
-  const result: NonStandardVariableInfo[] = [];
-  const seenOriginal = new Set<string>();
-  const len = templateText.length;
-  let i = 0;
-
-  while (i < len) {
-    if (templateText[i] === "{") {
-      if (i + 1 < len && templateText[i + 1] === "{") {
-        i += 2;
-        continue;
-      }
-      const close = templateText.indexOf("}", i + 1);
-      const nextOpen = templateText.indexOf("{", i + 1);
-      if (nextOpen !== -1 && (close === -1 || nextOpen < close)) {
-        i = nextOpen;
-        continue;
-      }
-      if (close === -1) break;
-
-      const raw = templateText.substring(i + 1, close).trim();
-      if (raw.length > 0 && !isValidVariableName(raw)) {
-        const normalized = normalizeVariableName(raw);
-        if (isValidVariableName(normalized) && !seenOriginal.has(raw)) {
-          seenOriginal.add(raw);
-          result.push({
-            original: raw,
-            normalized,
-          });
-        }
-      }
-      i = close + 1;
-    } else {
-      i++;
-    }
-  }
-
-  return result;
-}
-
-/**
- * Tự động chuẩn hóa toàn bộ placeholder chưa đạt chuẩn trong template:
- * Thay thế {chủ_đề} -> {chu_de}, {sản phẩm} -> {san_pham}, v.v.
- * Ngăn chặn xung đột tên khi 2 biến khác nhau chuẩn hóa ra cùng tên.
- */
-export function normalizeTemplateText(templateText: string): {
-  normalizedText: string;
-  replacements: NonStandardVariableInfo[];
-} {
-  const nonStandard = detectNonStandardVariables(templateText);
-  if (nonStandard.length === 0) {
-    return { normalizedText: templateText, replacements: [] };
-  }
-
-  // Xử lý xung đột tên: nếu có 2 biến khác nhau chuẩn hóa ra cùng 1 tên
-  const usedNames = new Set<string>();
-  const mapping = new Map<string, string>();
-
-  // Trước tiên ghi nhận các tên biến đã chuẩn sẵn
-  const allVars = extractTemplateVariables(templateText);
-  for (const v of allVars) {
-    if (isValidVariableName(v)) {
-      usedNames.add(v);
-    }
-  }
-
-  for (const item of nonStandard) {
-    let candidate = item.normalized;
-    let suffix = 2;
-    while (usedNames.has(candidate) && !mapping.has(item.original)) {
-      candidate = `${item.normalized}_${suffix++}`;
-    }
-    usedNames.add(candidate);
-    mapping.set(item.original, candidate);
-  }
-
-  let result = templateText;
-  const replacements: NonStandardVariableInfo[] = [];
-
-  for (const item of nonStandard) {
-    const targetName = mapping.get(item.original) || item.normalized;
-    // Thay thế chính xác {original} bằng {targetName} (không chạm vào {{ hoặc }})
-    // Sử dụng replace an toàn theo regex
-    const escapedOrig = item.original.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex = new RegExp(`\\{${escapedOrig}\\}`, "g");
-    result = result.replace(regex, `{${targetName}}`);
-    replacements.push({
-      original: item.original,
-      normalized: targetName,
-    });
-  }
-
-  return {
-    normalizedText: result,
-    replacements,
-  };
-}
 
 /**
  * Trích xuất danh sách tên biến từ nội dung template theo cú pháp {tên_biến}.
@@ -379,30 +209,6 @@ export function renderPromptTemplateClient(
     variableCount: detected.length,
     detectedVariables: detected,
   };
-}
-
-/**
- * Parse an toàn chuỗi JSON định nghĩa biến số
- */
-export function parseVariableDefinitions(
-  json: string | null | undefined
-): PromptVariableDefinition[] {
-  if (!json) return [];
-  try {
-    const parsed = JSON.parse(json);
-    if (Array.isArray(parsed)) {
-      return parsed.map((item) => ({
-        name: String(item.name || "").trim(),
-        description: item.description ? String(item.description) : null,
-        isRequired: item.isRequired !== false,
-        defaultValue: item.defaultValue ? String(item.defaultValue) : null,
-        example: item.example ? String(item.example) : null,
-      })).filter((v) => v.name.length > 0);
-    }
-  } catch {
-    // Json không hợp lệ trả về mảng rỗng an toàn
-  }
-  return [];
 }
 
 /**

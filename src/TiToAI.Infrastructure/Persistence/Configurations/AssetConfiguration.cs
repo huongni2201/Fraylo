@@ -61,11 +61,23 @@ public class AssetConfiguration : IEntityTypeConfiguration<Asset>
             .HasColumnType("TEXT")
             .IsRequired();
 
+        builder.Property(a => a.GroupId)
+            .HasColumnName("group_id")
+            .HasColumnType("TEXT");
+
         builder.HasOne(a => a.Project)
             .WithMany()
             .HasForeignKey(a => a.ProjectId)
             .OnDelete(DeleteBehavior.NoAction);
         builder.HasIndex(a => a.ProjectId)
             .HasDatabaseName("ix_asset_project");
+
+        builder.HasOne<ProjectGroup>()
+            .WithMany()
+            .HasForeignKey(a => a.GroupId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
+        builder.HasIndex(a => a.GroupId)
+            .HasDatabaseName("ix_asset_group_id");
     }
 }

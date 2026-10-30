@@ -150,7 +150,7 @@ public static class PvRemediationRegressionTests
                 ReadyImageAssetId: null,
                 AudioOption: AudioOptions.None,
                 AudioAssetId: null,
-                TargetSceneCount: 2,
+                TargetSceneCount: 1,
                 TargetDurationPerSceneSeconds: 15
             ));
 
@@ -162,7 +162,7 @@ public static class PvRemediationRegressionTests
                 var scriptJob = await db.Jobs.FirstAsync(j => j.ProjectId == prjId && j.TaskType == JobTaskType.Script);
                 scriptJob.State = JobState.Succeeded;
                 scriptJob.ResultText = "{\"scenes\": [" +
-                    "{\"name\": \"Cảnh 1: Giới thiệu\", \"targetDurationSeconds\": 15}" +
+                    "{\"name\": \"Cảnh 1: Giới thiệu\", \"imagePrompt\": \"Toàn thân\", \"videoPrompt\": \"Camera tiến dần\"}" +
                     "]}";
                 await db.SaveChangesAsync();
                 scriptJobId = scriptJob.Id;
@@ -509,7 +509,9 @@ public static class PvRemediationRegressionTests
                 AudioOption: AudioOptions.None,
                 AudioAssetId: null,
                 TargetSceneCount: 1,
-                TargetDurationPerSceneSeconds: 15
+                TargetDurationPerSceneSeconds: 15,
+                // Image -> VideoPrompt chuyển tiếp là đường của luồng một video (PV-R5).
+                VideoStrategy: VideoStrategies.SingleVideo
             ));
 
             await workflowService.StartWorkflowAsync(new StartProjectWorkflowRequest(prjId));
@@ -597,7 +599,7 @@ public static class PvRemediationRegressionTests
                 ProjectId: prjId,
                 WorkflowMode: WorkflowModes.ModelAndProduct,
                 GoalPrompt: "",
-                VideoPromptText: uniqueBriefToken,
+                VideoGuidance: uniqueBriefToken,
                 ModelAssetId: readyAssetId,
                 ProductAssetId: readyAssetId,
                 ReadyImageAssetId: null,
@@ -1025,15 +1027,15 @@ public static class PvRemediationRegressionTests
                 AudioAssetId: null,
                 TargetSceneCount: 2,
                 TargetDurationPerSceneSeconds: 15,
-                ScriptPromptText: scriptPrompt,
-                VideoPromptText: videoPrompt
+                ScriptGuidance: scriptPrompt,
+                VideoGuidance: videoPrompt
             ));
 
-            Assert(savedConfig.ScriptPromptText == scriptPrompt, "Text Script đã render phải được lưu nguyên vẹn.");
-            Assert(savedConfig.VideoPromptText == videoPrompt, "Text VideoPrompt đã render phải được lưu nguyên vẹn.");
+            Assert(savedConfig.ScriptGuidance == scriptPrompt, "Hướng dẫn Script của Dự án phải được lưu nguyên vẹn.");
+            Assert(savedConfig.VideoGuidance == videoPrompt, "Hướng dẫn VideoPrompt của Dự án phải được lưu nguyên vẹn.");
 
             var scriptResult = await composer.ComposeScriptPlanningAiRequestAsync(savedConfig);
-            Assert(scriptResult.ComposedPrompt.Contains(scriptPrompt), "Composer Script phải dùng nguyên văn text đã render.");
+            Assert(scriptResult.ComposedPrompt.Contains(scriptPrompt), "Composer Script phải nối nguyên văn hướng dẫn của Dự án.");
 
             var scene = new Scene
             {
@@ -1046,19 +1048,31 @@ public static class PvRemediationRegressionTests
                 UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("o")
             };
             var videoResult = await composer.ComposeVideoPromptAiRequestAsync(savedConfig, scene);
-            Assert(videoResult.ComposedPrompt.Contains(videoPrompt), "Composer VideoPrompt phải dùng nguyên văn text đã render.");
+            Assert(videoResult.ComposedPrompt.Contains(videoPrompt), "Composer VideoPrompt phải nối nguyên văn hướng dẫn của Dự án.");
 
-            var unresolvedConfig = savedConfig with { ScriptPromptText = "Kịch bản với biến {bien_chua_dien}." };
-            bool rejectedUnresolvedPlaceholder = false;
+            // Hướng dẫn không được chứa biến: biến chỉ điền trong mẫu chung, nên lưu phải bị từ chối.
+            bool rejectedPlaceholderInGuidance = false;
             try
             {
-                await composer.ComposeScriptPlanningAiRequestAsync(unresolvedConfig);
+                await workflowService.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
+                    ProjectId: prjId,
+                    WorkflowMode: WorkflowModes.ProductOnly,
+                    GoalPrompt: "",
+                    ModelAssetId: null,
+                    ProductAssetId: null,
+                    ReadyImageAssetId: null,
+                    AudioOption: AudioOptions.None,
+                    AudioAssetId: null,
+                    TargetSceneCount: 2,
+                    TargetDurationPerSceneSeconds: 15,
+                    ScriptGuidance: "Kịch bản với biến {bien_chua_dien}."
+                ));
             }
             catch (ProjectWorkflowValidationException ex)
             {
-                rejectedUnresolvedPlaceholder = ex.Message.Contains("bien_chua_dien");
+                rejectedPlaceholderInGuidance = ex.Message.Contains("biến");
             }
-            Assert(rejectedUnresolvedPlaceholder, "Backend phải báo placeholder còn sót thay vì tự đoán giá trị.");
+            Assert(rejectedPlaceholderInGuidance, "Backend phải từ chối hướng dẫn chứa placeholder thay vì nối lỗi vào prompt.");
         }
         finally
         {

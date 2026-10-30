@@ -230,7 +230,7 @@ export function TikTokSyncDialog({
 
             {/* If not logged in or requested login: Guide & Action */}
             {!checkingSession && sessionData && !sessionData.isLoggedIn && (
-              <div className="mt-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-300 space-y-2">
+              <div className="mt-2 p-2.5 rounded-lg bg-warning/10 border border-warning/20 text-xs text-warning dark:text-warning space-y-2">
                 <p className="leading-relaxed">
                   {loginMessage ||
                     sessionData.errorMessage ||
@@ -242,7 +242,7 @@ export function TikTokSyncDialog({
                   size="sm"
                   onClick={handleOpenLogin}
                   disabled={openingLogin || syncing}
-                  className="w-full text-xs font-semibold gap-1.5 h-8 border-amber-500/30 hover:bg-amber-500/15"
+                  className="w-full text-xs font-semibold gap-1.5 h-8 border-warning/30 hover:bg-warning/15"
                   data-testid="tiktok-open-login-btn"
                 >
                   {openingLogin ? (
@@ -279,11 +279,11 @@ export function TikTokSyncDialog({
           {/* 3. Sync Success Notification */}
           {syncResult && (
             <div
-              className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 space-y-2"
+              className="p-4 rounded-xl border border-success/30 bg-success/10 text-success dark:text-success space-y-2"
               data-testid="tiktok-sync-success"
             >
               <div className="flex items-center gap-2 font-semibold text-sm">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <CheckCircle2 className="w-4 h-4 text-success dark:text-success shrink-0" />
                 <span>Đã xử lý báo cáo TikTok Studio</span>
               </div>
               <p className="text-xs leading-relaxed">

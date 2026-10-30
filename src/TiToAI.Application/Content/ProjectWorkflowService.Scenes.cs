@@ -322,7 +322,7 @@ public sealed partial class ProjectWorkflowService
                 {
                     scene.ImageAssetId = config.ReadyImageAssetId;
                 }
-                else if (config.WorkflowMode == WorkflowModes.ProductOnly && !string.IsNullOrWhiteSpace(config.ProductAssetId))
+                else if (config.WorkflowMode == WorkflowModes.ProductOnly && config.VideoStrategy == VideoStrategies.SingleVideo && !string.IsNullOrWhiteSpace(config.ProductAssetId))
                 {
                     scene.ImageAssetId = config.ProductAssetId;
                 }
@@ -342,7 +342,7 @@ public sealed partial class ProjectWorkflowService
 
             // 1. Cảnh chưa có ảnh và ở chế độ ModelAndProduct: Enqueue Job Image
             if ((staleTasks.Contains(JobTaskType.Image) || string.IsNullOrWhiteSpace(scene.ImageAssetId)) &&
-                config.WorkflowMode == WorkflowModes.ModelAndProduct)
+                CanGenerateImage(config.WorkflowMode, config.VideoStrategy))
             {
                 var prompt = scenePurpose ?? scene.PromptText ?? config.GoalPrompt;
                 var imageTemplate = await dbContext.PromptTemplates.AsNoTracking()
@@ -354,7 +354,9 @@ public sealed partial class ProjectWorkflowService
                     ProjectId: projectId,
                     SceneId: scene.Id,
                     TaskType: JobTaskType.Image,
-                    CustomPromptText: imageInstruction + $"Tạo một ảnh người mẫu mặc sản phẩm cho cảnh: {scene.Name}. Ảnh đính kèm thứ nhất là người mẫu cần giữ nhận diện; ảnh thứ hai là sản phẩm cần mặc, giữ đúng màu sắc và chi tiết nhìn thấy. {prompt}",
+                    CustomPromptText: imageInstruction + (config.WorkflowMode == WorkflowModes.ProductOnly
+                        ? $"Tạo một ảnh sản phẩm cho cảnh: {scene.Name}. Ảnh đính kèm là sản phẩm cần giữ đúng màu sắc, hình dáng và chi tiết nhìn thấy. {prompt}"
+                        : $"Tạo một ảnh người mẫu mặc sản phẩm cho cảnh: {scene.Name}. Ảnh đính kèm thứ nhất là người mẫu cần giữ nhận diện; ảnh thứ hai là sản phẩm cần mặc, giữ đúng màu sắc và chi tiết nhìn thấy. {prompt}"),
                     WorkflowRunId: config.CurrentRunId,
                     WorkflowStepKey: $"image.{scene.Id}.{scene.UpdatedAtUtc}",
                     MediaSnapshot: snapshot

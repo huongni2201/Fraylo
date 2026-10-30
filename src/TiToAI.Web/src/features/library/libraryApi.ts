@@ -11,10 +11,12 @@ export interface AssetItem {
   status: string;
   createdAtUtc: string;
   mimeType?: string | null;
+  groupId?: string | null;
 }
 
 export interface ListAssetsRequest {
   projectId?: string;
+  groupId?: string;
   assetType?: string;
   page?: number;
   pageSize?: number;
@@ -56,6 +58,7 @@ export interface OpenFolderResponse {
 export async function listAssets(request: ListAssetsRequest): Promise<ListAssetsResponse> {
   return await bridgeClient.invoke<ListAssetsResponse>("asset.list", {
     projectId: request.projectId || undefined,
+    groupId: request.groupId || undefined,
     assetType: request.assetType || undefined,
     page: request.page ?? 1,
     pageSize: request.pageSize ?? 20,
@@ -77,6 +80,7 @@ export async function openAssetFolder(request: OpenFolderRequest): Promise<OpenF
 
 export interface UploadAssetRequest {
   projectId?: string;
+  groupId?: string;
   assetType: "Image" | "Audio";
   fileName?: string;
   base64Data?: string;
@@ -91,6 +95,7 @@ export interface UploadAssetResponse {
 export async function uploadAsset(request: UploadAssetRequest): Promise<UploadAssetResponse> {
   return await bridgeClient.invoke<UploadAssetResponse>("asset.upload", {
     projectId: request.projectId || undefined,
+    groupId: request.groupId || undefined,
     assetType: request.assetType,
     fileName: request.fileName || undefined,
     base64Data: request.base64Data || undefined,

@@ -1,30 +1,10 @@
-import { register } from "node:module";
-import { GlobalWindow } from "happy-dom";
+import { domWindow } from "./test/setupDom.ts";
 import assert from "node:assert/strict";
-
-// Đăng ký custom loader hỗ trợ import .tsx, .ts, .css và alias @/*
-register("./features/prompts/test-loader.mjs", import.meta.url);
-
-// Thiết lập Happy-DOM môi trường trình duyệt thật TRƯỚC KHI import React & ReactDOM
-const domWindow = new GlobalWindow({ url: "http://localhost:3000" });
-globalThis.window = domWindow as unknown as Window & typeof globalThis;
-globalThis.document = domWindow.document as unknown as Document;
-globalThis.HTMLElement = domWindow.HTMLElement as unknown as typeof HTMLElement;
-globalThis.HTMLButtonElement = domWindow.HTMLButtonElement as unknown as typeof HTMLButtonElement;
-globalThis.HTMLDivElement = domWindow.HTMLDivElement as unknown as typeof HTMLDivElement;
-globalThis.HTMLTextAreaElement = domWindow.HTMLTextAreaElement as unknown as typeof HTMLTextAreaElement;
-globalThis.HTMLInputElement = domWindow.HTMLInputElement as unknown as typeof HTMLInputElement;
-globalThis.KeyboardEvent = domWindow.KeyboardEvent as unknown as typeof KeyboardEvent;
-globalThis.MouseEvent = domWindow.MouseEvent as unknown as typeof MouseEvent;
-globalThis.Event = domWindow.Event as unknown as typeof Event;
-globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
-(globalThis as unknown as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
-
 const mockTemplates = [
   {
     templateId: "tmpl_test_script",
     purpose: "Script",
+    name: "Kịch bản test",
     createdAtUtc: "2026-10-28T00:00:00Z",
     updatedAtUtc: "2026-10-28T00:00:00Z",
   },
@@ -162,6 +142,8 @@ async function runTests() {
   await act(async () => { publishingTab.click(); await new Promise(r => setTimeout(r, 50)); });
   assert.ok(breadcrumb?.textContent?.includes("Đăng video"));
   assert.ok(publishingListCalls > 0, "Route phải gọi publishing.list qua bridge allow-list thật.");
+  // Chờ publishing.list trả về trước khi chọn video (select bị disable lúc đang tải).
+  await act(async () => { await new Promise(r => setTimeout(r, 50)); });
   const videoSelect = container.querySelector<HTMLSelectElement>("#publish-video")!;
   await act(async () => { videoSelect.value = "ast_video"; videoSelect.dispatchEvent(new Event("change", { bubbles: true })); });
   assert.equal(container.querySelector<HTMLTextAreaElement>("#publish-caption")!.value, "Caption đã lưu #test");

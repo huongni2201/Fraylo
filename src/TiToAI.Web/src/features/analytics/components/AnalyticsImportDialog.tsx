@@ -166,7 +166,7 @@ export function AnalyticsImportDialog({
               <button
                 type="button"
                 onClick={() => setFormat("csv")}
-                className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-[color,background-color,border-color,box-shadow,opacity,transform] ${
                   format === "csv"
                     ? "bg-background text-foreground shadow-xs font-semibold"
                     : "text-muted-foreground hover:text-foreground"
@@ -178,7 +178,7 @@ export function AnalyticsImportDialog({
               <button
                 type="button"
                 onClick={() => setFormat("json")}
-                className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-[color,background-color,border-color,box-shadow,opacity,transform] ${
                   format === "json"
                     ? "bg-background text-foreground shadow-xs font-semibold"
                     : "text-muted-foreground hover:text-foreground"
@@ -268,7 +268,7 @@ export function AnalyticsImportDialog({
           )}
 
           {successMessage && (
-            <div className="flex items-center gap-2 p-2.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-600 dark:text-emerald-400" data-testid="import-success">
+            <div className="flex items-center gap-2 p-2.5 rounded-md bg-success/10 border border-success/20 text-xs text-success dark:text-success" data-testid="import-success">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
               <span>{successMessage}</span>
             </div>

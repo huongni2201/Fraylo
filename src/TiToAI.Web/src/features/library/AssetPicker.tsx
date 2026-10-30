@@ -13,6 +13,8 @@ import { listAssets, uploadAsset, type AssetItem } from "./libraryApi";
 
 interface AssetPickerProps {
   projectId?: string;
+  /** Chọn trong phạm vi Nhóm dự án (tệp của nhóm và của các dự án trong nhóm). */
+  groupId?: string;
   assetType: "Image" | "Audio";
   onSelect: (asset: AssetItem) => void;
   onClose: () => void;
@@ -20,6 +22,7 @@ interface AssetPickerProps {
 
 export function AssetPicker({
   projectId,
+  groupId,
   assetType,
   onSelect,
   onClose,
@@ -40,6 +43,7 @@ export function AssetPicker({
     try {
       const res = await listAssets({
         projectId,
+        groupId,
         assetType,
         search: search.trim() || undefined,
         page: 1,
@@ -55,7 +59,7 @@ export function AssetPicker({
     } finally {
       setLoading(false);
     }
-  }, [projectId, assetType, search]);
+  }, [projectId, groupId, assetType, search]);
 
   useEffect(() => {
     fetchAssets();
@@ -81,6 +85,7 @@ export function AssetPicker({
 
       const res = await uploadAsset({
         projectId,
+        groupId,
         assetType,
         fileName: file.name,
         base64Data,
@@ -110,6 +115,7 @@ export function AssetPicker({
       try {
         const res = await uploadAsset({
           projectId,
+          groupId,
           assetType,
         });
         if (res.asset) {
@@ -163,9 +169,9 @@ export function AssetPicker({
         <div className="flex items-center justify-between border-b p-4">
           <div className="flex items-center gap-2">
             {assetType === "Image" ? (
-              <IconImage size={20} className="text-blue-500" />
+              <IconImage size={20} className="text-info" />
             ) : (
-              <IconMusic size={20} className="text-green-500" />
+              <IconMusic size={20} className="text-success" />
             )}
             <h3 id="asset-picker-title" className="text-base font-semibold">
               {assetType === "Image" ? "Chọn hình ảnh từ Thư viện" : "Chọn âm thanh từ Thư viện"}
@@ -305,9 +311,9 @@ export function AssetPicker({
                   >
                     <div className="p-2 rounded bg-muted shrink-0">
                       {asset.assetType === "Image" ? (
-                        <IconImage size={20} className="text-blue-500" />
+                        <IconImage size={20} className="text-info" />
                       ) : (
-                        <IconMusic size={20} className="text-green-500" />
+                        <IconMusic size={20} className="text-success" />
                       )}
                     </div>
                     <div className="min-w-0 flex-1">

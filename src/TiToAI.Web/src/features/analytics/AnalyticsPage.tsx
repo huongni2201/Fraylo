@@ -284,7 +284,7 @@ export function AnalyticsPage({ active }: { active: boolean }) {
   );
 
   return (
-    <div className="space-y-6 p-6 max-w-7xl mx-auto" data-testid="analytics-page">
+    <div className="space-y-6" data-testid="analytics-page">
       {/* Page Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
@@ -292,9 +292,6 @@ export function AnalyticsPage({ active }: { active: boolean }) {
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
               TikTok Analytics & Affiliate
             </h1>
-            <span className="px-2 py-0.5 text-[11px] font-semibold bg-primary/10 text-primary rounded-full">
-              P1
-            </span>
           </div>
           <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
             <span>Đang xem:</span>
@@ -330,7 +327,7 @@ export function AnalyticsPage({ active }: { active: boolean }) {
                 key={opt.value}
                 variant={periodDays === opt.value ? "secondary" : "ghost"}
                 size="sm"
-                className={`h-7 px-2.5 text-xs font-medium rounded-md transition-all ${
+                className={`h-7 px-2.5 text-xs font-medium rounded-md transition-[color,background-color,border-color,box-shadow,opacity,transform] ${
                   periodDays === opt.value
                     ? "bg-background text-foreground shadow-xs font-semibold"
                     : "text-muted-foreground hover:text-foreground"

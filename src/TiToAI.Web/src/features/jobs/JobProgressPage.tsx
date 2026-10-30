@@ -3,6 +3,7 @@ import { AlertCircle, Check, Copy, Inbox, Loader2, RefreshCw, SearchCheck } from
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/PageHeader";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -79,7 +80,7 @@ function CopyableText({ value }: { value: string | undefined }) {
         {preview}
       </p>
       <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={copy} aria-label="Sao chép">
-        {copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5 text-muted-foreground" />}
+        {copied ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5 text-muted-foreground" />}
       </Button>
     </div>
   );
@@ -204,24 +205,22 @@ export function JobProgressPage({ active }: JobProgressPageProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-foreground tracking-tight">Tiến trình</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Tiến trình tạo video theo từng dòng: kịch bản, prompt, trạng thái và kết quả đầu ra.
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void loadFirstPage()}
-          disabled={isLoading}
-          aria-label="Làm mới tiến trình"
-        >
-          {isLoading ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-          Làm mới
-        </Button>
-      </div>
+      <PageHeader
+        title="Tiến trình"
+        description="Tiến trình tạo video theo từng dòng: kịch bản, prompt, trạng thái và kết quả đầu ra."
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadFirstPage()}
+            disabled={isLoading}
+            aria-label="Làm mới tiến trình"
+          >
+            {isLoading ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+            Làm mới
+          </Button>
+        }
+      />
 
       {error && (
         <Alert variant="destructive">
@@ -317,7 +316,7 @@ export function JobProgressPage({ active }: JobProgressPageProps) {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-6 px-2 text-xs text-amber-600 dark:text-amber-400"
+                            className="h-6 px-2 text-xs text-warning dark:text-warning"
                             onClick={() => setReconcileJob(job)}
                           >
                             <SearchCheck className="size-3" />

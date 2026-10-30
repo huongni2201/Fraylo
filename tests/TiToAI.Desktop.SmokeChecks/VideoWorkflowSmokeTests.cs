@@ -93,6 +93,9 @@ public static class VideoWorkflowSmokeTests
         await RunCaseAsync("16. Run và job đầu tiên cùng rollback khi lưu thất bại",
             TestCase16_StartRunAndJobRollbackTogetherAsync);
 
+        await RunCaseAsync("17. Nhiều video: mỗi cảnh render riêng, không gom và không bị chặn một video đầu ra (VIDEO_TWO_FLOW_SPLIT §3.2)",
+            TestCase17_MultiVideoRendersEachSceneSeparatelyAsync);
+
         Console.WriteLine("\n-----------------------------------------------------------------");
         Console.WriteLine($"Kết quả kiểm thử Video Workflow: {_passCount} PASS, {_failCount} FAIL.");
         Console.WriteLine("=================================================================\n");
@@ -992,7 +995,7 @@ public static class VideoWorkflowSmokeTests
                 ReadyImageAssetId: null,
                 AudioOption: AudioOptions.None,
                 AudioAssetId: null,
-                TargetSceneCount: 2,
+                TargetSceneCount: 1,
                 TargetDurationPerSceneSeconds: 15
             ));
 
@@ -1014,7 +1017,7 @@ public static class VideoWorkflowSmokeTests
 
             // Giả lập AI trả về kịch bản một video dưới dạng JSON
             string fakeAiScriptJson = "{\"scenes\": [" +
-                "{\"purpose\": \"Toàn cảnh váy dạ hội\", \"name\": \"Cảnh 1: Giới thiệu váy dạ hội\", \"motionPrompt\": \"Camera tracking từ xa lại gần\", \"targetDurationSeconds\": 15}" +
+                "{\"imagePrompt\": \"Toàn cảnh váy dạ hội\", \"name\": \"Cảnh 1: Giới thiệu váy dạ hội\", \"videoPrompt\": \"Camera tracking từ xa lại gần\"}" +
                 "]}";
 
             using (var db = new TiToAIDbContext(dbOptions))
@@ -1283,7 +1286,7 @@ public static class VideoWorkflowSmokeTests
                 ProjectId: prjId,
                 WorkflowMode: WorkflowModes.ReadyImage,
                 GoalPrompt: "",
-                VideoPromptText: uniqueToken,
+                VideoGuidance: uniqueToken,
                 ModelAssetId: null,
                 ProductAssetId: null,
                 ReadyImageAssetId: readyAssetId,
@@ -1296,7 +1299,7 @@ public static class VideoWorkflowSmokeTests
             // CD14: Kiểm tra Preview AI Prompt
             var preview = await workflowService.PreviewAiPromptAsync(new PreviewAiPromptRequest(prjId, sceneId));
             Assert(preview.ComposedPrompt.Contains(uniqueToken), "ComposedPrompt trong Preview phải chứa chuỗi nhận diện độc nhất.");
-            Assert(preview.ComposedPrompt.StartsWith(uniqueToken), "ComposedPrompt phải bắt đầu bằng nguyên văn template người dùng lưu.");
+            Assert(preview.ComposedPrompt.Contains("[HƯỚNG DẪN BỔ SUNG CỦA DỰ ÁN]" + Environment.NewLine + uniqueToken), "ComposedPrompt phải nối hướng dẫn riêng của Dự án sau mẫu chung.");
             Assert(preview.ComposedPrompt.Contains("[OUTPUT_CONTRACT]"), "ComposedPrompt phải có block OUTPUT_CONTRACT.");
             Assert(preview.ComposedPrompt.Contains("\"video_prompt\""), "OUTPUT_CONTRACT phải yêu cầu JSON có video_prompt.");
 
@@ -1386,14 +1389,15 @@ public static class VideoWorkflowSmokeTests
                 AudioOption: AudioOptions.None,
                 AudioAssetId: null,
                 TargetSceneCount: 2,
-                TargetDurationPerSceneSeconds: 15));
+                TargetDurationPerSceneSeconds: 15,
+                VideoStrategy: VideoStrategies.SingleVideo));
 
             var blocked = false;
             try
             {
                 await service.StartWorkflowAsync(new StartProjectWorkflowRequest(prjId));
             }
-            catch (ProjectWorkflowValidationException ex) when (ex.Message.Contains("nhiều cảnh từ workflow cũ"))
+            catch (ProjectWorkflowValidationException ex) when (ex.Message.Contains("chỉ dùng một phân cảnh"))
             {
                 blocked = true;
             }
@@ -1426,6 +1430,82 @@ public static class VideoWorkflowSmokeTests
         {
             CleanupTestEnvironment(tempDir);
         }
+    }
+
+    /// <summary>
+    /// Kịch bản 17 (VIDEO_TWO_FLOW_SPLIT §3.2): nhiều video, mỗi cảnh một job render với ảnh riêng; không gom thành một job.
+    /// </summary>
+    private static async Task TestCase17_MultiVideoRendersEachSceneSeparatelyAsync()
+    {
+        var (dbOptions, tempDir, prjId) = CreateTestEnvironment();
+        try
+        {
+            var registry = new StorageRootRegistry(dbOptions, tempDir);
+            await registry.EnsureDefaultRootsAsync();
+            var settingsService = new SettingsService(dbOptions, registry);
+            var curSettings = await settingsService.GetSettingsAsync();
+            await settingsService.SaveSettingsAsync(new SettingsSaveRequest(
+                DocumentsPath: curSettings.DocumentsPath,
+                ImagesPath: curSettings.ImagesPath,
+                VideosPath: curSettings.VideosPath,
+                ImageProvider: ProviderKeys.ChatGPTWeb,
+                ScriptProvider: ProviderKeys.ChatGPTWeb,
+                VideoPromptProvider: ProviderKeys.ChatGPTWeb,
+                ExpectedRevision: curSettings.Revision
+            ));
+            var snapshotFactory = new JobSnapshotFactory(settingsService, dbOptions: dbOptions);
+            var reservation = new JobReservation(dbOptions);
+            var fakeChatGpt = new DeterministicFakeProviderAdapter(ProviderKeys.ChatGPTWeb);
+            var scheduler = new JobScheduler(dbOptions, reservation, new CompositeTestJobExecutor(fakeChatGpt, fakeChatGpt));
+            var workflowService = new ProjectWorkflowService(dbOptions, new JobService(dbOptions, snapshotFactory, scheduler));
+
+            var readyAssetId = SeedAsset(dbOptions, "Image", "ready/multi.jpg");
+            var firstSceneId = SeedScene(dbOptions, prjId, "Cảnh 1", 1, readyAssetId, "Prompt cảnh 1");
+            var secondSceneId = SeedScene(dbOptions, prjId, "Cảnh 2", 2, readyAssetId, "Prompt cảnh 2");
+            await workflowService.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
+                ProjectId: prjId,
+                WorkflowMode: WorkflowModes.ReadyImage,
+                GoalPrompt: "Nhiều clip",
+                ModelAssetId: null,
+                ProductAssetId: null,
+                ReadyImageAssetId: readyAssetId,
+                AudioOption: AudioOptions.None,
+                AudioAssetId: null,
+                TargetSceneCount: 2,
+                TargetDurationPerSceneSeconds: 15,
+                VideoStrategy: VideoStrategies.MultiVideo));
+
+            // Render chỉ được xếp hàng trong một run đang chạy: gắn run giả lập vào cấu hình đã lưu.
+            using (var configDb = new TiToAIDbContext(dbOptions))
+            {
+                var configSetting = await configDb.AppSettings.SingleAsync(s => s.Key == $"project.workflow.config.{prjId}");
+                var stored = JsonSerializer.Deserialize<ProjectWorkflowConfigDto>(configSetting.Value)!;
+                configSetting.Value = JsonSerializer.Serialize(stored with { CurrentRunId = "run-multi-17", RunState = WorkflowRunState.Running });
+                await configDb.SaveChangesAsync();
+            }
+
+            Assert(await workflowService.CreateSceneVideoAsync(new CreateSceneVideoRequest(prjId, SceneId: firstSceneId)) == 1,
+                "Cảnh 1 phải được đưa vào render riêng.");
+            Assert(await workflowService.CreateSceneVideoAsync(new CreateSceneVideoRequest(prjId, SceneId: secondSceneId)) == 1,
+                "Cảnh 2 phải được render riêng, không bị chặn 'một video đầu ra'.");
+
+            using var db = new TiToAIDbContext(dbOptions);
+            var renders = await db.Jobs.AsNoTracking().Where(j => j.ProjectId == prjId && j.TaskType == JobTaskType.VideoRender).ToListAsync();
+            Assert(renders.Count == 2, $"Phải có hai job render, một cho mỗi cảnh; thực tế: {renders.Count}");
+            Assert(renders.Select(j => j.SceneId).Distinct().Count() == 2, "Mỗi job render phải gắn đúng một cảnh.");
+            Assert(renders.All(j => CountSnapshotImages(j.ConfigSnapshotJson) == 1), "Mỗi job render chỉ gửi ảnh của cảnh đó, không gom.");
+        }
+        finally
+        {
+            CleanupTestEnvironment(tempDir);
+        }
+    }
+
+    private static int CountSnapshotImages(string? snapshotJson)
+    {
+        if (string.IsNullOrWhiteSpace(snapshotJson)) return -1;
+        using var doc = JsonDocument.Parse(snapshotJson);
+        return doc.RootElement.GetProperty("MediaSnapshot").GetProperty("ImageAssetIds").GetArrayLength();
     }
 
     private static async Task TestCase16_StartRunAndJobRollbackTogetherAsync()

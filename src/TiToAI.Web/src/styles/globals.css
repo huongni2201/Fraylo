@@ -11,6 +11,10 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-text: var(--primary-text);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -33,29 +37,33 @@
 
 :root,
 [data-theme="dark"] {
-  --background: #080d1a;
-  --foreground: #f8fafc;
-  --card: #0f172a;
-  --card-foreground: #f8fafc;
-  --popover: #0f172a;
-  --popover-foreground: #f8fafc;
-  --primary: #6d3af2;
+  --background: #0a0f1c;
+  --foreground: #f1f5f9;
+  --card: #111a2d;
+  --card-foreground: #f1f5f9;
+  --popover: #111a2d;
+  --popover-foreground: #f1f5f9;
+  --primary: #7a4ff5;
   --primary-foreground: #ffffff;
-  --secondary: #141f36;
-  --secondary-foreground: #94a3b8;
-  --muted: #19253d;
-  --muted-foreground: #64748b;
-  --accent: #19253d;
-  --accent-foreground: #f8fafc;
+  --primary-text: #a78bfa;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --info: #38bdf8;
+  --secondary: #17213a;
+  --secondary-foreground: #cbd5e1;
+  --muted: #17213a;
+  --muted-foreground: #94a3b8;
+  --accent: #1d2a47;
+  --accent-foreground: #f1f5f9;
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
-  --border: #2c3e55;
+  --border: #26354f;
   --input: #2c3e55;
   --ring: #b7a0ff;
   --radius: 0.5rem;
-  --sidebar: #060913;
-  --sidebar-foreground: #94a3b8;
-  --sidebar-border: #19273c;
+  --sidebar: #070b15;
+  --sidebar-foreground: #a3b1c6;
+  --sidebar-border: #17233a;
 }
 
 [data-theme="light"] {
@@ -67,10 +75,14 @@
   --popover-foreground: #0f172a;
   --primary: #6230dc;
   --primary-foreground: #ffffff;
+  --primary-text: #5b21b6;
+  --success: #047857;
+  --warning: #b45309;
+  --info: #0369a1;
   --secondary: #f8fafc;
   --secondary-foreground: #475569;
   --muted: #f1f5f9;
-  --muted-foreground: #64748b;
+  --muted-foreground: #556178;
   --accent: #eef3fa;
   --accent-foreground: #0f172a;
   --destructive: #dc2626;
@@ -96,6 +108,15 @@
   video {
     filter: none !important;
     color-scheme: normal;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 
   /* Universal Clickable Elements have pointer cursor */

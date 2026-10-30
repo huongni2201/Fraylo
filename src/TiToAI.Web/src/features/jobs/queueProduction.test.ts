@@ -1,56 +1,6 @@
-import { register } from "node:module";
-import { GlobalWindow } from "happy-dom";
+import { domWindow } from "../../test/setupDom.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-
-register("../prompts/test-loader.mjs", import.meta.url);
-
-// Thiết lập DOM ảo với happy-dom
-const domWindow = new GlobalWindow({ url: "http://localhost:3000" });
-globalThis.window = domWindow as unknown as Window & typeof globalThis;
-globalThis.document = domWindow.document as unknown as Document;
-globalThis.HTMLElement = domWindow.HTMLElement as unknown as typeof HTMLElement;
-globalThis.HTMLButtonElement = domWindow.HTMLButtonElement as unknown as typeof HTMLButtonElement;
-globalThis.HTMLDivElement = domWindow.HTMLDivElement as unknown as typeof HTMLDivElement;
-globalThis.HTMLInputElement = domWindow.HTMLInputElement as unknown as typeof HTMLInputElement;
-globalThis.HTMLFormElement = domWindow.HTMLFormElement as unknown as typeof HTMLFormElement;
-globalThis.KeyboardEvent = domWindow.KeyboardEvent as unknown as typeof KeyboardEvent;
-globalThis.MouseEvent = domWindow.MouseEvent as unknown as typeof MouseEvent;
-globalThis.Event = domWindow.Event as unknown as typeof Event;
-globalThis.CustomEvent = domWindow.CustomEvent as unknown as typeof CustomEvent;
-globalThis.getComputedStyle = domWindow.getComputedStyle.bind(domWindow);
-globalThis.MutationObserver = domWindow.MutationObserver;
-globalThis.NodeFilter = domWindow.NodeFilter as unknown as typeof NodeFilter;
-
-class ResizeObserverMock {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
-globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
-(globalThis as unknown as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
-
-function wrapDispatchEvent(targetProto: any) {
-  if (!targetProto || !targetProto.dispatchEvent) return;
-  const orig = targetProto.dispatchEvent;
-  targetProto.dispatchEvent = function (event: any) {
-    if (event && !(event instanceof domWindow.Event)) {
-      const wrapped = new domWindow.CustomEvent(event.type, {
-        bubbles: event.bubbles,
-        cancelable: event.cancelable,
-        detail: event.detail,
-      });
-      return orig.call(this, wrapped);
-    }
-    return orig.call(this, event);
-  };
-}
-wrapDispatchEvent(domWindow.document);
-wrapDispatchEvent(domWindow);
-wrapDispatchEvent(domWindow.Node?.prototype);
-wrapDispatchEvent(domWindow.EventTarget?.prototype);
 
 // Biến trạng thái mock backend chính xác theo DTOs v1.1
 let mockActiveJobs: any[] = [];
@@ -395,7 +345,7 @@ test("AC1 (R1): Succeeded -> progress Running trễ phải giữ nguyên Succeed
   assert.ok(!cardText.includes("Đang chạy"), "Không được hiển thị 'Đang chạy' trên card sau khi đã Succeeded");
 
   await act(async () => {
-    root.unmount();
+    act(() => root.unmount());
   });
   container.remove();
 });
@@ -455,7 +405,7 @@ test("AC2 (R1): Response list cũ về sau event mới: Không được lùi tr�
   assert.ok(text.includes("Thành công"), "Trạng thái mới từ event (Succeeded, rev 3) không bị snapshot cũ đè");
 
   await act(async () => {
-    root.unmount();
+    act(() => root.unmount());
   });
   container.remove();
 });
@@ -519,7 +469,7 @@ test("AC3 (R1): Gap detection: Khi event có jobRevision nhảy cóc, tự độ
   );
 
   await act(async () => {
-    root.unmount();
+    act(() => root.unmount());
   });
   container.remove();
 });
@@ -596,7 +546,7 @@ test("AC4 (R5): Job mới qua event: placeholder loading khi chưa hydrate, khó
 
   commandDelayMs = 5;
   await act(async () => {
-    root.unmount();
+    act(() => root.unmount());
   });
   container.remove();
 });
@@ -668,7 +618,7 @@ test("AC5 (R2): Click Retry trên Failed sideEffect=0: gọi job.retry với exp
   );
 
   await act(async () => {
-    root.unmount();
+    act(() => root.unmount());
   });
   container.remove();
 });
@@ -722,7 +672,7 @@ test("AC6 (R2): Failed có sideEffectSubmitted=1 hoặc undefined: CẤM có nú
   assert.ok(!buttons1.some((txt) => txt?.includes("Thử lại")), "Job có sideEffectSubmitted = 1 KHÔNG được có nút Thử lại");
 
   await act(async () => {
-    root1.unmount();
+    act(() => root1.unmount());
   });
   container1.remove();
 
@@ -745,7 +695,7 @@ test("AC6 (R2): Failed có sideEffectSubmitted=1 hoặc undefined: CẤM có nú
   );
 
   await act(async () => {
-    root2.unmount();
+    act(() => root2.unmount());
   });
   container2.remove();
 });
@@ -806,7 +756,7 @@ test("AC7 (R3): Cancel uncertain -> reload -> Đối soát CTA hiện; dialog gi
   assert.ok(!dialogText.includes("Gửi lại"), "Dialog đối soát cho Canceled job không được cho phép Gửi lại");
 
   await act(async () => {
-    root.unmount();
+    act(() => root.unmount());
   });
   container.remove();
 });
@@ -867,7 +817,7 @@ test("AC8 (R4): Click Login khi providerKey khác profileId: Gửi đúng profil
   );
 
   await act(async () => {
-    root.unmount();
+    act(() => root.unmount());
   });
   container.remove();
 });
@@ -922,7 +872,7 @@ test("AC9 (R4): Job chưa bind tài khoản: Điều hướng Settings -> Tài k
   );
 
   await act(async () => {
-    root.unmount();
+    act(() => root.unmount());
   });
   container.remove();
 });
@@ -987,7 +937,7 @@ test("AC10 (R6): Complete -> reload: Tab Hoàn tất lấy từ job.list_history
   assert.ok(tabText.includes("job_ac10_history_done".slice(0, 8)), "Job lịch sử phải xuất hiện trên tab Hoàn tất");
 
   await act(async () => {
-    root.unmount();
+    act(() => root.unmount());
   });
   container.remove();
 });
@@ -1053,7 +1003,7 @@ test("AC11 (Acc. 8): Double-click, conflict: Nút bị disable khi đang xử l�
 
   commandDelayMs = 5;
   await act(async () => {
-    root.unmount();
+    act(() => root.unmount());
   });
   container.remove();
 });
@@ -1097,7 +1047,7 @@ test("AC12 (Acc. 9): Keyboard navigation, Escape và dialog lồng không phá v
   assert.equal(isClosed, true, "Bấm Escape phải gọi callback onClose của QueueDrawer");
 
   await act(async () => {
-    root.unmount();
+    act(() => root.unmount());
   });
   container.remove();
 });

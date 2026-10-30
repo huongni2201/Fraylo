@@ -114,6 +114,12 @@ public sealed class SessionProbe : ISessionProbe, IProfileIdentityResolver
         // 2. Thực hiện probe thực tế cho từng Provider nếu có IBrowserProcessController
         if (_processController != null)
         {
+            // Cửa sổ đăng nhập thủ công đang giữ .titoai_lock: đóng để probe mở được profile
+            if (_processController.IsLoginWindowOpen(profileId))
+            {
+                await _processController.CloseContextAsync(profileId, cancellationToken);
+            }
+
             var prober = _probers.FirstOrDefault(p => p.SupportsPlatform(normalizedProvider));
             if (prober != null)
             {

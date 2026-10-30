@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { PageHeader } from "@/components/PageHeader";
 import type { TikTokAnalyticsAccount } from "../analytics/analyticsApi";
 import { blocksAnotherPublish, publishingError, type PublishingApi, type PublishingList, type PublishPrivacy, type PublishState } from "./publishingApi";
 
@@ -118,13 +119,16 @@ export function PublishingPage({ active, api, initialProjectId, selectionRevisio
 
   return (
     <section className="mx-auto flex max-w-6xl flex-col gap-6" aria-labelledby="publishing-title" aria-busy={publishing || loading}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h2 id="publishing-title" className="text-xl font-bold tracking-tight">Đăng video</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Chọn video đã tạo, kiểm tra caption và đăng lên tài khoản TikTok của bạn.</p></div>
-        <Button variant="outline" onClick={() => { setError(null); void load(); }} disabled={loading || publishing} className="gap-2">
-          <RefreshCw className="size-4" aria-hidden="true" />Tải lại
-        </Button>
-      </div>
+      <PageHeader
+        titleId="publishing-title"
+        title="Đăng video"
+        description="Chọn video đã tạo, kiểm tra caption và đăng lên tài khoản TikTok của bạn."
+        actions={
+          <Button variant="outline" onClick={() => { setError(null); void load(); }} disabled={loading || publishing} className="gap-2">
+            <RefreshCw className="size-4" aria-hidden="true" />Tải lại
+          </Button>
+        }
+      />
       {error && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
       {message && <p role="status" className="rounded-lg border bg-muted/40 p-3 text-sm">{message}</p>}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">

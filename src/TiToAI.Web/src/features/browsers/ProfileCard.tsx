@@ -87,14 +87,14 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
       case "Running":
         return (
           <Badge variant="success" className="gap-1.5 text-[11px]" title="Tiến trình browser đang chạy nền">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true" />
+            <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" aria-hidden="true" />
             Đang chạy ẩn
           </Badge>
         );
       case "Idle":
         return (
           <Badge variant="info" className="gap-1.5 text-[11px]" title="Tiến trình sẵn sàng nhận tác vụ">
-            <span className="h-1.5 w-1.5 rounded-full bg-sky-500" aria-hidden="true" />
+            <span className="h-1.5 w-1.5 rounded-full bg-info" aria-hidden="true" />
             Chờ việc
           </Badge>
         );
@@ -108,7 +108,7 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
       case "Quiescing":
         return (
           <Badge variant="warning" className="gap-1.5 text-[11px]" title="Đang thu hồi tài nguyên an toàn">
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" aria-hidden="true" />
+            <span className="h-1.5 w-1.5 rounded-full bg-warning animate-pulse" aria-hidden="true" />
             Đang thu hồi
           </Badge>
         );
@@ -234,7 +234,7 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
   return (
     <Card
       className={cn(
-        "flex flex-col transition-all shadow-xs hover:border-border/80",
+        "flex flex-col transition-[color,background-color,border-color,box-shadow,opacity,transform] shadow-xs hover:border-border/80",
         isActive && "border-primary ring-2 ring-primary/20 shadow-md"
       )}
       aria-label={`Trình duyệt ${headerInfo.title}`}

@@ -68,7 +68,7 @@ export function AnalyticsKpiCards({ summary, loading = false }: AnalyticsKpiCard
       value: formatNumber(summary?.totalViews),
       subtext: summary?.periodDays ? `Trong ${summary.periodDays} ngày` : undefined,
       icon: Eye,
-      accentColor: "text-blue-500",
+      accentColor: "text-info",
     },
     {
       id: "likes",
@@ -82,14 +82,14 @@ export function AnalyticsKpiCards({ summary, loading = false }: AnalyticsKpiCard
       label: "Bình luận",
       value: formatNumber(summary?.totalComments),
       icon: MessageSquare,
-      accentColor: "text-amber-500",
+      accentColor: "text-warning",
     },
     {
       id: "shares",
       label: "Chia sẻ",
       value: formatNumber(summary?.totalShares),
       icon: Share2,
-      accentColor: "text-emerald-500",
+      accentColor: "text-success",
     },
     {
       id: "engagement",
@@ -120,7 +120,7 @@ export function AnalyticsKpiCards({ summary, loading = false }: AnalyticsKpiCard
       value: formatNumber(summary?.totalAffiliateClicks),
       subtext: summary?.totalAffiliateClicks !== null ? "Lượt bấm vào liên kết" : undefined,
       icon: MousePointerClick,
-      accentColor: "text-orange-500",
+      accentColor: "text-warning",
     },
   ];
 
@@ -131,7 +131,7 @@ export function AnalyticsKpiCards({ summary, loading = false }: AnalyticsKpiCard
         return (
           <Card
             key={item.id}
-            className="bg-card border-border hover:border-border/80 transition-all shadow-xs"
+            className="bg-card border-border hover:border-border/80 transition-[color,background-color,border-color,box-shadow,opacity,transform] shadow-xs"
             data-testid={`kpi-card-${item.id}`}
           >
             <CardContent className="p-4 flex flex-col justify-between h-full">

@@ -8,6 +8,14 @@ export const WorkflowModes = {
 
 export type WorkflowMode = (typeof WorkflowModes)[keyof typeof WorkflowModes];
 
+/** Chiến lược video của run: mỗi cảnh một clip, hoặc một video nhiều phân cảnh (VIDEO_TWO_FLOW_SPLIT §3.1). */
+export const VideoStrategies = {
+  MultiVideo: "MultiVideo",
+  SingleVideo: "SingleVideo",
+} as const;
+
+export type VideoStrategy = (typeof VideoStrategies)[keyof typeof VideoStrategies];
+
 export const AudioOptions = {
   None: "None",
   CustomAudio: "CustomAudio",
@@ -52,9 +60,15 @@ export interface ProjectWorkflowConfigDto {
   runState: WorkflowRunState;
   currentRunId: string | null;
   updatedAtUtc: string;
-  scriptPromptText?: string | null;
-  videoPromptText?: string | null;
+  scriptGuidance?: string | null;
+  videoGuidance?: string | null;
+  promptVariables?: Record<string, string> | null;
   finalVideoAssetId?: string | null;
+  groupId?: string | null;
+  groupName?: string | null;
+  /** Ô tệp đang lấy từ mặc định của nhóm: Model, Product, ReadyImage, Audio. */
+  inheritedAssetSlots?: string[] | null;
+  videoStrategy?: VideoStrategy | null;
 }
 
 export interface SaveProjectWorkflowConfigRequest {
@@ -68,8 +82,10 @@ export interface SaveProjectWorkflowConfigRequest {
   audioAssetId?: string | null;
   targetSceneCount: number;
   targetDurationPerSceneSeconds: number;
-  scriptPromptText?: string | null;
-  videoPromptText?: string | null;
+  scriptGuidance?: string | null;
+  videoGuidance?: string | null;
+  promptVariables?: Record<string, string> | null;
+  videoStrategy?: VideoStrategy;
 }
 
 export interface SceneWorkflowDetailDto {
