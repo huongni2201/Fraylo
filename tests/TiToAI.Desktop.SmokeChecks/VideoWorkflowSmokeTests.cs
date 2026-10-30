@@ -96,6 +96,9 @@ public static class VideoWorkflowSmokeTests
         await RunCaseAsync("17. Nhiều video: mỗi cảnh render riêng, không gom và không bị chặn một video đầu ra (VIDEO_TWO_FLOW_SPLIT §3.2)",
             TestCase17_MultiVideoRendersEachSceneSeparatelyAsync);
 
+        await RunCaseAsync("18. Script lỗi có log; chạy lại bỏ video cuối cũ; Start không còn bước báo đúng nguyên nhân",
+            TestCase18_ScriptFailureLogAndRerunClearsFinalVideoAsync);
+
         Console.WriteLine("\n-----------------------------------------------------------------");
         Console.WriteLine($"Kết quả kiểm thử Video Workflow: {_passCount} PASS, {_failCount} FAIL.");
         Console.WriteLine("=================================================================\n");
@@ -1545,6 +1548,75 @@ public static class VideoWorkflowSmokeTests
         finally { CleanupTestEnvironment(tempDir); }
     }
 
+
+    /// <summary>
+    /// Kịch bản 18: Script sai định dạng ghi log lý do và đặt run Failed; Start mới bỏ video cuối cũ; Start không còn bước nào báo đúng nguyên nhân.
+    /// </summary>
+    private static async Task TestCase18_ScriptFailureLogAndRerunClearsFinalVideoAsync()
+    {
+        var (dbOptions, tempDir, projectId) = CreateTestEnvironment();
+        try
+        {
+            var registry = new StorageRootRegistry(dbOptions, tempDir);
+            await registry.EnsureDefaultRootsAsync();
+            var settings = new SettingsService(dbOptions, registry);
+            var current = await settings.GetSettingsAsync();
+            await settings.SaveSettingsAsync(new SettingsSaveRequest(
+                DocumentsPath: current.DocumentsPath, ImagesPath: current.ImagesPath, VideosPath: current.VideosPath,
+                ImageProvider: ProviderKeys.ChatGPTWeb, ScriptProvider: ProviderKeys.ChatGPTWeb,
+                VideoPromptProvider: ProviderKeys.ChatGPTWeb, ExpectedRevision: current.Revision));
+            await using var scheduler = new JobScheduler(dbOptions, new JobReservation(dbOptions), new DeterministicFakeJobExecutor());
+            var jobs = new JobService(dbOptions, new JobSnapshotFactory(settings, dbOptions: dbOptions), scheduler);
+            var workflow = new ProjectWorkflowService(dbOptions, jobs);
+            var imageId = SeedAsset(dbOptions, "Image", "ready/rerun.jpg");
+            await workflow.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
+                projectId, WorkflowModes.ReadyImage, "", null, null, imageId, AudioOptions.None, null, 2, 15));
+
+            // 1. Script trả văn bản không phải JSON: run Failed và có log nói rõ lý do.
+            var now = DateTimeOffset.UtcNow.ToString("o");
+            var scriptJobId = Guid.NewGuid().ToString("D");
+            await using (var db = new TiToAIDbContext(dbOptions))
+            {
+                db.Jobs.Add(new Job { Id = scriptJobId, ProjectId = projectId, SceneId = null, TaskType = JobTaskType.Script,
+                    State = JobState.Succeeded, ProviderKey = "chatgpt", ResultText = "Xin lỗi, tôi không thể giúp.",
+                    CreatedAtUtc = now, UpdatedAtUtc = now });
+                await db.SaveChangesAsync();
+            }
+            Assert(!await workflow.ApplyJobOutputAsync(scriptJobId), "Script sai định dạng không được coi là đã áp dụng.");
+            Assert((await workflow.GetWorkflowConfigAsync(projectId)).RunState == WorkflowRunState.Failed,
+                "Script sai định dạng phải đặt run Failed.");
+            var log = await new JobActivityLog(dbOptions).ReadAsync(scriptJobId);
+            Assert(log.Any(entry => entry.Message.Contains("Script chưa hợp lệ")),
+                "Phải ghi log lý do Script bị loại để người dùng thấy trong nhật ký.");
+
+            // 2. Cảnh đã đủ ảnh và prompt: Start báo đúng nguyên nhân, không nhắc Provider/Scheduler.
+            var readyScene = SeedScene(dbOptions, projectId, "Cảnh 1", 1, imageId, "Pan left");
+            var message = "";
+            try { await workflow.StartWorkflowAsync(new StartProjectWorkflowRequest(projectId)); }
+            catch (ProjectWorkflowValidationException ex) { message = ex.Message; }
+            Assert(message.Contains("đã đủ ảnh và prompt"), "Start không còn bước nào phải báo cảnh đã đủ ảnh và prompt.");
+
+            // 3. Start thật sự chạy: video cuối của run trước bị bỏ để auto-render không bị chặn.
+            await using (var db = new TiToAIDbContext(dbOptions))
+            {
+                var scene = await db.Scenes.FirstAsync(s => s.Id == readyScene);
+                scene.PromptText = null;
+                var revisionId = Guid.NewGuid().ToString("D");
+                db.VideoRevisions.Add(new VideoRevision { Id = revisionId, ProjectId = projectId, Revision = 1, State = "Ready",
+                    AssetId = SeedAsset(dbOptions, "Video", "videos/old-final.mp4"), ContentHash = "x", CreatedAtUtc = now });
+                (await db.Projects.FirstAsync(p => p.Id == projectId)).CurrentVideoRevisionId = revisionId;
+                await db.SaveChangesAsync();
+            }
+            Assert((await workflow.GetWorkflowConfigAsync(projectId)).FinalVideoAssetId != null, "Điều kiện đầu: project đã có video cuối.");
+            await workflow.StartWorkflowAsync(new StartProjectWorkflowRequest(projectId));
+            var after = await workflow.GetWorkflowConfigAsync(projectId);
+            Assert(after.RunState == WorkflowRunState.Running, "Start phải chuyển run sang Running.");
+            Assert(after.FinalVideoAssetId == null, "Run mới phải bỏ video cuối cũ.");
+            await using var verify = new TiToAIDbContext(dbOptions);
+            Assert(await verify.VideoRevisions.AnyAsync(v => v.ProjectId == projectId), "Revision cũ phải được giữ làm lịch sử.");
+        }
+        finally { CleanupTestEnvironment(tempDir); }
+    }
     /// <summary>
     /// Composite Job Executor phục vụ kiểm thử đa provider (ChatGPT + MuseAI).
     /// </summary>

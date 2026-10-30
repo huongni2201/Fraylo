@@ -210,6 +210,11 @@ public sealed partial class ProjectWorkflowService
 
         if (enqueuedJobCount <= 0)
         {
+            if (existingScenes.Count > 0 && (_jobService != null || _durableJobEnqueuer != null))
+            {
+                throw new ProjectWorkflowValidationException(
+                    "Các cảnh hiện có đã đủ ảnh và prompt nên không còn bước nào để chạy lại. Hãy sửa cảnh cần làm lại, hoặc bấm \"Tạo video\" trong bảng Project để render.");
+            }
             throw new ProjectWorkflowValidationException(
                 "Chưa thể bắt đầu sản xuất video: Hệ thống chưa có tác vụ nền bền vững nào được tạo trong hàng đợi (chờ kết nối Provider/Scheduler). Hệ thống từ chối chuyển sang trạng thái Đang chạy để tránh treo tiến trình. Dữ liệu cấu hình của bạn đã được bảo toàn.");
         }
@@ -265,6 +270,8 @@ public sealed partial class ProjectWorkflowService
         if (prj != null)
         {
             prj.Status = "InProgress";
+            // Run mới thay thế video cuối cũ (revision giữ làm lịch sử); nếu không, auto-render bị bỏ qua vì FinalVideoAssetId còn đó.
+            prj.CurrentVideoRevisionId = null;
             prj.UpdatedAtUtc = nowIso;
         }
 

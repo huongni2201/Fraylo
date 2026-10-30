@@ -181,6 +181,7 @@ export function VideoProductionTab({
   const [scenes, setScenes] = useState<SceneWorkflowDetailDto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
+  const [rerunRequested, setRerunRequested] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -614,6 +615,7 @@ export function VideoProductionTab({
       const res = await videoWorkflowApi.startWorkflow(projectId);
       setSuccessMessage(res.message);
       setIsDirty(false);
+      setRerunRequested(false);
       await loadData();
       onRefreshProject?.();
     } catch (err: unknown) {
@@ -687,6 +689,8 @@ export function VideoProductionTab({
 
   const mainView = useMemo<"preparing" | "running" | "completed">(() => {
     if (!config) return "preparing";
+    const runActive = config.runState === WorkflowRunState.Running || config.runState === WorkflowRunState.Paused;
+    if (rerunRequested && !runActive) return "preparing";
     if (finalVideoAssetId || (scenes.length === 1 && (config.runState === WorkflowRunState.Completed || completedVideoCount === 1))) {
       return "completed";
     }
@@ -694,7 +698,7 @@ export function VideoProductionTab({
       return "running";
     }
     return "preparing";
-  }, [config, scenes.length, completedVideoCount, finalVideoAssetId]);
+  }, [config, scenes.length, completedVideoCount, finalVideoAssetId, rerunRequested]);
 
   if (isLoading && !config) {
     return (
@@ -775,9 +779,7 @@ export function VideoProductionTab({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                setConfig({ ...config, runState: WorkflowRunState.Idle });
-              }}
+              onClick={() => setRerunRequested(true)}
               className="gap-1.5"
             >
               <RotateCcw className="h-3.5 w-3.5" /> Sửa cấu hình & Chạy lại
@@ -933,6 +935,15 @@ export function VideoProductionTab({
       {/* ============================================================== */}
       {mainView === "preparing" && (
         <div className="space-y-6">
+          {config.runState === WorkflowRunState.Failed && (
+            <div role="alert" className="space-y-3 rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+              <p className="flex items-center gap-2 font-medium">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                Lượt chạy trước đã dừng vì lỗi. Xem nhật ký bên dưới, chỉnh cấu hình rồi bắt đầu lại.
+              </p>
+              <ProjectActivityLog projectId={projectId} />
+            </div>
+          )}
           <Card>
             <CardHeader className="pb-4">
               <CardTitle className="text-lg flex items-center gap-2">

@@ -150,6 +150,10 @@ public sealed partial class ProjectWorkflowService
                     cfgSetting.UpdatedAtUtc = nowIso;
                 }
                 await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                await WriteAutoRenderLogAsync(job.Id, "error", config.VideoStrategy == VideoStrategies.SingleVideo
+                    ? "Phản hồi Script không phải storyboard hợp lệ nên chưa tạo cảnh. Hãy kiểm tra mẫu Script và bắt đầu lại."
+                    : $"Phản hồi Script chưa hợp lệ nên chưa tạo cảnh: cần JSON có đúng {Math.Max(1, config.TargetSceneCount)} cảnh và mỗi cảnh có imagePrompt. Hãy kiểm tra mẫu Script và bắt đầu lại.",
+                    CancellationToken.None).ConfigureAwait(false);
                 return false;
             }
             if (sceneItems.Count > 0)
