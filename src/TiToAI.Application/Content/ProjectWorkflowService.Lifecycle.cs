@@ -172,16 +172,52 @@ public sealed partial class ProjectWorkflowService
                 $"Cảnh '{invalidDurationScene.Name}' có thời lượng {Convert.ToInt32(invalidDurationScene.TargetDurationSeconds)}s không được hỗ trợ bởi nhà cung cấp video. Vui lòng chọn lại thời lượng ({string.Join("s, ", supportedDurations)}s) trước khi bắt đầu.");
         }
 
+        // Mẫu + sản phẩm (một video) không viết kịch bản: ảnh ghép là bước đầu, video chỉ dùng đúng ảnh đó.
+        // Chế độ ảnh 9 ô vẫn cần Script (9 shot) trước nên không đi đường này; ghép ảnh chạy sau Script rồi mới tạo ảnh 3×3.
+        bool gridMode = VideoWorkflowPromptComposer.IsGridMode(config);
+        if (config.ReferenceImageMode == ReferenceImageModes.StoryboardGrid9 &&
+            (!singleVideo || config.TargetDurationPerSceneSeconds != ReferenceImageModes.GridDurationSeconds))
+        {
+            throw new ProjectWorkflowValidationException(
+                $"Ảnh storyboard {ReferenceImageModes.GridShotCount} ô chỉ dùng cho chế độ một video, thời lượng {ReferenceImageModes.GridDurationSeconds} giây.");
+        }
+        bool composeFirst = !gridMode && singleVideo && config.WorkflowMode == WorkflowModes.ModelAndProduct && existingScenes.Count == 0 && _jobService != null;
+
         // Prompt dự án > nhóm > mẫu toàn cục: báo thiếu ngay lúc bấm chạy, không đợi tới giữa pipeline.
-        if (existingScenes.Count == 0)
+        if (existingScenes.Count == 0 && !composeFirst)
         {
             await VideoWorkflowPromptComposer.ResolvePromptAsync(dbContext, config, JobTaskType.Script, cancellationToken);
         }
         if (CanGenerateImage(config.WorkflowMode, config.VideoStrategy))
         {
+            await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(dbContext, VideoWorkflowPromptComposer.ImagePurposeFor(config.WorkflowMode), cancellationToken);
+        }
+        if (gridMode)
+        {
+            // Prompt ảnh 3×3 dùng mẫu Image đang chọn, kể cả khi chế độ Mẫu + sản phẩm còn mẫu Ghép ảnh riêng.
             await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(dbContext, JobTaskType.Image, cancellationToken);
         }
         await VideoWorkflowPromptComposer.ResolvePromptAsync(dbContext, config, JobTaskType.VideoPrompt, cancellationToken);
+
+        if (composeFirst)
+        {
+            var composeScene = new Scene
+            {
+                Id = Guid.NewGuid().ToString("D").ToLowerInvariant(),
+                ProjectId = normalizedProjectId,
+                SequenceOrder = 1,
+                Name = "Cảnh 1",
+                TargetDurationSeconds = config.TargetDurationPerSceneSeconds,
+                Status = "Draft",
+                AudioAssetId = config.AudioOption == AudioOptions.CustomAudio ? config.AudioAssetId : null,
+                CreatedAtUtc = nowIso,
+                UpdatedAtUtc = nowIso
+            };
+            dbContext.Scenes.Add(composeScene);
+            // JobService kiểm tra cảnh đã có trong DB trước khi xếp hàng job Image.
+            await dbContext.SaveChangesAsync(cancellationToken);
+            existingScenes.Add(composeScene);
+        }
 
         // NGUYÊN TẮC MỐC 1 & MỐC 4:
         // - Không dùng 3 cảnh/prompt hardcode mẫu tĩnh giả mạo là kết quả AI production.

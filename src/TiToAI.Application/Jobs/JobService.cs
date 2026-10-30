@@ -386,11 +386,8 @@ public sealed class JobService
     }
 
     /// <summary>
-    /// Hủy bỏ tác vụ (job.cancel):
-    /// - Nếu đang Queued: Chuyển ngay sang Canceled.
-    /// - Nếu đang Reserved/Running và chưa submit side-effect: Chuyển ngay sang Canceled.
-    /// - Nếu đã submit side-effect: Đánh dấu cancel_requested = 1 để đối soát/worker xử lý an toàn.
-    /// - Nếu đang AwaitingUser: Chuyển ngay sang Canceled.
+    /// Hủy bỏ tác vụ (job.cancel): mọi job chưa kết thúc chuyển ngay sang Canceled, giải phóng slot occupancy
+    /// và dừng worker đang chạy (đóng tab provider). Không có bước đối soát sau hủy.
     /// </summary>
     public async Task<JobCancelResponseData> CancelAsync(
         string jobId,
@@ -414,88 +411,30 @@ public sealed class JobService
         }
 
         var prevState = job.State;
-        var nowIso = UtcNow.ToString("o");
-
-        if (job.State == JobState.Queued || (job.State is JobState.Reserved or JobState.Running && job.SideEffectSubmitted == 0))
-        {
-            job.State = JobState.Canceled;
-            job.CancelRequested = 1;
-            job.ReasonCode = JobReasonCode.UserCanceled;
-            job.LeaseExpiresAtUtc = null;
-            job.LeaseOwnerId = null;
-            job.Revision += 1;
-            job.UpdatedAtUtc = nowIso;
-
-            // Giải phóng slot occupancy nếu đã được cấp
-            var occupancy = await dbContext.ActiveSlotOccupancies
-                .FirstOrDefaultAsync(o => o.JobId == jobId, cancellationToken).ConfigureAwait(false);
-            if (occupancy != null)
-            {
-                dbContext.ActiveSlotOccupancies.Remove(occupancy);
-            }
-
-            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-
-            return new JobCancelResponseData(
-                JobId: jobId,
-                State: JobState.Canceled,
-                CancelRequested: false,
-                Message: "Tác vụ đã được hủy bỏ thành công trước khi gửi side-effect.",
-                PreviousState: prevState,
-                Revision: job.Revision
-            );
-        }
-
-        if (job.State == JobState.AwaitingUser)
-        {
-            job.State = JobState.Canceled;
-            job.CancelRequested = 1;
-            job.ReasonCode = JobReasonCode.UserCanceled;
-            job.LeaseExpiresAtUtc = null;
-            job.Revision += 1;
-            job.UpdatedAtUtc = nowIso;
-
-            // T16 FINDING 2: Nếu job đã submit side effect nhưng chưa có kết quả (unresolved),
-            // CẤM giải phóng ActiveSlotOccupancy để bảo vệ capacity cho đến khi đối soát an toàn!
-            bool hasUnresolvedSideEffect = job.SideEffectSubmitted == 1 &&
-                                           string.IsNullOrWhiteSpace(job.ResultReference) &&
-                                           string.IsNullOrWhiteSpace(job.ResultText);
-
-            if (!hasUnresolvedSideEffect)
-            {
-                var occupancy = await dbContext.ActiveSlotOccupancies
-                    .FirstOrDefaultAsync(o => o.JobId == jobId, cancellationToken).ConfigureAwait(false);
-                if (occupancy != null)
-                {
-                    dbContext.ActiveSlotOccupancies.Remove(occupancy);
-                }
-            }
-
-            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-
-            return new JobCancelResponseData(
-                JobId: jobId,
-                State: JobState.Canceled,
-                CancelRequested: false,
-                Message: hasUnresolvedSideEffect
-                    ? "Tác vụ đã được hủy bỏ. Do có tác dụng phụ chưa giải quyết, slot occupancy được bảo lưu cho đến khi đối soát an toàn."
-                    : "Tác vụ đang chờ đối soát đã được người dùng hủy bỏ.",
-                PreviousState: prevState,
-                Revision: job.Revision
-            );
-        }
-
-        // Job đang Running và đã submit side effect
+        job.State = JobState.Canceled;
         job.CancelRequested = 1;
+        job.SideEffectSubmitted = 0; // Người dùng bỏ tác vụ: không giữ cờ side effect chờ đối soát.
+        job.ReasonCode = JobReasonCode.UserCanceled;
+        job.LeaseExpiresAtUtc = null;
+        job.LeaseOwnerId = null;
         job.Revision += 1;
-        job.UpdatedAtUtc = nowIso;
+        job.UpdatedAtUtc = UtcNow.ToString("o");
+
+        var occupancy = await dbContext.ActiveSlotOccupancies
+            .FirstOrDefaultAsync(o => o.JobId == jobId, cancellationToken).ConfigureAwait(false);
+        if (occupancy != null)
+        {
+            dbContext.ActiveSlotOccupancies.Remove(occupancy);
+        }
+
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        _scheduler.CancelRunningWorker(jobId);
 
         return new JobCancelResponseData(
             JobId: jobId,
-            State: job.State,
-            CancelRequested: true,
-            Message: "Đã ghi nhận yêu cầu hủy tác vụ. Do tác dụng phụ đã gửi ra ngoài, hệ thống sẽ bảo vệ kết quả hoặc chuyển sang đối soát.",
+            State: JobState.Canceled,
+            CancelRequested: false,
+            Message: "Tác vụ đã được hủy bỏ.",
             PreviousState: prevState,
             Revision: job.Revision
         );

@@ -295,32 +295,25 @@ export function LibraryPage() {
               >
                 <div>
                   <div className="mb-3"><AssetMediaPreview assetId={asset.assetId} assetType={asset.assetType} fileName={fileName} /></div>
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div className="p-2 rounded bg-muted/70 group-hover:bg-primary/10 transition">
-                      {renderIcon(asset.assetType)}
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <h5 className="text-xs font-semibold text-foreground truncate" title={fileName}>
+                        {fileName}
+                      </h5>
+                      <p className="text-[11px] font-mono text-muted-foreground truncate mt-0.5" title={asset.relativePath}>
+                        {asset.relativePath}
+                      </p>
                     </div>
                     <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-muted text-muted-foreground">
                       {asset.assetType}
                     </span>
                   </div>
-
-                  <h5
-                    className="text-xs font-semibold text-foreground truncate"
-                    title={fileName}
-                  >
-                    {fileName}
-                  </h5>
-
-                  <p
-                    className="text-[11px] font-mono text-muted-foreground truncate mt-0.5"
-                    title={asset.relativePath}
-                  >
-                    {asset.relativePath}
-                  </p>
-
-                  <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-3 pt-2 border-t">
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground mt-2">
+                    <div className="p-2 rounded bg-muted/70 group-hover:bg-primary/10 transition">
+                      {renderIcon(asset.assetType)}
+                    </div>
                     <span>{formatBytes(asset.byteSize)}</span>
-                    <span>{formatDate(asset.createdAtUtc)}</span>
+                    <span className="flex-1">{formatDate(asset.createdAtUtc)}</span>
                   </div>
                 </div>
 

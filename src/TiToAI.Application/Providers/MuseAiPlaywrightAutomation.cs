@@ -91,6 +91,14 @@ public sealed class MuseAiPlaywrightAutomation
 
             var composer = page.Locator("textarea[placeholder='Message']");
             await composer.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 20000 }).WaitAsync(ct).ConfigureAwait(false);
+            // Muse uploads attachments asynchronously; sending before the upload finishes drops the image, so track in-flight write requests.
+            // A set (not a counter) so a request that began before we subscribed cannot drive the count negative and hide a real upload.
+            var pendingRequests = new System.Collections.Concurrent.ConcurrentDictionary<IRequest, byte>();
+            void UploadStarted(object? _, IRequest r) { if (r.Method is "POST" or "PUT" or "PATCH") pendingRequests[r] = 0; }
+            void UploadEnded(object? _, IRequest r) => pendingRequests.TryRemove(r, out var _);
+            page.Request += UploadStarted;
+            page.RequestFinished += UploadEnded;
+            page.RequestFailed += UploadEnded;
             await page.Locator("input[type='file']").First.SetInputFilesAsync(imagePaths.ToArray()).WaitAsync(ct).ConfigureAwait(false);
             try
             {
@@ -111,6 +119,18 @@ public sealed class MuseAiPlaywrightAutomation
                 }
                 await _activity.WriteAsync(job.JobId, "media", $"Không thấy ảnh xem trước dạng blob nhưng input đã nhận đủ file, tiếp tục: {snapshot}", ct).ConfigureAwait(false);
             }
+            var quietSince = DateTime.UtcNow;
+            var uploadDeadline = DateTime.UtcNow.AddSeconds(90);
+            while (DateTime.UtcNow - quietSince < TimeSpan.FromSeconds(3) && DateTime.UtcNow < uploadDeadline)
+            {
+                if (!pendingRequests.IsEmpty) quietSince = DateTime.UtcNow;
+                await Task.Delay(250, ct).ConfigureAwait(false);
+            }
+            page.Request -= UploadStarted;
+            page.RequestFinished -= UploadEnded;
+            page.RequestFailed -= UploadEnded;
+            if (!pendingRequests.IsEmpty)
+                throw new InvalidOperationException("Ảnh tham chiếu chưa tải lên xong trên MuseAI sau 90 giây.");
             await _activity.WriteAsync(job.JobId, "media", $"Đã đính kèm {imagePaths.Count} ảnh theo thứ tự.", ct).ConfigureAwait(false);
 
             await composer.FillAsync(fullPrompt).WaitAsync(ct).ConfigureAwait(false);

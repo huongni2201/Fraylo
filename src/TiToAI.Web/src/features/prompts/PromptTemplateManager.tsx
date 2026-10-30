@@ -5,11 +5,14 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { promptApi, type PromptPurpose, type PromptTemplateDto } from "./promptApi";
+import { DEFAULT_PRESET_PROMPTS } from "./promptStorage";
 
 const tabs: { purpose: PromptPurpose; label: string }[] = [
   { purpose: "Script", label: "Script" },
-  { purpose: "Image", label: "Image" },
+  { purpose: "ComposeImage", label: "Ghép ảnh" },
   { purpose: "VideoPrompt", label: "Video Prompt" },
+  { purpose: "Storyboard", label: "Storyboard" },
+  { purpose: "Image", label: "Image" },
 ];
 
 type PromptDraft = { templateId: string | null; name: string; templateText: string };
@@ -71,6 +74,11 @@ export function PromptTemplateManager() {
           setTemplateId(first.templateId);
           setName(result.template.name);
           setTemplateText(result.content.templateText);
+        } else if (DEFAULT_PRESET_PROMPTS[purpose][0]) {
+          // Chưa có mẫu nào cho mục đích này: gợi ý mẫu mặc định, người dùng bấm "Lưu prompt" để dùng.
+          setName(DEFAULT_PRESET_PROMPTS[purpose][0].name);
+          setTemplateText(DEFAULT_PRESET_PROMPTS[purpose][0].templateText);
+          setDirty(true);
         }
       } catch (error) {
         if (!controller.signal.aborted) setMessage((error as { message?: string }).message || "Không thể tải danh sách prompt.");

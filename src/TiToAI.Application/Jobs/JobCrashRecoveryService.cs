@@ -70,8 +70,7 @@ public sealed class JobCrashRecoveryService
     /// <summary>
     /// Thực hiện quét định kỳ (Crash Recovery Sweep) thu hồi các tác vụ bị quá hạn lease (LeaseExpiresAtUtc < now).
     /// Tuân thủ quy tắc phục hồi 2 nhánh:
-    /// - Nhánh 1 (SideEffectSubmitted == 0): Nếu còn attempts -> Queued (retry lũy thừa) và giải phóng occupancy.
-    ///   Nếu hết attempts -> Failed (lease_expired_max_attempts) và giải phóng occupancy.
+    /// - Nhánh 1 (SideEffectSubmitted == 0): Failed và giải phóng occupancy; người dùng chủ động thử lại.
     /// - Nhánh 2 (SideEffectSubmitted == 1): Chuyển AwaitingUser (reconcile_required), CẤM retry tự động và BẢO TỒN occupancy.
     /// Fencing Token và CAS Guard đảm bảo đúng 1 winner thành công trong các cuộc cạnh tranh đồng thời.
     /// </summary>
@@ -80,12 +79,13 @@ public sealed class JobCrashRecoveryService
         await using var dbContext = new TiToAIDbContext(_dbOptions);
         var nowIso = UtcNow.ToString("o");
 
-        // 1. Tìm các ứng viên Reserved hoặc Running mà lease đã quá hạn
+        // Thu hồi lease quá hạn và các lượt tự retry còn lưu từ phiên bản trước.
         var expiredCandidates = await dbContext.Jobs
             .AsNoTracking()
-            .Where(j => (j.State == JobState.Reserved || j.State == JobState.Running) &&
+            .Where(j => (j.State == JobState.Queued && j.RetryAfterUtc != null) ||
+                       ((j.State == JobState.Reserved || j.State == JobState.Running) &&
                         j.LeaseExpiresAtUtc != null &&
-                        string.Compare(j.LeaseExpiresAtUtc, nowIso) < 0)
+                        string.Compare(j.LeaseExpiresAtUtc, nowIso) < 0))
             .Select(j => new { j.Id, j.FencingToken, j.LeaseExpiresAtUtc })
             .ToListAsync(cancellationToken).ConfigureAwait(false);
 
@@ -126,7 +126,8 @@ public sealed class JobCrashRecoveryService
                 var job = await txContext.Jobs
                     .FirstOrDefaultAsync(j => j.Id == candidate.Id, cancellationToken).ConfigureAwait(false);
 
-                if (job == null || (job.State != JobState.Reserved && job.State != JobState.Running))
+                var pendingAutoRetry = job?.State == JobState.Queued && job.RetryAfterUtc != null;
+                if (job == null || (!pendingAutoRetry && job.State != JobState.Reserved && job.State != JobState.Running))
                 {
                     await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
                     continue;
@@ -134,8 +135,8 @@ public sealed class JobCrashRecoveryService
 
                 // CAS Guard: So khớp fencing token và thời hạn lease thực tế
                 if (job.FencingToken != candidate.FencingToken ||
-                    job.LeaseExpiresAtUtc == null ||
-                    string.Compare(job.LeaseExpiresAtUtc, nowIso) >= 0)
+                    (!pendingAutoRetry && (job.LeaseExpiresAtUtc == null ||
+                    string.Compare(job.LeaseExpiresAtUtc, nowIso) >= 0)))
                 {
                     await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
                     continue;
@@ -164,40 +165,18 @@ public sealed class JobCrashRecoveryService
                     preservedOccupancy = true;
                     movedToReconcileCount++;
                 }
-                else if (job.Attempts < job.MaxAttempts)
-                {
-                    // Trường hợp 1a: Chưa submit side-effect và còn attempts -> Đưa về Queued kèm retry_after (lũy thừa)
-                    newState = JobState.Queued;
-                    reasonCode = JobReasonCode.LeaseExpiredRetry;
-                    var retryDelaySeconds = Math.Pow(2, job.Attempts) * 5;
-                    job.State = newState;
-                    job.ReasonCode = null;
-                    job.LeaseExpiresAtUtc = null;
-                    job.LeaseOwnerId = null;
-                    job.RetryAfterUtc = UtcNow.AddSeconds(retryDelaySeconds).ToString("o");
-                    job.Revision += 1;
-                    job.UpdatedAtUtc = nowIso;
-
-                    // Giải phóng slot occupancy
-                    var occ = await txContext.ActiveSlotOccupancies
-                        .FirstOrDefaultAsync(o => o.JobId == job.Id, cancellationToken).ConfigureAwait(false);
-                    if (occ != null)
-                    {
-                        txContext.ActiveSlotOccupancies.Remove(occ);
-                        releasedOccupancy = true;
-                    }
-
-                    retriedCount++;
-                }
                 else
                 {
-                    // Trường hợp 1b: Chưa submit side-effect nhưng đã hết attempts -> Failed
+                    // Lease hết hạn cũng dừng job, không tự mở browser để chạy lại.
                     newState = JobState.Failed;
-                    reasonCode = JobReasonCode.LeaseExpiredMaxAttempts;
+                    reasonCode = job.Attempts >= job.MaxAttempts
+                        ? JobReasonCode.LeaseExpiredMaxAttempts
+                        : JobReasonCode.NetworkError;
                     job.State = newState;
                     job.ReasonCode = reasonCode;
                     job.LeaseExpiresAtUtc = null;
                     job.LeaseOwnerId = null;
+                    job.RetryAfterUtc = null;
                     job.Revision += 1;
                     job.UpdatedAtUtc = nowIso;
 

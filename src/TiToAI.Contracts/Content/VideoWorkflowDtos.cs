@@ -55,6 +55,23 @@ public static class VideoStrategies
 }
 
 /// <summary>
+/// Cách tạo ảnh gửi render của luồng một video (STORYBOARD_CONTACT_SHEET §3.1).
+/// </summary>
+public static class ReferenceImageModes
+{
+    /// <summary>Dùng ảnh nguồn (ảnh ghép / ảnh sẵn sàng / ảnh sản phẩm) trực tiếp.</summary>
+    public const string Direct = "Direct";
+
+    /// <summary>Tạo một ảnh storyboard 3×3 từ 9 shot rồi gửi nguyên ảnh đó để render một video 15 giây.</summary>
+    public const string StoryboardGrid9 = "StoryboardGrid9";
+
+    public const int GridShotCount = 9;
+    public const int GridDurationSeconds = 15;
+
+    public static bool IsValid(string? mode) => mode is Direct or StoryboardGrid9;
+}
+
+/// <summary>
 /// Các vai trò của Asset hình ảnh trong quy trình sản xuất video từ ảnh.
 /// </summary>
 public static class AssetWorkflowRoles
@@ -137,7 +154,8 @@ public sealed record ProjectWorkflowConfigDto(
     [property: JsonPropertyName("groupId")] string? GroupId = null,
     [property: JsonPropertyName("groupName")] string? GroupName = null,
     [property: JsonPropertyName("inheritedAssetSlots")] IReadOnlyList<string>? InheritedAssetSlots = null,
-    [property: JsonPropertyName("videoStrategy")] string VideoStrategy = VideoStrategies.MultiVideo);
+    [property: JsonPropertyName("videoStrategy")] string VideoStrategy = VideoStrategies.MultiVideo,
+    [property: JsonPropertyName("referenceImageMode")] string ReferenceImageMode = ReferenceImageModes.Direct);
 
 /// <summary>
 /// Thông tin chi tiết quy trình của một Cảnh (Scene Workflow Detail).
@@ -164,7 +182,10 @@ public sealed record SceneWorkflowDetailDto(
     [property: JsonPropertyName("activeJobProgressPercent")] int? ActiveJobProgressPercent,
     [property: JsonPropertyName("videoCandidateHistory")] IReadOnlyList<string>? VideoCandidateHistory,
     [property: JsonPropertyName("revision")] string Revision,
-    [property: JsonPropertyName("staleTaskTypes")] IReadOnlyList<string>? StaleTaskTypes = null);
+    [property: JsonPropertyName("staleTaskTypes")] IReadOnlyList<string>? StaleTaskTypes = null,
+    // Chế độ ảnh 9 ô, chỉ điền khi trả về từ list_scenes: ảnh 3×3 hiện hành (khi đã sẵn sàng) và ảnh ghép trung gian.
+    [property: JsonPropertyName("gridImageAssetId")] string? GridImageAssetId = null,
+    [property: JsonPropertyName("composedImageAssetId")] string? ComposedImageAssetId = null);
 
 /// <summary>
 /// Yêu cầu lấy cấu hình workflow của Dự án.
@@ -188,7 +209,8 @@ public sealed record SaveProjectWorkflowConfigRequest(
     [property: JsonPropertyName("targetDurationPerSceneSeconds")] int TargetDurationPerSceneSeconds,
     [property: JsonPropertyName("scriptGuidance")] string? ScriptGuidance = null,
     [property: JsonPropertyName("videoGuidance")] string? VideoGuidance = null,
-    [property: JsonPropertyName("videoStrategy")] string? VideoStrategy = null);
+    [property: JsonPropertyName("videoStrategy")] string? VideoStrategy = null,
+    [property: JsonPropertyName("referenceImageMode")] string? ReferenceImageMode = null);
 
 /// <summary>
 /// Yêu cầu bấm "Bắt đầu tạo video" một lần duy nhất cho toàn bộ dự án.

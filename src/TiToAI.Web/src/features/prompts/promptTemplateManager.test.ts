@@ -39,8 +39,8 @@ const changeValue = (element: HTMLInputElement | HTMLTextAreaElement, value: str
   element.dispatchEvent(new Event("input", { bubbles: true }));
 };
 await act(async () => { root.render(React.createElement(PromptTemplateManager)); });
-if (container.querySelectorAll('[role="tab"]').length !== 3 || container.querySelectorAll("textarea").length !== 1 || container.textContent?.includes("JSON")) {
-  throw new Error("Cần có ba tab và một ô nội dung, không có ô JSON.");
+if (container.querySelectorAll('[role="tab"]').length !== 5 || container.querySelectorAll("textarea").length !== 1 || container.textContent?.includes("JSON")) {
+  throw new Error("Cần có năm tab và một ô nội dung, không có ô JSON.");
 }
 await act(async () => { button("Tạo mới").click(); });
 await act(async () => {

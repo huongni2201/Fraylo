@@ -657,3 +657,95 @@ test("VideoProductionTab: prompt áp dụng theo thứ tự Dự án > Nhóm > m
   React.act(() => root.unmount());
   container.remove();
 });
+
+test("VideoProductionTab: bật ảnh storyboard 9 ô khóa thời lượng 15 giây và lưu referenceImageMode", async () => {
+  executedCommands = [];
+  mockConfig = {
+    projectId: "prj_test_01",
+    workflowMode: "ReadyImage",
+    goalPrompt: "",
+    modelAssetId: null,
+    productAssetId: null,
+    readyImageAssetId: "ast_ready_01",
+    foundationImageAssetId: null,
+    audioOption: "None",
+    audioAssetId: null,
+    targetSceneCount: 1,
+    targetDurationPerSceneSeconds: 10,
+    runState: "Idle",
+    currentRunId: null,
+    updatedAtUtc: "2026-10-30T01:00:00Z",
+    videoStrategy: "SingleVideo",
+  };
+  mockScenes = [];
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = ReactDOMClient.createRoot(container);
+  await React.act(async () => {
+    root.render(React.createElement(VideoProductionTab, { projectId: "prj_test_01" }));
+  });
+  await React.act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+
+  const grid = container.querySelector("#grid-mode") as HTMLInputElement;
+  assert(grid && !grid.checked, "Một video có tùy chọn ảnh 9 ô, mặc định tắt (cấu hình cũ là Direct).");
+  await React.act(async () => grid.click());
+
+  const duration = container.querySelector("#target-duration") as HTMLSelectElement;
+  assert.equal(duration.value, "15", "Bật ảnh 9 ô phải đặt thời lượng 15 giây.");
+  assert.equal(duration.disabled, true, "Thời lượng bị khóa khi bật ảnh 9 ô.");
+
+  const saveButton = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("Lưu cấu hình"))!;
+  await React.act(async () => saveButton.click());
+  await React.act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 80));
+  });
+  assert.equal(mockConfig.referenceImageMode, "StoryboardGrid9");
+  assert.equal(mockConfig.targetDurationPerSceneSeconds, 15);
+
+  // Đổi sang nhiều video thì tùy chọn biến mất và cấu hình trở về Direct.
+  const strategySelect = container.querySelector("#video-strategy") as HTMLSelectElement;
+  await React.act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+    setter.call(strategySelect, "MultiVideo");
+    strategySelect.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  assert(!container.querySelector("#grid-mode"), "Nhiều video không có tùy chọn ảnh 9 ô.");
+
+  await React.act(async () => root.unmount());
+  container.remove();
+});
+
+test("Ảnh 9 ô: mốc tiến trình suy ra từ cảnh thật và màn đang chạy hiện ảnh đầu vào, ảnh ghép, ảnh 3×3", async () => {
+  const { gridMilestones } = await import("./StoryboardGridProgress");
+  const config = { ...mockConfig, workflowMode: "ModelAndProduct", videoStrategy: "SingleVideo", referenceImageMode: "StoryboardGrid9", runState: "Running" } as any;
+  const keys = (m: ReturnType<typeof gridMilestones>) => m.map((x) => `${x.key}:${x.status}`).join(",");
+
+  assert.equal(keys(gridMilestones(config, undefined)), "script:active,compose:pending,grid:pending,prompt:pending,video:pending");
+  const afterScript = { sceneId: "scn_g", projectId: "prj_grid", name: "Video" } as any;
+  assert.equal(keys(gridMilestones(config, afterScript)), "script:done,compose:active,grid:pending,prompt:pending,video:pending");
+  const composed = { ...afterScript, composedImageAssetId: "ast_composed" };
+  assert.equal(keys(gridMilestones(config, composed)), "script:done,compose:done,grid:active,prompt:pending,video:pending");
+  const grid = { ...composed, gridImageAssetId: "ast_grid" };
+  assert.equal(keys(gridMilestones(config, grid)), "script:done,compose:done,grid:done,prompt:active,video:pending");
+  assert.equal(keys(gridMilestones({ ...config, runState: "Failed" }, composed)), "script:done,compose:done,grid:failed,prompt:pending,video:pending");
+  // Ảnh sẵn sàng không có bước ghép.
+  assert.equal(keys(gridMilestones({ ...config, workflowMode: "ReadyImage" }, afterScript)), "script:done,grid:active,prompt:pending,video:pending");
+
+  mockConfig = { ...config, projectId: "prj_grid", readyImageAssetId: null, productAssetId: "ast_product", modelAssetId: "ast_model" };
+  mockScenes = [{ ...composed, projectId: "prj_grid", sequenceOrder: 1, targetDurationSeconds: 15, workflowStatus: "PreparingImage", isStale: false }];
+  const container = document.createElement("div"); document.body.append(container);
+  const root = ReactDOMClient.createRoot(container);
+  await React.act(async () => { root.render(React.createElement(VideoProductionTab, { projectId: "prj_grid" })); });
+  await React.act(async () => { await new Promise((resolve) => setTimeout(resolve, 100)); });
+  const text = container.textContent ?? "";
+  assert.match(text, /Ghép ảnh mẫu \+ sản phẩm/);
+  assert.match(text, /Ảnh ghép \(trung gian\)/);
+  assert.match(text, /Ảnh storyboard 3×3 \(gửi render\)/);
+  assert.equal(container.querySelectorAll('img[alt="Ảnh ghép (trung gian)"]').length, 1, "Ảnh ghép trung gian được hiển thị.");
+  assert(!container.querySelector('img[alt="Ảnh storyboard 3×3 (gửi render)"]'), "Chưa có ảnh 3×3 thì không hiện ảnh giả.");
+  await React.act(async () => root.unmount()); container.remove();
+  mockScenes = [];
+});

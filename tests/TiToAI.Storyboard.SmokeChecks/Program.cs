@@ -25,6 +25,21 @@ if (StoryboardContentService.Parse(valid.Replace("\"durationSeconds\":15", "\"du
 try { StoryboardContentService.Parse(valid, 18); throw new Exception("Chấp nhận thời lượng ngoài dung sai"); }
 catch (ProjectWorkflowValidationException) { }
 
+// Ảnh 9 ô: đúng 9 shot, đúng thời lượng yêu cầu (không dung sai), mỗi shot có imagePrompt và motionPrompt.
+string Grid(int count, int duration = 15, bool motion = true)
+{
+    var ends = new[] { 2, 4, 6, 8, 10, 12, 13, 14, 15 };
+    var shots = string.Join(",", Enumerable.Range(0, count).Select(i =>
+        $"{{\"startSeconds\":{(i == 0 ? 0 : ends[i - 1])},\"endSeconds\":{ends[i]},\"description\":\"Cảnh {i + 1}\",\"imagePrompt\":\"Ô {i + 1}\",\"motionPrompt\":\"{(motion ? $"Chuyển động {i + 1}" : "")}\"}}"));
+    return $"{{\"durationSeconds\":{duration},\"shots\":[{shots}]}}";
+}
+if (StoryboardContentService.ParseGrid(Grid(9), 15).Shots.Count != 9) throw new Exception("Từ chối storyboard 9 ô hợp lệ");
+foreach (var invalidGrid in new[] { Grid(8), Grid(9, motion: false), Grid(9, duration: 17), Grid(9).Replace("\"endSeconds\":15", "\"endSeconds\":14") })
+{
+    try { StoryboardContentService.ParseGrid(invalidGrid, 15); throw new Exception("Đã chấp nhận storyboard 9 ô sai"); }
+    catch (ProjectWorkflowValidationException) { }
+}
+
 await using var connection = new SqliteConnection("Data Source=:memory:");
 await connection.OpenAsync();
 var options = new DbContextOptionsBuilder<TiToAIDbContext>().UseSqlite(connection).Options;

@@ -94,6 +94,21 @@ export const DEFAULT_PRESET_PROMPTS: Record<PromptPurpose, CustomPromptItem[]> =
       isPreset: true,
     },
   ],
+  ComposeImage: [
+    {
+      id: "preset-compose-image-model-product",
+      name: "Ghép người mẫu với sản phẩm (một ảnh)",
+      purpose: "ComposeImage",
+      templateText:
+        "Bạn là chuyên gia ghép ảnh cho nội dung video ngắn. Hãy ghép hai ảnh đính kèm thành MỘT ảnh duy nhất: người mẫu ở ảnh thứ nhất mặc hoặc dùng sản phẩm ở ảnh thứ hai.\n\n" +
+        "Giữ nguyên gương mặt, dáng người, tư thế và nền của người mẫu. Giữ đúng màu sắc, kiểu dáng, chất liệu, họa tiết, đường may và chi tiết nhìn thấy của sản phẩm; không tự đổi màu hay thêm biến thể.\n\n" +
+        "Không thêm chữ, logo, giá, nhãn khuyến mãi hoặc thông tin không có trong ảnh gốc. Chỉ trả về một ảnh.",
+      createdAtUtc: new Date().toISOString(),
+      updatedAtUtc: new Date().toISOString(),
+      isPreset: true,
+    },
+  ],
+  Storyboard: [],
   VideoPrompt: [
     {
       id: "preset-video-cinematic-camera",

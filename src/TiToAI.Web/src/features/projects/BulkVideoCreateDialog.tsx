@@ -115,7 +115,7 @@ export function BulkVideoCreateDialog({ isOpen, groups, defaultGroupId, onClose,
         targetDurationPerSceneSeconds: durationSeconds,
         scriptGuidance: row.prompt.trim() || cfg.scriptGuidance || null,
         videoGuidance: cfg.videoGuidance ?? null,
-        videoStrategy: VideoStrategies.MultiVideo,
+        videoStrategy: VideoStrategies.SingleVideo,
       });
       if (autoStart) await videoWorkflowApi.startWorkflow(projectId);
       patchRow(row.key, { state: "done" });

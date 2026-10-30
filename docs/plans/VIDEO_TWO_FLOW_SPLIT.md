@@ -1,5 +1,7 @@
 # Tách luồng tạo video: nhiều video và một video nhiều phân cảnh
 
+> **Bổ sung đang lập kế hoạch 2026-10-30:** [Ảnh storyboard 9 ô](20261030-storyboard-contact-sheet.md) thêm lựa chọn cho `SingleVideo`: tạo một ảnh 3×3 rồi gửi nguyên ảnh để render một video 15 giây. Khi lựa chọn này được triển khai, nó thay quy định dùng ảnh sản phẩm gốc tại §3.3/D2 trong phạm vi đó; luồng Direct giữ hành vi hiện tại. Chưa phải tính năng đã triển khai.
+
 Cập nhật 2026-10-30. Trạng thái: **ĐÃ TRIỂN KHAI backend và web (chưa kiểm chứng render thật)**; chi tiết và phần còn lại ở [STATUS](../agents/STATUS.md) mục 2026-10-30. Liên quan: [MULTISCENE_SINGLE_VIDEO](MULTISCENE_SINGLE_VIDEO.md), [VIDEO_FIRST_ARCHITECTURE_PLAN](VIDEO_FIRST_ARCHITECTURE_PLAN.md), [STATUS](../agents/STATUS.md).
 
 ## 1. Yêu cầu
@@ -33,8 +35,8 @@ Kết luận: hai luồng hiện đang trộn trong cùng một đường gom re
 
 Thêm `VideoStrategy` vào `ProjectWorkflowConfigDto` (chọn khi tạo/bắt đầu run, đóng băng trong snapshot của run):
 
-- `MultiVideo` — mặc định, luồng A.
-- `SingleVideo` — luồng B.
+- `MultiVideo` — luồng A; cấu hình cũ thiếu trường chiến lược tiếp tục dùng luồng này.
+- `SingleVideo` — mặc định cho cấu hình mới, luồng B.
 
 Đổi chế độ khi run đang chạy bị từ chối. Hằng số đặt cạnh `WorkflowModes` trong `VideoWorkflowDtos.cs`, đúng kiểu hiện có.
 

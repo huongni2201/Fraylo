@@ -127,7 +127,8 @@ public sealed partial class ProjectWorkflowService
             TargetDurationPerSceneSeconds: 15,
             RunState: WorkflowRunState.Idle,
             CurrentRunId: null,
-            UpdatedAtUtc: DateTimeOffset.UtcNow.ToString("o")
+            UpdatedAtUtc: DateTimeOffset.UtcNow.ToString("o"),
+            VideoStrategy: VideoStrategies.SingleVideo
         );
     }
 
@@ -238,10 +239,26 @@ public sealed partial class ProjectWorkflowService
         {
             throw new ProjectWorkflowValidationException($"Chiến lược video '{videoStrategy}' không hợp lệ.");
         }
+        var referenceImageMode = request.ReferenceImageMode ?? existing.ReferenceImageMode;
+        if (!ReferenceImageModes.IsValid(referenceImageMode))
+        {
+            throw new ProjectWorkflowValidationException($"Chế độ ảnh tham chiếu '{referenceImageMode}' không hợp lệ.");
+        }
+        // Storyboard 9 ô là một ảnh cho một video 15 giây: chỉ hợp lệ với luồng một video (cấu hình thiếu trường này là Direct).
+        if (referenceImageMode == ReferenceImageModes.StoryboardGrid9)
+        {
+            var requestedDuration = request.TargetDurationPerSceneSeconds > 0 ? request.TargetDurationPerSceneSeconds : existing.TargetDurationPerSceneSeconds;
+            if (videoStrategy != VideoStrategies.SingleVideo || requestedDuration != ReferenceImageModes.GridDurationSeconds)
+            {
+                throw new ProjectWorkflowValidationException(
+                    $"Ảnh storyboard {ReferenceImageModes.GridShotCount} ô chỉ dùng cho chế độ một video, thời lượng {ReferenceImageModes.GridDurationSeconds} giây.");
+            }
+        }
         var scriptGuidance = request.ScriptGuidance is null ? existing.ScriptGuidance : PromptGuidance.Normalize(request.ScriptGuidance);
         var videoGuidance = request.VideoGuidance is null ? existing.VideoGuidance : PromptGuidance.Normalize(request.VideoGuidance);
         bool workflowInputsChanged = existing.WorkflowMode != request.WorkflowMode ||
                                      existing.VideoStrategy != videoStrategy ||
+                                     existing.ReferenceImageMode != referenceImageMode ||
                                      existing.GoalPrompt != (request.GoalPrompt ?? string.Empty) ||
                                      existing.ModelAssetId != request.ModelAssetId ||
                                      existing.ProductAssetId != request.ProductAssetId ||
@@ -261,6 +278,7 @@ public sealed partial class ProjectWorkflowService
         {
             WorkflowMode = request.WorkflowMode,
             VideoStrategy = videoStrategy,
+            ReferenceImageMode = referenceImageMode,
             GoalPrompt = request.GoalPrompt ?? string.Empty,
             ModelAssetId = request.ModelAssetId,
             ProductAssetId = request.ProductAssetId,
@@ -305,7 +323,7 @@ public sealed partial class ProjectWorkflowService
         bool durationChanged = request.TargetDurationPerSceneSeconds > 0 && existing.TargetDurationPerSceneSeconds != request.TargetDurationPerSceneSeconds;
         bool audioChanged = existing.AudioOption != request.AudioOption || existing.AudioAssetId != request.AudioAssetId;
         bool briefChanged = existing.GoalPrompt != updated.GoalPrompt;
-        bool strategyChanged = existing.VideoStrategy != videoStrategy;
+        bool strategyChanged = existing.VideoStrategy != videoStrategy || existing.ReferenceImageMode != referenceImageMode;
         bool guidanceChanged = existing.ScriptGuidance != scriptGuidance || existing.VideoGuidance != videoGuidance;
 
         if (!isInitialConfig && (modelOrProductChanged || workflowModeChanged || durationChanged || audioChanged || briefChanged || strategyChanged || guidanceChanged))
@@ -337,13 +355,15 @@ public sealed partial class ProjectWorkflowService
                         ? effectiveUpdated.ReadyImageAssetId
                         : effectiveUpdated.WorkflowMode == WorkflowModes.ProductOnly ? effectiveUpdated.ProductAssetId : null;
 
-                    if (sc.ImageAssetId == oldCommonImage || string.IsNullOrWhiteSpace(sc.ImageAssetId))
+                    // Chế độ 9 ô: ảnh của cảnh là ảnh storyboard sinh từ nguồn cũ nên phải đặt lại để sinh lại từ nguồn mới.
+                    if (sc.ImageAssetId == oldCommonImage || string.IsNullOrWhiteSpace(sc.ImageAssetId) ||
+                        updated.ReferenceImageMode == ReferenceImageModes.StoryboardGrid9)
                     {
                         sc.ImageAssetId = newCommonImage;
                         sc.UpdatedAtUtc = updated.UpdatedAtUtc;
                     }
 
-                    if (CanGenerateImage(updated.WorkflowMode, videoStrategy))
+                    if (CanGenerateImage(updated.WorkflowMode, videoStrategy) || updated.ReferenceImageMode == ReferenceImageModes.StoryboardGrid9)
                     {
                         staleTasks.Add(JobTaskType.Image);
                     }

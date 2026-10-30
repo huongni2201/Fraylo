@@ -2,10 +2,13 @@ import { jobApi } from "../jobs/jobApi";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { StoryboardPanel } from "./StoryboardPanel";
 import { ProjectActivityLog } from "./ProjectActivityLog";
+import { StoryboardGridProgress } from "./StoryboardGridProgress";
 import {
   videoWorkflowApi,
   WorkflowModes,
   VideoStrategies,
+  ReferenceImageModes,
+  GRID_DURATION_SECONDS,
   AudioOptions,
   WorkflowRunState,
   SceneWorkflowStatus,
@@ -216,6 +219,10 @@ export function VideoProductionTab({
   const scriptPromptSource = appliedPromptSource(config?.scriptGuidance, projectGroup?.scriptGuidance, activeTemplateInfo?.name);
   const videoPromptSource = appliedPromptSource(config?.videoGuidance, projectGroup?.videoGuidance, videoPromptTemplateInfo?.name);
 
+  const isGridMode =
+    (config?.videoStrategy ?? VideoStrategies.MultiVideo) === VideoStrategies.SingleVideo &&
+    config?.referenceImageMode === ReferenceImageModes.StoryboardGrid9;
+
   const saveConfigRequest = () => {
     if (!config) throw new Error("Cấu hình chưa sẵn sàng.");
     const strategy = config.videoStrategy ?? VideoStrategies.MultiVideo;
@@ -229,9 +236,11 @@ export function VideoProductionTab({
       audioOption: config.audioOption,
       audioAssetId: config.audioAssetId,
       videoStrategy: strategy,
+      // Ảnh 9 ô chỉ hợp lệ với một video 15 giây; các trường hợp khác luôn gửi Direct.
+      referenceImageMode: isGridMode ? ReferenceImageModes.StoryboardGrid9 : ReferenceImageModes.Direct,
       // Một video nhiều phân cảnh luôn có một cảnh trong bảng; nhiều video dùng số cảnh người dùng chọn.
       targetSceneCount: strategy === VideoStrategies.SingleVideo ? 1 : config.targetSceneCount,
-      targetDurationPerSceneSeconds: config.targetDurationPerSceneSeconds,
+      targetDurationPerSceneSeconds: isGridMode ? GRID_DURATION_SECONDS : config.targetDurationPerSceneSeconds,
       scriptGuidance: config.scriptGuidance ?? "",
       videoGuidance: config.videoGuidance ?? "",
     };
@@ -418,7 +427,30 @@ export function VideoProductionTab({
   };
 
   const handleStrategyChange = (strategy: VideoStrategy) => {
-    setConfig((prev) => (prev ? { ...prev, videoStrategy: strategy } : prev));
+    setConfig((prev) =>
+      prev
+        ? {
+            ...prev,
+            videoStrategy: strategy,
+            // Ảnh 9 ô chỉ có ở một video; đổi sang nhiều video thì tắt.
+            referenceImageMode:
+              strategy === VideoStrategies.SingleVideo ? prev.referenceImageMode : ReferenceImageModes.Direct,
+          }
+        : prev,
+    );
+    setIsDirty(true);
+  };
+
+  const handleGridModeChange = (enabled: boolean) => {
+    setConfig((prev) =>
+      prev
+        ? {
+            ...prev,
+            referenceImageMode: enabled ? ReferenceImageModes.StoryboardGrid9 : ReferenceImageModes.Direct,
+            targetDurationPerSceneSeconds: enabled ? GRID_DURATION_SECONDS : prev.targetDurationPerSceneSeconds,
+          }
+        : prev,
+    );
     setIsDirty(true);
   };
 
@@ -1261,6 +1293,24 @@ export function VideoProductionTab({
                       ? "AI viết một storyboard theo mốc thời gian và render một video duy nhất."
                       : "Mỗi cảnh có ảnh và prompt riêng, render thành clip riêng; TiToAI không ghép các clip."}
                   </p>
+                  {(config.videoStrategy ?? VideoStrategies.MultiVideo) === VideoStrategies.SingleVideo && (
+                    <div className="pt-1">
+                      <label className="flex items-center gap-2 text-xs font-medium">
+                        <input
+                          id="grid-mode"
+                          type="checkbox"
+                          checked={isGridMode}
+                          onChange={(e) => handleGridModeChange(e.target.checked)}
+                        />
+                        Tạo ảnh storyboard 9 ô (thử nghiệm)
+                      </label>
+                      <p className="text-[11px] text-muted-foreground">
+                        {isGridMode
+                          ? "AI viết 9 cảnh, tạo một ảnh 3×3 từ ảnh nguồn rồi gửi nguyên ảnh đó để tạo một video 15 giây. Chưa kiểm chứng với provider thật."
+                          : "Tạo một ảnh 9 ô rồi gửi nguyên ảnh để tạo một video 15 giây."}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {(config.videoStrategy ?? VideoStrategies.MultiVideo) === VideoStrategies.MultiVideo && (
@@ -1289,6 +1339,7 @@ export function VideoProductionTab({
                     id="target-duration"
                     className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     value={config.targetDurationPerSceneSeconds}
+                    disabled={isGridMode}
                     onChange={(e) => handleTargetDurationChange(parseInt(e.target.value) || 15)}
                   >
                     {DEFAULT_SUPPORTED_DURATIONS.map((dur) => (
@@ -1303,7 +1354,9 @@ export function VideoProductionTab({
                     )}
                   </select>
                   <p className="text-[11px] text-muted-foreground">
-                    {(config.videoStrategy ?? VideoStrategies.MultiVideo) === VideoStrategies.SingleVideo
+                    {isGridMode
+                      ? "Ảnh storyboard 9 ô cố định 9 cảnh và đúng 15 giây."
+                      : (config.videoStrategy ?? VideoStrategies.MultiVideo) === VideoStrategies.SingleVideo
                       ? "AI chia các đoạn của video theo nội dung; mốc thời gian có thể lệch tối đa 2 giây."
                       : "Mỗi cảnh là một clip có thời lượng này. Các clip được xuất riêng."}
                   </p>
@@ -1410,6 +1463,8 @@ export function VideoProductionTab({
                 />
               </div>
 
+              {isGridMode && <StoryboardGridProgress config={config} scene={scenes[0]} />}
+
               <ProjectActivityLog projectId={projectId} />
             </CardContent>
           </Card>
@@ -1421,6 +1476,16 @@ export function VideoProductionTab({
       {/* ============================================================== */}
       {mainView === "completed" && (
         <div className="space-y-6">
+          {isGridMode && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Ảnh storyboard 9 ô</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <StoryboardGridProgress config={config} scene={scenes[0]} />
+              </CardContent>
+            </Card>
+          )}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Chuẩn bị đăng TikTok</CardTitle>
@@ -1428,55 +1493,79 @@ export function VideoProductionTab({
                 Xem trước bài đăng ở khung 9:16, rồi chọn tài khoản và quyền xem tại trang Đăng video.
               </p>
             </CardHeader>
-            <CardContent>
+            <CardContent className="grid gap-5 lg:grid-cols-[minmax(0,auto)_minmax(16rem,1fr)]">
               <div className="flex gap-5 overflow-x-auto pb-2">
                 {tiktokPreviews.map((preview) => (
                   <TikTokPostPreview
                     key={preview.key}
+                    className="w-[200px]"
                     title={preview.title}
                     caption={preview.caption}
                     videoSrc={`https://media.titoai.local/media/${encodeURIComponent(preview.assetId)}`}
                   />
                 ))}
               </div>
-            </CardContent>
-            <CardFooter className="border-t pt-3 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
-              {canPublishFinalVideo ? (
-                <span className="text-xs text-muted-foreground">
-                  {multiVideoDone && !finalVideoAssetId
-                    ? `${scenes.length} clip đã sẵn sàng; mỗi clip đăng riêng.`
-                    : "Một video đầu ra đã sẵn sàng."}
-                </span>
-              ) : (
-                <span className="text-xs text-muted-foreground">
-                  Cần một video cuối hoàn chỉnh của Project và không phân cảnh nào bị đánh dấu cần xem lại.
-                </span>
-              )}
-              <div className="flex flex-wrap gap-2">
-                {onOpenPublishing && <Button
-                  type="button"
-                  onClick={() => onOpenPublishing(projectId)}
-                  disabled={!canPublishFinalVideo}
-                  className="gap-2"
-                >
-                  <Send className="h-4 w-4" aria-hidden="true" />Đăng video
-                </Button>}
-                <Button
-                  type="button"
-                  onClick={handlePrepareTikTokExport}
-                  variant="outline"
-                  disabled={isPreparingTikTokExport || !canPublishFinalVideo}
-                  className="gap-2"
-                >
-                  {isPreparingTikTokExport ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <FolderOpen className="h-4 w-4" />
+
+              <div className="flex flex-col gap-4 rounded-lg border border-border bg-muted/40 p-4">
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-foreground">
+                    {canPublishFinalVideo ? (
+                      multiVideoDone && !finalVideoAssetId
+                        ? `${scenes.length} clip đã sẵn sàng; mỗi clip đăng riêng.`
+                        : "Một video đầu ra đã sẵn sàng."
+                    ) : (
+                      "Cần một video cuối hoàn chỉnh của Project và không phân cảnh nào bị đánh dấu cần xem lại."
+                    )}
+                  </p>
+                  {canPublishFinalVideo && (
+                    <ol className="list-decimal space-y-1 pl-4 text-xs text-muted-foreground">
+                      <li>Mở thư mục video và sao chép caption của bài đầu tiên.</li>
+                      <li>Chọn tài khoản và quyền xem tại trang Đăng video.</li>
+                    </ol>
                   )}
-                  Mở video và sao chép caption
-                </Button>
+                </div>
+
+                <dl className="divide-y divide-border text-xs">
+                  <div className="flex items-center justify-between gap-3 py-2.5 first:pt-0">
+                    <dt className="text-muted-foreground">Bài đăng</dt>
+                    <dd className="font-medium text-foreground">
+                      {multiVideoDone && !finalVideoAssetId ? `${tiktokPreviews.length} clip` : "1 video"}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 py-2.5 last:pb-0">
+                    <dt className="text-muted-foreground">Caption</dt>
+                    <dd className="font-medium text-foreground">
+                      {tiktokPreviews.filter((preview) => preview.caption).length}/{tiktokPreviews.length} có caption
+                    </dd>
+                  </div>
+                </dl>
+
+                <div className="mt-auto flex flex-col gap-2">
+                  {onOpenPublishing && <Button
+                    type="button"
+                    onClick={() => onOpenPublishing(projectId)}
+                    disabled={!canPublishFinalVideo}
+                    className="w-full gap-2"
+                  >
+                    <Send className="h-4 w-4" aria-hidden="true" />Đăng video
+                  </Button>}
+                  <Button
+                    type="button"
+                    onClick={handlePrepareTikTokExport}
+                    variant="outline"
+                    disabled={isPreparingTikTokExport || !canPublishFinalVideo}
+                    className="w-full gap-2"
+                  >
+                    {isPreparingTikTokExport ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <FolderOpen className="h-4 w-4" />
+                    )}
+                    Mở video và sao chép caption
+                  </Button>
+                </div>
               </div>
-            </CardFooter>
+            </CardContent>
           </Card>
 
           <Card>
@@ -1497,27 +1586,27 @@ export function VideoProductionTab({
             </CardHeader>
 
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <ul className="divide-y divide-border">
                 {scenes.map((scene) => (
-                  <Card key={scene.sceneId} className="overflow-hidden border border-border shadow-xs">
+                  <li key={scene.sceneId} className="flex flex-col gap-4 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center">
                     {/* Video Player / Thumbnail Preview */}
-                    <div className="h-44 bg-muted/60 relative flex items-center justify-center border-b">
+                    <div className="relative flex h-24 w-full shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/60 sm:w-44">
                       {scene.videoAssetId ? (
-                        <div className="flex flex-col items-center justify-center gap-2">
-                          <Film className="h-10 w-10 text-primary/70" />
+                        <div className="flex flex-col items-center justify-center gap-1.5">
+                          <Film className="h-7 w-7 text-primary/70" />
                           <Button
                             type="button"
                             variant="secondary"
                             size="sm"
-                            className="gap-1.5 shadow-xs"
+                            className="h-7 gap-1.5 px-2.5 text-xs shadow-xs"
                             onClick={() => setPreviewVideoScene(scene)}
                           >
-                            <Play className="h-3.5 w-3.5 fill-current" /> Xem clip
+                            <Play className="h-3 w-3 fill-current" /> Xem clip
                           </Button>
                         </div>
                       ) : (
-                        <div className="text-center p-4">
-                          <AlertCircle className="h-6 w-6 text-warning mx-auto mb-1" />
+                        <div className="p-2 text-center">
+                          <AlertCircle className="mx-auto mb-1 h-5 w-5 text-warning" />
                           <p className="text-xs text-muted-foreground">Clip chưa hoàn thành</p>
                         </div>
                       )}
@@ -1537,32 +1626,29 @@ export function VideoProductionTab({
                       )}
                     </div>
 
-                    <CardContent className="p-3.5 space-y-2">
-                      <h4 className="text-sm font-semibold text-foreground truncate">
+                    <div className="flex min-w-0 flex-1 flex-col gap-2">
+                      <h4 className="truncate text-sm font-semibold text-foreground">
                         {scene.name}
                       </h4>
-                      <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+                      <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                         {scene.motionPromptText || "Không có mô tả prompt"}
                       </p>
-                    </CardContent>
 
-                    <CardFooter className="p-3 pt-0 flex items-center justify-between gap-2 border-t mt-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs px-2 gap-1"
-                        onClick={() => handleOpenEditScene(scene)}
-                      >
-                        <Sliders className="h-3 w-3" /> Sửa yêu cầu
-                      </Button>
-
-                      <div className="flex items-center gap-1.5">
+                      <div className="mt-auto flex items-center gap-1.5 pt-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1 px-2 text-xs"
+                          onClick={() => handleOpenEditScene(scene)}
+                        >
+                          <Sliders className="h-3 w-3" /> Sửa yêu cầu
+                        </Button>
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
-                          className="h-7 text-xs px-2 gap-1"
+                          className="h-7 gap-1 px-2 text-xs"
                           onClick={() => {
                             setDetailedScene(scene);
                             setIsDetailsOpen(true);
@@ -1571,10 +1657,10 @@ export function VideoProductionTab({
                           <Eye className="h-3 w-3" /> Chi tiết
                         </Button>
                       </div>
-                    </CardFooter>
-                  </Card>
+                    </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </CardContent>
           </Card>
         </div>
@@ -1610,8 +1696,8 @@ export function VideoProductionTab({
                   <TableRow>
                     <TableHead className="w-[60px] text-center font-semibold">Cảnh</TableHead>
                     <TableHead className="min-w-[160px] text-center font-semibold">Ảnh tham chiếu</TableHead>
-                    <TableHead className="min-w-[220px] font-semibold">Nội dung đăng TikTok (AI trả về)</TableHead>
-                    <TableHead className="min-w-[220px] font-semibold">Prompt ảnh (AI trả về)</TableHead>
+                    <TableHead className="min-w-[220px] font-semibold">Nội dung đăng TikTok</TableHead>
+                    <TableHead className="min-w-[220px] font-semibold">Prompt ảnh</TableHead>
                     <TableHead className="min-w-[240px] font-semibold">Prompt gửi Muse</TableHead>
                     <TableHead className="min-w-[180px] text-center font-semibold">Video</TableHead>
                     <TableHead className="min-w-[110px] font-semibold text-center">Trạng thái</TableHead>

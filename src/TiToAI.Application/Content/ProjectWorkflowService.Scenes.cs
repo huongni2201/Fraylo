@@ -101,6 +101,26 @@ public sealed partial class ProjectWorkflowService
             ));
         }
 
+        // Chế độ ảnh 9 ô: ảnh 3×3 chỉ tính là sẵn sàng khi marker khớp ảnh hiện tại của cảnh.
+        var markerKeys = result.SelectMany(d => new[] { GridMarkerKey(d.SceneId), ComposedMarkerKey(d.SceneId) }).ToList();
+        var markers = await dbContext.AppSettings.AsNoTracking()
+            .Where(item => markerKeys.Contains(item.Key))
+            .ToDictionaryAsync(item => item.Key, item => item.Value, cancellationToken);
+        if (markers.Count > 0)
+        {
+            for (var i = 0; i < result.Count; i++)
+            {
+                var detail = result[i];
+                markers.TryGetValue(GridMarkerKey(detail.SceneId), out var grid);
+                markers.TryGetValue(ComposedMarkerKey(detail.SceneId), out var composed);
+                result[i] = detail with
+                {
+                    GridImageAssetId = grid != null && grid == detail.SelectedImageAssetId ? grid : null,
+                    ComposedImageAssetId = composed
+                };
+            }
+        }
+
         return result;
     }
 
@@ -344,8 +364,9 @@ public sealed partial class ProjectWorkflowService
             if ((staleTasks.Contains(JobTaskType.Image) || string.IsNullOrWhiteSpace(scene.ImageAssetId)) &&
                 CanGenerateImage(config.WorkflowMode, config.VideoStrategy))
             {
-                var prompt = scenePurpose ?? scene.PromptText ?? config.GoalPrompt;
-                var imageTemplate = await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(dbContext, JobTaskType.Image, cancellationToken).ConfigureAwait(false);
+                // Chế độ 9 ô: ghép ảnh chỉ ghép mẫu với sản phẩm; nội dung 9 shot dành cho bước ảnh 3×3.
+                var prompt = VideoWorkflowPromptComposer.IsGridMode(config) ? config.GoalPrompt : scenePurpose ?? scene.PromptText ?? config.GoalPrompt;
+                var imageTemplate = await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(dbContext, VideoWorkflowPromptComposer.ImagePurposeFor(config.WorkflowMode), cancellationToken).ConfigureAwait(false);
                 var imageInstruction = (await new PromptTemplateService(dbContext).PreviewAsync(
                     new PromptPreviewRequest(imageTemplate.Id, null, null, null), cancellationToken).ConfigureAwait(false)).RenderedText + "\n\n";
                 nextRequest = new JobEnqueueRequest(
@@ -354,11 +375,16 @@ public sealed partial class ProjectWorkflowService
                     TaskType: JobTaskType.Image,
                     CustomPromptText: imageInstruction + (config.WorkflowMode == WorkflowModes.ProductOnly
                         ? $"Tạo một ảnh sản phẩm cho cảnh: {scene.Name}. Ảnh đính kèm là sản phẩm cần giữ đúng màu sắc, hình dáng và chi tiết nhìn thấy. {prompt}"
-                        : $"Tạo một ảnh người mẫu mặc sản phẩm cho cảnh: {scene.Name}. Ảnh đính kèm thứ nhất là người mẫu cần giữ nhận diện; ảnh thứ hai là sản phẩm cần mặc, giữ đúng màu sắc và chi tiết nhìn thấy. {prompt}"),
+                        : $"Ảnh đính kèm thứ nhất là người mẫu, ảnh thứ hai là sản phẩm. Cảnh: {scene.Name}. {prompt}"),
                     WorkflowRunId: config.CurrentRunId,
                     WorkflowStepKey: $"image.{scene.Id}.{scene.UpdatedAtUtc}",
                     MediaSnapshot: snapshot
                 );
+            }
+            // 1b. Chế độ ảnh 9 ô: cảnh đã có ảnh nguồn (ảnh ghép / ảnh sẵn sàng / ảnh sản phẩm) nhưng chưa có ảnh 3×3: Enqueue Job Image 3×3
+            else if (await NeedsGridImageAsync(dbContext, config, scene, cancellationToken).ConfigureAwait(false))
+            {
+                nextRequest = await BuildGridImageRequestAsync(dbContext, config, scene, cancellationToken).ConfigureAwait(false);
             }
             // 2. Cảnh đã có ảnh nhưng chưa có PromptText chuyển động: Enqueue Job VideoPrompt
             // Nối dữ liệu qua VideoWorkflowPromptComposer: Template VideoPrompt đã render + Clip Context
@@ -400,6 +426,55 @@ public sealed partial class ProjectWorkflowService
         if (!stageWithRun) await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return count;
     }
+
+    private static string GridMarkerKey(string sceneId) => $"scene.grid.{sceneId}";
+
+    private static string ComposedMarkerKey(string sceneId) => $"scene.compose.{sceneId}";
+
+    /// <summary>
+    /// Chế độ ảnh 9 ô: ảnh của cảnh là ảnh 3×3 khi marker của cảnh trỏ đúng ảnh đó. Có ảnh nguồn mà chưa có marker khớp thì cần job 3×3.
+    /// </summary>
+    private static async Task<bool> NeedsGridImageAsync(
+        TiToAIDbContext dbContext, ProjectWorkflowConfigDto config, Scene scene, CancellationToken cancellationToken)
+    {
+        if (!VideoWorkflowPromptComposer.IsGridMode(config) || string.IsNullOrWhiteSpace(scene.ImageAssetId)) return false;
+        var key = GridMarkerKey(scene.Id);
+        var marker = dbContext.AppSettings.Local.FirstOrDefault(setting => setting.Key == key)?.Value
+            ?? await dbContext.AppSettings.AsNoTracking().Where(setting => setting.Key == key)
+                .Select(setting => setting.Value).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        return !string.Equals(marker, scene.ImageAssetId, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Job Image tạo MỘT ảnh storyboard 3×3 từ 9 shot đã lưu. Chỉ đính kèm ảnh nguồn của cảnh (không đính kèm mẫu/sản phẩm riêng).
+    /// </summary>
+    private async Task<JobEnqueueRequest> BuildGridImageRequestAsync(
+        TiToAIDbContext dbContext, ProjectWorkflowConfigDto config, Scene scene, CancellationToken cancellationToken)
+    {
+        var storyboard = await new StoryboardContentService(_dbOptions).GetAsync(scene.ProjectId, cancellationToken).ConfigureAwait(false);
+        if (storyboard == null || storyboard.Shots.Count != ReferenceImageModes.GridShotCount)
+        {
+            throw new ProjectWorkflowValidationException("Chưa có storyboard đủ 9 shot nên chưa thể tạo ảnh 3×3.");
+        }
+        var template = await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(dbContext, JobTaskType.Image, cancellationToken).ConfigureAwait(false);
+        var rendered = (await new PromptTemplateService(dbContext).PreviewAsync(
+            new PromptPreviewRequest(template.Id, null, null, null), cancellationToken).ConfigureAwait(false)).RenderedText;
+        var source = scene.ImageAssetId!;
+        return new JobEnqueueRequest(
+            ProjectId: scene.ProjectId,
+            SceneId: scene.Id,
+            TaskType: JobTaskType.Image,
+            CustomPromptText: VideoWorkflowPromptComposer.ComposeGridImagePrompt(rendered, storyboard),
+            WorkflowRunId: config.CurrentRunId,
+            WorkflowStepKey: $"{GridStepPrefix}{scene.Id}.{scene.UpdatedAtUtc}",
+            MediaSnapshot: new JobMediaSnapshotDto(
+                SourceImageAssetId: source,
+                DurationSeconds: ReferenceImageModes.GridDurationSeconds,
+                MediaRoles: new Dictionary<string, string> { ["SourceImage"] = source }));
+    }
+
+    /// <summary>Tiền tố step key của job Image 3×3, để apply phân biệt với job Ghép ảnh.</summary>
+    private const string GridStepPrefix = "grid.";
 
     private static void AddContinuationIntent(TiToAIDbContext dbContext, JobEnqueueRequest request, string nowIso)
     {

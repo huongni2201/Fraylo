@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Bookmark, Check, Copy, Heart, MessageCircle, Music2, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export interface TikTokPostPreviewProps {
   /** Nguồn video; để trống thì hiện khung chờ. */
@@ -11,6 +12,8 @@ export interface TikTokPostPreviewProps {
   title?: string;
   /** Ẩn nút sao chép khi caption đã nằm ngay cạnh ô nhập. */
   showCopy?: boolean;
+  /** Ghi đè chiều rộng khung mặc định 232px. */
+  className?: string;
 }
 
 /** Tách hashtag để tô màu giống bài đăng TikTok thật. */
@@ -33,7 +36,7 @@ function CaptionText({ text }: { text: string }) {
  * Xem trước bài đăng TikTok theo tỉ lệ 9:16: video, tên tài khoản, caption/hashtag và cột nút bên phải.
  * Chỉ mô phỏng giao diện; không gửi gì lên TikTok.
  */
-export function TikTokPostPreview({ videoSrc, caption, handle: handleProp, title, showCopy = true }: TikTokPostPreviewProps) {
+export function TikTokPostPreview({ videoSrc, caption, handle: handleProp, title, showCopy = true, className }: TikTokPostPreviewProps) {
   const handle = handleProp || "@tai_khoan_cua_ban";
   const [copied, setCopied] = useState(false);
   const [videoFailed, setVideoFailed] = useState(false);
@@ -50,7 +53,7 @@ export function TikTokPostPreview({ videoSrc, caption, handle: handleProp, title
   };
 
   return (
-    <figure className="flex w-[232px] shrink-0 flex-col gap-2.5">
+    <figure className={cn("flex w-[232px] shrink-0 flex-col gap-2.5", className)}>
       <div
         className="relative aspect-[9/16] w-full overflow-hidden rounded-[22px] border-[5px] border-neutral-900 bg-neutral-900 shadow-lg"
         aria-label={title ? `Xem trước bài đăng: ${title}` : "Xem trước bài đăng TikTok"}

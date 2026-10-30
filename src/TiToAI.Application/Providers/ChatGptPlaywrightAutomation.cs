@@ -168,7 +168,7 @@ public sealed class ChatGptPlaywrightAutomation
             }
             var result = (await response.InnerTextAsync().WaitAsync(ct).ConfigureAwait(false)).Trim();
             if (string.IsNullOrWhiteSpace(result))
-                return new(false, ReasonCode: "empty_response", ErrorMessage: "ChatGPT trả về nội dung rỗng; cần đối soát hội thoại.", SideEffectSubmitted: true);
+                return new(false, ReasonCode: "empty_response", ErrorMessage: "ChatGPT trả về nội dung rỗng.", SideEffectSubmitted: true);
 
             await _activity.WriteAsync(job.JobId, "result", "Đã nhận nội dung phản hồi.", ct).ConfigureAwait(false);
             return new(true, ResultReference: page.Url, ResultText: result, SideEffectSubmitted: true);
@@ -179,20 +179,20 @@ public sealed class ChatGptPlaywrightAutomation
         }
         catch (PlaywrightException ex)
         {
-            await RecordFailureAsync(job.JobId, submitted ? "Lỗi sau khi gửi; cần đối soát." : "Lỗi thao tác browser trước khi gửi.").ConfigureAwait(false);
-            return new(false, ReasonCode: submitted ? "reconcile_required" : "automation_blocked",
+            await RecordFailureAsync(job.JobId, submitted ? $"Lỗi sau khi gửi: {ex.Message.Split((char)10)[0]}" : "Lỗi thao tác browser trước khi gửi.").ConfigureAwait(false);
+            return new(false, ReasonCode: submitted ? "execution_failed" : "automation_blocked",
                 ErrorMessage: $"Không thể hoàn tất thao tác ChatGPT Web: {ex.Message}", SideEffectSubmitted: submitted);
         }
         catch (TimeoutException ex)
         {
-            await RecordFailureAsync(job.JobId, submitted ? "Hết thời gian sau khi gửi; cần đối soát." : "Hết thời gian trước khi gửi.").ConfigureAwait(false);
-            return new(false, ReasonCode: submitted ? "reconcile_required" : "automation_blocked",
+            await RecordFailureAsync(job.JobId, submitted ? $"Hết thời gian sau khi gửi: {ex.Message.Split((char)10)[0]}" : "Hết thời gian trước khi gửi.").ConfigureAwait(false);
+            return new(false, ReasonCode: submitted ? "execution_failed" : "automation_blocked",
                 ErrorMessage: $"Quá thời gian chờ ChatGPT Web: {ex.Message}", SideEffectSubmitted: submitted);
         }
         catch (Exception ex)
         {
-            await RecordFailureAsync(job.JobId, submitted ? "Tác vụ lỗi sau khi gửi; cần đối soát." : "Tác vụ lỗi trước khi gửi.").ConfigureAwait(false);
-            return new(false, ReasonCode: submitted ? "reconcile_required" : "automation_blocked",
+            await RecordFailureAsync(job.JobId, submitted ? $"Tác vụ lỗi sau khi gửi: {ex.Message.Split((char)10)[0]}" : "Tác vụ lỗi trước khi gửi.").ConfigureAwait(false);
+            return new(false, ReasonCode: submitted ? "execution_failed" : "automation_blocked",
                 ErrorMessage: $"Không hoàn tất được tác vụ ChatGPT Web: {ex.Message}", SideEffectSubmitted: submitted);
         }
         finally
@@ -251,11 +251,15 @@ public sealed class ChatGptPlaywrightAutomation
         Expect(product, Id("ProductAssetHash"));
         Expect(ready, Id("ReadyImageAssetHash"));
         Expect(source, Id("SourceImageAssetHash"));
-        if (job.TaskType == JobTaskType.Image && (string.IsNullOrWhiteSpace(model) || string.IsNullOrWhiteSpace(product)))
+        // Job Image ghép ảnh cần cả mẫu và sản phẩm; job ảnh storyboard 3×3 chỉ có một ảnh nguồn.
+        var composeImage = !string.IsNullOrWhiteSpace(model) || !string.IsNullOrWhiteSpace(product);
+        if (job.TaskType == JobTaskType.Image && composeImage && (string.IsNullOrWhiteSpace(model) || string.IsNullOrWhiteSpace(product)))
             throw new InvalidOperationException("Chế độ ghép mẫu và sản phẩm cần đủ hai ảnh tham chiếu.");
+        if (job.TaskType == JobTaskType.Image && !composeImage && string.IsNullOrWhiteSpace(source))
+            throw new InvalidOperationException("Tác vụ tạo ảnh cần ảnh nguồn nhưng media snapshot không có.");
         var ids = job.TaskType switch
         {
-            JobTaskType.Image => new[] { model, product },
+            JobTaskType.Image => composeImage ? new[] { model, product } : new[] { source },
             JobTaskType.VideoPrompt => new[] { source ?? ready ?? product },
             _ => new[] { model, product, ready }
         };

@@ -127,46 +127,9 @@ public static class JobRetryAndCancelPolicy
     }
 
     /// <summary>
-    /// Kiểm tra nhanh xem tác vụ có đủ điều kiện tự động thử lại (Retry) hay không.
-    /// Điều kiện cho phép retry:
-    /// - Attempts < MaxAttempts
-    /// - VÀ SideEffectSubmitted == 0 (và sideEffectSubmitted == false)
-    /// - VÀ lỗi thuộc nhóm retryable (không thuộc nhóm cấm retry: side effect, auth, tài khoản, storage root).
+    /// Job lỗi chỉ thử lại theo yêu cầu của người dùng.
     /// </summary>
-    public static bool CanRetry(Job job, string? reasonCode, bool sideEffectSubmitted)
-    {
-        if (job == null)
-        {
-            return false;
-        }
-
-        // TUYỆT ĐỐI CẤM retry nếu đã phát sinh side-effect ra bên ngoài
-        if (sideEffectSubmitted || job.SideEffectSubmitted == 1)
-        {
-            return false;
-        }
-
-        // TUYỆT ĐỐI CẤM retry nếu đã hết lượt thử
-        if (job.Attempts >= job.MaxAttempts)
-        {
-            return false;
-        }
-
-        // TUYỆT ĐỐI CẤM retry tự động các lỗi cần người dùng can thiệp
-        if (IsUserInterventionRequired(reasonCode) || IsAutomationUnavailable(reasonCode))
-        {
-            return false;
-        }
-
-        // TUYỆT ĐỐI CẤM retry job đã bị hủy
-        if (string.Equals(reasonCode, JobReasonCode.UserCanceled, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(reasonCode, JobReasonCode.CanceledLateResult, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        return true;
-    }
+    public static bool CanRetry(Job job, string? reasonCode, bool sideEffectSubmitted) => false;
 
     /// <summary>
     /// Kiểm tra xem lý do lỗi có bắt buộc người dùng can thiệp hay không.
@@ -287,14 +250,14 @@ public static class JobRetryAndCancelPolicy
             );
         }
 
-        // 5. Lỗi retryable (network_error, crash trước submit, timeout): Cho phép retry với exponential backoff
+        // Job lỗi dừng ngay; giữ mã lỗi gốc để người dùng xem và chủ động thử lại.
         return new JobRetryDecision(
-            CanRetry: true,
-            TargetState: JobState.Queued,
+            CanRetry: false,
+            TargetState: JobState.Failed,
             FinalReasonCode: reasonCode ?? JobReasonCode.NetworkError,
-            RetryDelay: CalculateBackoff(job.Attempts),
+            RetryDelay: null,
             ShouldRollbackAttempts: false,
-            Classification: FailureClassification.Retryable
+            Classification: FailureClassification.PermanentFailure
         );
     }
 

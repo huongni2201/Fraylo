@@ -803,6 +803,25 @@ public sealed class JobReservation
 
         if (rows == 0)
         {
+            // Người dùng đã hủy (job đã Canceled, cùng fencing token): kết quả về muộn bị chặn,
+            // nhưng Asset vừa sinh phải được Unlinked thay vì bị bỏ rơi.
+            var canceledJob = await dbContext.Jobs.AsNoTracking()
+                .FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken).ConfigureAwait(false);
+            if (canceledJob?.State == JobState.Canceled && canceledJob.FencingToken == fencingToken &&
+                !string.IsNullOrWhiteSpace(resultReference))
+            {
+                var lateAsset = await dbContext.Assets
+                    .FirstOrDefaultAsync(a => a.Id == resultReference || a.RelativePath == resultReference, cancellationToken)
+                    .ConfigureAwait(false);
+                if (lateAsset != null)
+                {
+                    lateAsset.Status = "Unlinked";
+                    await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                    throw new FencingTokenStaleException(jobId, fencingToken);
+                }
+            }
+
             await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
             throw new FencingTokenStaleException(jobId, fencingToken);
         }
@@ -854,7 +873,8 @@ public sealed class JobReservation
         string reasonCode,
         bool canRetry,
         TimeSpan? retryDelay,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool clearSideEffect = false)
     {
         await using var dbContext = new TiToAIDbContext(_dbOptions);
         var nowIso = UtcNow.ToString("o");
@@ -867,6 +887,7 @@ public sealed class JobReservation
                 UPDATE Job
                 SET revision = revision + 1,
                     state = 'Queued',
+                    side_effect_submitted = CASE WHEN @clear = 1 THEN 0 ELSE side_effect_submitted END,
                     reason_code = @reason,
                     lease_expires_at_utc = NULL,
                     retry_after_utc = @retryAfter,
@@ -880,6 +901,7 @@ public sealed class JobReservation
                 new object[]
                 {
                     new SqliteParameter("@reason", reasonCode),
+                    new SqliteParameter("@clear", clearSideEffect ? 1 : 0),
                     new SqliteParameter("@retryAfter", retryAfterIso),
                     new SqliteParameter("@now", nowIso),
                     new SqliteParameter("@jobId", jobId),
@@ -898,6 +920,7 @@ public sealed class JobReservation
                 UPDATE Job
                 SET revision = revision + 1,
                     state = 'Failed',
+                    side_effect_submitted = CASE WHEN @clear = 1 THEN 0 ELSE side_effect_submitted END,
                     reason_code = @reason,
                     lease_expires_at_utc = NULL,
                     updated_at_utc = @now
@@ -910,6 +933,7 @@ public sealed class JobReservation
                 new object[]
                 {
                     new SqliteParameter("@reason", reasonCode),
+                    new SqliteParameter("@clear", clearSideEffect ? 1 : 0),
                     new SqliteParameter("@now", nowIso),
                     new SqliteParameter("@jobId", jobId),
                     new SqliteParameter("@token", fencingToken)

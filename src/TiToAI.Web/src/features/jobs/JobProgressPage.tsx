@@ -218,20 +218,20 @@ export function JobProgressPage({ active }: JobProgressPageProps) {
       </Tabs>
 
       <div className="rounded-lg border border-border bg-card overflow-x-auto">
-        <Table>
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow>
               <TableHead className="w-12 text-right">STT</TableHead>
-              <TableHead className="min-w-[160px]">Dự án</TableHead>
-              <TableHead className="min-w-[240px]">Kịch bản (AI)</TableHead>
-              <TableHead className="min-w-[240px]">Prompt video</TableHead>
-              <TableHead className="min-w-[240px]">Nội dung đăng TikTok</TableHead>
-              <TableHead className="text-right">Lần thử</TableHead>
-              <TableHead className="min-w-[220px]">Output</TableHead>
-              <TableHead>
+              <TableHead className="w-[13%]">Dự án</TableHead>
+              <TableHead className="w-[16%]">Kịch bản (AI)</TableHead>
+              <TableHead className="w-[16%]">Prompt video</TableHead>
+              <TableHead className="w-[15%]">Nội dung đăng TikTok</TableHead>
+              <TableHead className="w-[7%] text-right">Lần thử</TableHead>
+              <TableHead className="w-[15%]">Output</TableHead>
+              <TableHead className="w-[7%]">
                 <span className="sr-only">Thao tác</span>
               </TableHead>
-              <TableHead className="min-w-[160px]">Trạng thái</TableHead>
+              <TableHead className="w-[12%]">Trạng thái</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -247,35 +247,36 @@ export function JobProgressPage({ active }: JobProgressPageProps) {
                   <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
                     {index + 1}
                   </TableCell>
-                  <TableCell className="min-w-[160px] align-top text-xs">
+                  <TableCell className="align-top text-xs">
                     <div className="flex flex-col gap-2">
                       <p className="font-medium break-words" title={job.projectId}>
                         {projectNames[job.projectId] ?? job.projectId.slice(0, 8)}
                       </p>
                       {text.imageAssetId && (
-                        <AssetMediaPreview assetId={text.imageAssetId} assetType="Image" fileName={`Ảnh tham chiếu ${index + 1}`} />
+                        <AssetMediaPreview assetId={text.imageAssetId} assetType="Image" fileName={`Ảnh tham chiếu ${index + 1}`} heightClass="h-24" />
                       )}
-                      <span className="whitespace-nowrap text-muted-foreground">{formatDateTime(job.createdAtUtc)}</span>
+                      <span className="break-words text-muted-foreground">{formatDateTime(job.createdAtUtc)}</span>
                     </div>
                   </TableCell>
-                  <TableCell className="max-w-[300px] align-top text-xs">
+                  <TableCell className="align-top text-xs">
                     <PromptCell text={text.script} emptyText="—" title="Kịch bản (AI)" />
                   </TableCell>
-                  <TableCell className="max-w-[300px] align-top text-xs">
+                  <TableCell className="align-top text-xs">
                     <PromptCell text={text.prompt} emptyText="—" title="Prompt video" />
                   </TableCell>
-                  <TableCell className="max-w-[300px] align-top text-xs">
+                  <TableCell className="align-top text-xs">
                     <PromptCell text={text.tiktok} emptyText="—" title="Nội dung đăng TikTok" />
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-xs">
                     {job.attempts}/{job.maxAttempts ?? "—"}
                   </TableCell>
-                  <TableCell className="max-w-[260px] text-xs">
+                  <TableCell className="text-xs">
                     {job.taskType === "VideoRender" && job.resultReference ? (
                       <AssetMediaPreview
                         assetId={job.resultReference}
                         assetType="Video"
                         fileName={`Video ${index + 1}`}
+                        heightClass="h-24"
                       />
                     ) : (
                       <span className="text-muted-foreground">{fallback || "—"}</span>
@@ -288,14 +289,14 @@ export function JobProgressPage({ active }: JobProgressPageProps) {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Badge
                           variant={stateInfo.variant}
                           className={cn("flex w-fit items-center gap-1 px-2 py-0.5", stateInfo.badgeClass)}
                         >
                           {stateInfo.label}
                         </Badge>
-                        {job.state === "AwaitingUser" && (
+                        {job.state === "AwaitingUser" && job.taskType === "VideoRender" && (
                           <Button
                             variant="outline"
                             size="sm"

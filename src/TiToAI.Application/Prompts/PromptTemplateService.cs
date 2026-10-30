@@ -17,7 +17,9 @@ public sealed class PromptTemplateService
     {
         "Script",
         "Image",
-        "VideoPrompt"
+        "ComposeImage",
+        "VideoPrompt",
+        "Storyboard"
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new()

@@ -1,11 +1,12 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using TiToAI.Contracts.Content;
 using TiToAI.Infrastructure.Persistence;
 using TiToAI.Infrastructure.Persistence.Entities;
 
 namespace TiToAI.Application.Content;
 
-public sealed record StoryboardShot(int StartSeconds, int EndSeconds, string Description, string ImagePrompt, string? ImageAssetId = null);
+public sealed record StoryboardShot(int StartSeconds, int EndSeconds, string Description, string ImagePrompt, string? ImageAssetId = null, string? MotionPrompt = null);
 
 public sealed record StoryboardContent(int DurationSeconds, IReadOnlyList<StoryboardShot> Shots);
 
@@ -66,12 +67,28 @@ public sealed class StoryboardContentService
         return storyboard;
     }
 
-    public async Task<StoryboardContent> SaveAsync(string projectId, string text, int durationSeconds, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Kiểm tra storyboard của chế độ ảnh 9 ô: đúng 9 shot (thứ tự mảng là thứ tự ô, trái sang phải, trên xuống dưới),
+    /// mốc liên tiếp từ 0 đến đúng thời lượng yêu cầu (không dung sai), mỗi shot có mô tả hình và chuyển động.
+    /// </summary>
+    public static StoryboardContent ParseGrid(string text, int durationSeconds)
+    {
+        var storyboard = Parse(text, durationSeconds);
+        if (storyboard.DurationSeconds != durationSeconds)
+            throw new ProjectWorkflowValidationException($"Storyboard 9 ô phải dài đúng {durationSeconds} giây.");
+        if (storyboard.Shots.Count != ReferenceImageModes.GridShotCount)
+            throw new ProjectWorkflowValidationException($"Storyboard 9 ô phải có đúng {ReferenceImageModes.GridShotCount} shot, nhận {storyboard.Shots.Count}.");
+        if (storyboard.Shots.Any(shot => string.IsNullOrWhiteSpace(shot.ImagePrompt) || string.IsNullOrWhiteSpace(shot.MotionPrompt)))
+            throw new ProjectWorkflowValidationException("Mỗi shot của storyboard 9 ô cần có imagePrompt và motionPrompt.");
+        return storyboard;
+    }
+
+    public async Task<StoryboardContent> SaveAsync(string projectId, string text, int durationSeconds, CancellationToken cancellationToken = default, bool grid = false)
     {
         if (!Guid.TryParse(projectId, out var projectGuid))
             throw new ProjectWorkflowValidationException("Project không hợp lệ.");
         projectId = projectGuid.ToString("D").ToLowerInvariant();
-        var storyboard = Parse(text, durationSeconds);
+        var storyboard = grid ? ParseGrid(text, durationSeconds) : Parse(text, durationSeconds);
         await using var db = new TiToAIDbContext(_dbOptions);
         if (!await db.Projects.AnyAsync(project => project.Id == projectId, cancellationToken).ConfigureAwait(false))
             throw new ProjectWorkflowValidationException("Không tìm thấy Project.");

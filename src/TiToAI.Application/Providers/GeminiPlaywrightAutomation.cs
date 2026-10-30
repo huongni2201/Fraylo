@@ -115,9 +115,11 @@ public sealed class GeminiPlaywrightAutomation
                 .WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 180000 }).WaitAsync(ct).ConfigureAwait(false);
             if (job.TaskType == JobTaskType.Image)
             {
-                await page.WaitForFunctionAsync("() => { const message = [...document.querySelectorAll('message-content, .model-response-text')].at(-1); return !!message && [...message.querySelectorAll('img')].some(img => img.naturalWidth >= 256 && img.naturalHeight >= 256); }",
+                // Gemini renders generated images next to the text (message-content), not inside it, so search the whole reply container.
+                var reply = page.Locator("response-container").Last;
+                await page.WaitForFunctionAsync("() => { const reply = [...document.querySelectorAll('response-container')].at(-1); return !!reply && [...reply.querySelectorAll('img')].some(img => img.naturalWidth >= 256 && img.naturalHeight >= 256); }",
                     null, new() { Timeout = 180000 }).WaitAsync(ct).ConfigureAwait(false);
-                var source = await response.EvaluateAsync<string>("message => [...message.querySelectorAll('img')].filter(img => img.naturalWidth >= 256 && img.naturalHeight >= 256).at(-1)?.currentSrc || ''").WaitAsync(ct).ConfigureAwait(false);
+                var source = await reply.EvaluateAsync<string>("reply => [...reply.querySelectorAll('img')].filter(img => img.naturalWidth >= 256 && img.naturalHeight >= 256).at(-1)?.currentSrc || ''").WaitAsync(ct).ConfigureAwait(false);
                 if (string.IsNullOrWhiteSpace(source))
                     throw new InvalidOperationException("Không tìm thấy ảnh tạo đủ kích thước trong phản hồi Gemini.");
                 string dataUrl;
@@ -127,7 +129,29 @@ public sealed class GeminiPlaywrightAutomation
                 }
                 else if (source.StartsWith("blob:", StringComparison.OrdinalIgnoreCase))
                 {
-                    dataUrl = await response.EvaluateAsync<string>("async message => { const img = [...message.querySelectorAll('img')].filter(i => i.naturalWidth >= 256 && i.naturalHeight >= 256).at(-1); const blob = await (await fetch(img.currentSrc || img.src)).blob(); return await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob); }); }").WaitAsync(ct).ConfigureAwait(false);
+                    // Gemini keeps swapping/revoking blob URLs while it is still generating, so read only once the same image src is stable and retry on failure.
+                    dataUrl = await page.EvaluateAsync<string>("""
+                        async () => {
+                          const pick = () => [...(([...document.querySelectorAll('response-container')].at(-1)) ?? document).querySelectorAll('img')]
+                            .filter(i => i.naturalWidth >= 256 && i.naturalHeight >= 256).at(-1);
+                          const toDataUrl = blob => new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.onerror = reject; r.readAsDataURL(blob); });
+                          let last = '';
+                          for (let i = 0; i < 45; i++) {
+                            const img = pick();
+                            const src = img?.currentSrc || img?.src || '';
+                            if (src && src === last) {
+                              try { return await toDataUrl(await (await fetch(src)).blob()); } catch { }
+                              try {
+                                const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+                                c.getContext('2d').drawImage(img, 0, 0); return c.toDataURL('image/png');
+                              } catch { }
+                            }
+                            last = src;
+                            await new Promise(r => setTimeout(r, 2000));
+                          }
+                          throw new Error('Gemini chưa trả ảnh ổn định để lưu.');
+                        }
+                        """).WaitAsync(ct).ConfigureAwait(false);
                 }
                 else
                 {
@@ -154,7 +178,7 @@ public sealed class GeminiPlaywrightAutomation
             }
             var result = (await response.InnerTextAsync().WaitAsync(ct).ConfigureAwait(false)).Trim();
             if (string.IsNullOrWhiteSpace(result))
-                return new(false, ReasonCode: "empty_response", ErrorMessage: "Gemini trả về nội dung rỗng; cần đối soát hội thoại.", SideEffectSubmitted: true);
+                return new(false, ReasonCode: "empty_response", ErrorMessage: "Gemini trả về nội dung rỗng.", SideEffectSubmitted: true);
 
             await _activity.WriteAsync(job.JobId, "result", "Đã nhận nội dung phản hồi.", ct).ConfigureAwait(false);
             return new(true, ResultReference: page.Url, ResultText: result, SideEffectSubmitted: true);
@@ -165,20 +189,20 @@ public sealed class GeminiPlaywrightAutomation
         }
         catch (PlaywrightException ex)
         {
-            await RecordFailureAsync(job.JobId, submitted ? "Lỗi sau khi gửi; cần đối soát." : "Lỗi thao tác browser trước khi gửi.").ConfigureAwait(false);
-            return new(false, ReasonCode: submitted ? "reconcile_required" : "automation_blocked",
+            await RecordFailureAsync(job.JobId, submitted ? $"Lỗi sau khi gửi: {ex.Message.Split((char)10)[0]}" : "Lỗi thao tác browser trước khi gửi.").ConfigureAwait(false);
+            return new(false, ReasonCode: submitted ? "execution_failed" : "automation_blocked",
                 ErrorMessage: $"Không thể hoàn tất thao tác Gemini Web: {ex.Message}", SideEffectSubmitted: submitted);
         }
         catch (TimeoutException ex)
         {
-            await RecordFailureAsync(job.JobId, submitted ? "Hết thời gian sau khi gửi; cần đối soát." : "Hết thời gian trước khi gửi.").ConfigureAwait(false);
-            return new(false, ReasonCode: submitted ? "reconcile_required" : "automation_blocked",
+            await RecordFailureAsync(job.JobId, submitted ? $"Hết thời gian sau khi gửi: {ex.Message.Split((char)10)[0]}" : "Hết thời gian trước khi gửi.").ConfigureAwait(false);
+            return new(false, ReasonCode: submitted ? "execution_failed" : "automation_blocked",
                 ErrorMessage: $"Quá thời gian chờ Gemini Web: {ex.Message}", SideEffectSubmitted: submitted);
         }
         catch (Exception ex)
         {
-            await RecordFailureAsync(job.JobId, submitted ? "Tác vụ lỗi sau khi gửi; cần đối soát." : "Tác vụ lỗi trước khi gửi.").ConfigureAwait(false);
-            return new(false, ReasonCode: submitted ? "reconcile_required" : "automation_blocked",
+            await RecordFailureAsync(job.JobId, submitted ? $"Tác vụ lỗi sau khi gửi: {ex.Message.Split((char)10)[0]}" : "Tác vụ lỗi trước khi gửi.").ConfigureAwait(false);
+            return new(false, ReasonCode: submitted ? "execution_failed" : "automation_blocked",
                 ErrorMessage: $"Không hoàn tất được tác vụ Gemini Web: {ex.Message}", SideEffectSubmitted: submitted);
         }
         finally
@@ -237,11 +261,15 @@ public sealed class GeminiPlaywrightAutomation
         Expect(product, Id("ProductAssetHash"));
         Expect(ready, Id("ReadyImageAssetHash"));
         Expect(source, Id("SourceImageAssetHash"));
-        if (job.TaskType == JobTaskType.Image && (string.IsNullOrWhiteSpace(model) || string.IsNullOrWhiteSpace(product)))
+        // Job Image ghép ảnh cần cả mẫu và sản phẩm; job ảnh storyboard 3×3 chỉ có một ảnh nguồn.
+        var composeImage = !string.IsNullOrWhiteSpace(model) || !string.IsNullOrWhiteSpace(product);
+        if (job.TaskType == JobTaskType.Image && composeImage && (string.IsNullOrWhiteSpace(model) || string.IsNullOrWhiteSpace(product)))
             throw new InvalidOperationException("Chế độ ghép mẫu và sản phẩm cần đủ hai ảnh tham chiếu.");
+        if (job.TaskType == JobTaskType.Image && !composeImage && string.IsNullOrWhiteSpace(source))
+            throw new InvalidOperationException("Tác vụ tạo ảnh cần ảnh nguồn nhưng media snapshot không có.");
         var ids = job.TaskType switch
         {
-            JobTaskType.Image => new[] { model, product },
+            JobTaskType.Image => composeImage ? new[] { model, product } : new[] { source },
             JobTaskType.VideoPrompt => new[] { source ?? ready ?? product },
             _ => new[] { model, product, ready }
         };

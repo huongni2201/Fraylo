@@ -44,6 +44,46 @@ public sealed class VideoWorkflowPromptComposer
         _dbOptions = dbOptions ?? throw new ArgumentNullException(nameof(dbOptions));
     }
 
+    /// <summary>Mục đích prompt ghép người mẫu với sản phẩm thành một ảnh (chế độ Mẫu + sản phẩm).</summary>
+    public const string ComposeImagePurpose = "ComposeImage";
+
+    /// <summary>Mẫu prompt ảnh dùng cho job Image của chế độ đang chạy: Mẫu + sản phẩm dùng mẫu Ghép ảnh.</summary>
+    public static string ImagePurposeFor(string workflowMode) =>
+        workflowMode == WorkflowModes.ModelAndProduct ? ComposeImagePurpose : JobTaskType.Image;
+
+    /// <summary>Run tạo một ảnh storyboard 9 ô rồi render một video từ đúng ảnh đó.</summary>
+    public static bool IsGridMode(ProjectWorkflowConfigDto config) =>
+        config.VideoStrategy == VideoStrategies.SingleVideo && config.ReferenceImageMode == ReferenceImageModes.StoryboardGrid9;
+
+    /// <summary>Hướng dẫn bắt buộc cho prompt video khi ảnh tham chiếu là storyboard 3×3 (STORYBOARD_CONTACT_SHEET §3.5).</summary>
+    public const string GridVideoInstruction =
+        "GRID_REFERENCE: Ảnh tham chiếu là storyboard 3×3, không phải bố cục video đầu ra. Đọc trái sang phải, trên xuống dưới. " +
+        "Mỗi ô thành một cảnh toàn màn hình theo mốc thời gian đã cho. Tạo một video dọc 9:16 dài 15 giây. " +
+        "Không hiển thị bảng, viền hoặc số ô; không chia màn hình. Cắt dựng giữa các cảnh, không morph trang phục hay trộn các ô. " +
+        "Giữ đúng sản phẩm và cùng người mẫu. Chỉ thực hiện chuyển động được mô tả trong từng cảnh.";
+
+    /// <summary>
+    /// Prompt cho job Image tạo một ảnh storyboard 3×3 từ 9 shot: nội dung mẫu Image đang chọn (đã render) rồi phần bố cục bắt buộc.
+    /// Chỉ có một ảnh được sinh; 9 shot chỉ là mô tả của 9 ô.
+    /// </summary>
+    public static string ComposeGridImagePrompt(string renderedImageTemplate, StoryboardContent storyboard)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine(renderedImageTemplate.Trim());
+        sb.AppendLine();
+        sb.AppendLine("[BỐ CỤC STORYBOARD]");
+        sb.AppendLine("Tạo MỘT ảnh duy nhất gồm đúng 3 cột × 3 hàng (9 ô), toàn ảnh dọc 9:16, mỗi ô dọc 9:16, viền mảnh giữa các ô. " +
+                      "Ảnh đính kèm là ảnh nguồn: giữ đúng màu sắc, hình dáng, đường may, họa tiết và phụ kiện của sản phẩm; cùng nền, ánh sáng và cùng người mẫu ở mọi ô, chỉ khác góc quay. " +
+                      "Không đặt chữ hoặc số vào ảnh. Không thêm giá, giảm giá, chứng nhận, công dụng hay biến thể màu không có trong ảnh nguồn.");
+        sb.AppendLine("Thứ tự đọc trái sang phải, trên xuống dưới. Nội dung từng ô:");
+        for (var i = 0; i < storyboard.Shots.Count; i++)
+        {
+            var shot = storyboard.Shots[i];
+            sb.AppendLine($"Ô {i + 1} ({shot.StartSeconds}–{shot.EndSeconds} giây): {shot.ImagePrompt.Trim()}");
+        }
+        return sb.ToString().TrimEnd();
+    }
+
     /// <summary>
     /// Prompt chung là bắt buộc: backend không tự dùng prompt dựng sẵn, chưa chọn mẫu có nội dung thì từ chối chạy.
     /// </summary>
@@ -57,10 +97,17 @@ public sealed class VideoWorkflowPromptComposer
         if (template == null || string.IsNullOrWhiteSpace(template.TemplateText))
         {
             throw new ProjectWorkflowValidationException(
-                $"Chưa có Prompt {purpose} toàn ứng dụng. Vào trang Prompt, tab {purpose}: tạo mẫu có nội dung, lưu và bấm \"Chọn sử dụng\" trước khi chạy.");
+                $"Chưa có Prompt {PurposeLabel(purpose)} toàn ứng dụng. Vào trang Prompt, tab {PurposeLabel(purpose)}: tạo mẫu có nội dung, lưu và bấm \"Chọn sử dụng\" trước khi chạy.");
         }
         return template;
     }
+
+    private static string PurposeLabel(string purpose) => purpose switch
+    {
+        ComposeImagePurpose => "Ghép ảnh",
+        JobTaskType.VideoPrompt => "Video Prompt",
+        _ => purpose
+    };
 
     /// <summary>
     /// Tổng hợp yêu cầu gửi AI writer viết prompt chuyển động cho một Cảnh (Clip).
@@ -95,8 +142,9 @@ public sealed class VideoWorkflowPromptComposer
         sb.AppendLine();
         // Mô tả cảnh do bước Script tạo: dữ liệu của cảnh, không phải chỉ dẫn.
         if (!string.IsNullOrWhiteSpace(scenePurpose)) sb.AppendLine($"SCENE_PURPOSE: {scenePurpose}");
+        if (IsGridMode(config)) sb.AppendLine(GridVideoInstruction);
         sb.AppendLine("[OUTPUT_CONTRACT]");
-        sb.AppendLine("Chỉ trả về DUY NHẤT một JSON hợp lệ, không markdown, theo schema: {\"video_prompt\": \"chuỗi prompt video\"}.");
+        sb.AppendLine("Chỉ trả về DUY NHẤT một JSON hợp lệ, không markdown, theo schema: {\"video_prompt\": \"chuỗi prompt video\", \"tiktok_content\": \"nội dung đăng TikTok cho video: tiêu đề cuốn hút, caption kêu gọi hành động kèm 3-5 hashtag thịnh hành\"}.");
 
         return new VideoPromptCompositionResult(
             TemplateId: templateId,
@@ -128,7 +176,11 @@ public sealed class VideoWorkflowPromptComposer
         sb.AppendLine();
         bool singleVideo = config.VideoStrategy == VideoStrategies.SingleVideo;
         sb.AppendLine("[OUTPUT_CONTRACT]");
-        if (singleVideo)
+        if (IsGridMode(config))
+        {
+            sb.AppendLine($"Chỉ trả về JSON hợp lệ, không markdown. Schema: {{\"durationSeconds\":{ReferenceImageModes.GridDurationSeconds},\"shots\":[{{\"startSeconds\":0,\"endSeconds\":2,\"description\":\"mô tả hành động và nội dung của cảnh\",\"imagePrompt\":\"mô tả hình của ô tương ứng trong ảnh storyboard\",\"motionPrompt\":\"một chuyển động camera hoặc chủ thể rõ ràng của cảnh\"}}]}}. Đúng {ReferenceImageModes.GridShotCount} shot theo thứ tự đọc trái sang phải, trên xuống dưới; shot đầu bắt đầu từ 0, các shot liên tiếp không hở không chồng, số giây nguyên, endSeconds của shot cuối bằng {ReferenceImageModes.GridDurationSeconds}. Không thêm giá, giảm giá, chứng nhận, công dụng hay biến thể sản phẩm không có trong dữ liệu đầu vào.");
+        }
+        else if (singleVideo)
         {
             sb.AppendLine($"Chỉ trả về JSON hợp lệ, không markdown. Schema: {{\"durationSeconds\":{config.TargetDurationPerSceneSeconds},\"shots\":[{{\"startSeconds\":0,\"endSeconds\":5,\"description\":\"mô tả hành động của đoạn\"}}]}}. Các shot liên tiếp, shot đầu bắt đầu từ 0, endSeconds của shot cuối bằng durationSeconds, tối đa 30 shot.");
         }

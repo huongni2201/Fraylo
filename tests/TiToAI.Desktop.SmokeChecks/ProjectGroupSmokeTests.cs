@@ -162,6 +162,7 @@ public static class ProjectGroupSmokeTests
         var p2 = await projects.CreateAsync(new ProjectCreateRequest("Áo thun 2", null, group.GroupId));
         var p3 = await projects.CreateAsync(new ProjectCreateRequest("Áo thun 3", null, group.GroupId));
         var p2Config = await workflow.GetWorkflowConfigAsync(p2.ProjectId);
+        Assert(p2Config.VideoStrategy == VideoStrategies.SingleVideo, "Dự án mới phải mặc định tạo một video.");
         Assert(p2Config.ProductAssetId == ownProduct.Id && p2Config.ModelAssetId == groupModel.Id,
             "Dự án không có tệp riêng phải đọc ra tệp mặc định của nhóm.");
         Assert(p2Config.InheritedAssetSlots is { } inheritedSlots && inheritedSlots.Contains("Product") && inheritedSlots.Contains("Model"),

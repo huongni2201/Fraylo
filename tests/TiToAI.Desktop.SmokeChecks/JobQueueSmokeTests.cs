@@ -453,11 +453,21 @@ public static class JobQueueSmokeTests
             var fakeExecutor = new DeterministicFakeJobExecutor();
             var scheduler = new JobScheduler(dbOptions, reservation, fakeExecutor, clock: Clock);
 
-            // 3. Scheduler quét phục hồi lease hết hạn: đưa job về Queued
+            // 3. Scheduler quét lease hết hạn: dừng job ở Failed
             var recovered = await scheduler.RunCrashRecoverySweepAsync();
             if (recovered != 1)
             {
                 throw new InvalidOperationException($"Kỳ vọng sweep 1 job nhưng được {recovered}.");
+            }
+
+            // Job chỉ quay về queue sau yêu cầu thử lại của người dùng.
+            await using (var db = new TiToAIDbContext(dbOptions))
+            {
+                var failed = await db.Jobs.FirstAsync(j => j.Id == jobId);
+                if (failed.State != JobState.Failed) throw new Exception("Job crash phải dừng.");
+                failed.State = JobState.Queued;
+                failed.ReasonCode = null;
+                await db.SaveChangesAsync();
             }
 
             // 4. Scheduler cấp job cho Worker_New: FencingToken tăng lên 2
@@ -766,8 +776,8 @@ public static class JobQueueSmokeTests
                 var j2 = await db.Jobs.AsNoTracking().FirstAsync(j => j.Id == j2Id);
                 var j3 = await db.Jobs.AsNoTracking().FirstAsync(j => j.Id == j3Id);
 
-                // J1: Về Queued, attempts giữ 1, có retry_after
-                if (j1.State != JobState.Queued || j1.Attempts != 1 || string.IsNullOrWhiteSpace(j1.RetryAfterUtc))
+                // J1: Dừng ở Failed, attempts giữ 1, không hẹn retry
+                if (j1.State != JobState.Failed || j1.Attempts != 1 || j1.RetryAfterUtc != null)
                 {
                     throw new InvalidOperationException($"J1 sai trạng thái sau recovery: State={j1.State}, Attempts={j1.Attempts}, RetryAfter={j1.RetryAfterUtc}.");
                 }
@@ -1300,23 +1310,25 @@ public static class JobQueueSmokeTests
             await using (var db = new TiToAIDbContext(dbOptions))
             {
                 var jobB = await db.Jobs.AsNoTracking().FirstAsync(j => j.Id == resB.JobId);
-                // Vì đã commit side effect trước khi crash: Bắt buộc chuyển sang AwaitingUser
-                if (jobB.State != JobState.AwaitingUser || jobB.SideEffectSubmitted != 1)
+                // Script lỗi dừng ở Failed, xóa side effect để người dùng chủ động thử lại.
+                if (jobB.State != JobState.Failed || jobB.SideEffectSubmitted != 0 || jobB.RetryAfterUtc != null)
                 {
-                    throw new InvalidOperationException($"Kịch bản B: Kỳ vọng AwaitingUser và side_effect=1 nhưng State={jobB.State}, SideEffect={jobB.SideEffectSubmitted}.");
+                    throw new InvalidOperationException($"Kịch bản B: Kỳ vọng Failed và side_effect=0 nhưng State={jobB.State}, SideEffect={jobB.SideEffectSubmitted}.");
                 }
             }
 
-            // Kịch bản C: Người dùng gọi reconcile với action = "retry"
-            var reconcileResult = await jobServiceB.ReconcileAsync(new JobReconcileRequest(
-                JobId: resB.JobId,
-                Action: "retry",
-                ConfirmedNotReceived: true
-            ));
+            if (await schedulerB.DispatchPendingJobsAsync() != 0)
+                throw new InvalidOperationException("Job lỗi không được tự chạy lại.");
 
-            if (reconcileResult.CurrentState != JobState.Queued)
+            await using (var db = new TiToAIDbContext(dbOptions))
             {
-                throw new InvalidOperationException($"Kịch bản C: Sau khi reconcile retry, trạng thái phải là Queued nhưng là '{reconcileResult.CurrentState}'.");
+                var failed = await db.Jobs.AsNoTracking().FirstAsync(j => j.Id == resB.JobId);
+                var retry = await jobServiceB.RetryAsync(new JobRetryRequest(failed.Id, failed.Revision));
+                if (retry.State != JobState.Queued)
+                    throw new InvalidOperationException("Thử lại thủ công phải đưa job về Queued.");
+                var queued = await db.Jobs.AsNoTracking().FirstAsync(j => j.Id == failed.Id);
+                if (queued.Attempts != failed.Attempts || queued.PromptSnapshotText != failed.PromptSnapshotText || queued.RetryAfterUtc != null)
+                    throw new InvalidOperationException("Thử lại thủ công phải giữ attempts, prompt và không hẹn retry.");
             }
         }
         finally
@@ -1776,9 +1788,9 @@ public static class JobQueueSmokeTests
 
                 await using var db = new TiToAIDbContext(dbOptions);
                 var deadJob = await db.Jobs.AsNoTracking().FirstAsync(j => j.Id == deadJobId);
-                if (deadJob.State != JobState.Queued)
+                if (deadJob.State != JobState.Failed)
                 {
-                    throw new InvalidOperationException($"Dead job chưa submit side effect phải chuyển Queued để retry, thực tế: {deadJob.State}");
+                    throw new InvalidOperationException($"Dead job chưa submit side effect phải dừng ở Failed, thực tế: {deadJob.State}");
                 }
 
                 var racingJob = await db.Jobs.AsNoTracking().FirstAsync(j => j.Id == racingJobId);

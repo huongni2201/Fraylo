@@ -18,7 +18,7 @@ namespace TiToAI.Desktop.SmokeChecks;
 /// Bộ kiểm thử khói định lượng Task T16:
 /// Job Crash Recovery & Reconcile Engine.
 /// Bao phủ 9 ca kiểm thử SQLite thật với DB tạm:
-/// 1. Crash trước submit (SideEffectSubmitted=0): phục hồi về Queued với retry_after và xóa occupancy.
+/// 1. Crash trước submit (SideEffectSubmitted=0): dừng ở Failed, không tự retry và xóa occupancy.
 /// 2. Crash trước submit nhưng hết attempts: phục hồi sang Failed (lease_expired_max_attempts).
 /// 3. Crash sau submit (SideEffectSubmitted=1): phục hồi sang AwaitingUser (reconcile_required) và GIỮ NGUYÊN slot occupancy.
 /// 4. Hai worker đồng thời chạy recovery sweep trên 1 job: đúng 1 winner thành công, loser không corrupt state.
@@ -143,9 +143,9 @@ public static class JobCrashRecoverySmokeTests
     }
 
     /// <summary>
-    /// Test 1: Crash trước submit (SideEffectSubmitted=0): phục hồi về Queued với retry_after và xóa occupancy.
+    /// Test 1: Crash trước submit (SideEffectSubmitted=0): dừng ở Failed, không tự retry và xóa occupancy.
     /// </summary>
-    public static async Task Test_CrashBeforeSideEffect_RecoversToQueuedWithRetryAfterAndDeletesOccupancy()
+    public static async Task Test_CrashBeforeSideEffect_StopsAndDeletesOccupancy()
     {
         var (dbOptions, tempDir) = CreateTestContext();
         try
@@ -193,27 +193,20 @@ public static class JobCrashRecoverySmokeTests
 
             if (sweepResult.RecoveredCount != 1)
                 throw new Exception($"Kỳ vọng 1 job recovered, thực tế: {sweepResult.RecoveredCount}");
-            if (sweepResult.RetriedCount != 1)
-                throw new Exception($"Kỳ vọng 1 job retried, thực tế: {sweepResult.RetriedCount}");
+            if (sweepResult.RetriedCount != 0 || sweepResult.FailedCount != 1)
+                throw new Exception($"Kỳ vọng 0 job tự retry và 1 job Failed, thực tế: {sweepResult.RetriedCount}");
 
             await using (var db = new TiToAIDbContext(dbOptions))
             {
                 var job = await db.Jobs.FirstAsync(j => j.Id == jobId);
-                if (job.State != JobState.Queued)
-                    throw new Exception($"Kỳ vọng trạng thái Queued, thực tế: {job.State}");
+                if (job.State != JobState.Failed)
+                    throw new Exception($"Kỳ vọng trạng thái Failed, thực tế: {job.State}");
                 if (job.LeaseExpiresAtUtc != null)
                     throw new Exception($"Kỳ vọng LeaseExpiresAtUtc = null, thực tế: {job.LeaseExpiresAtUtc}");
                 if (job.LeaseOwnerId != null)
                     throw new Exception($"Kỳ vọng LeaseOwnerId = null, thực tế: {job.LeaseOwnerId}");
-                if (string.IsNullOrWhiteSpace(job.RetryAfterUtc))
-                    throw new Exception("Kỳ vọng RetryAfterUtc có giá trị.");
-
-                // Kiểm tra giãn cách lũy thừa: attempts = 1 => 2^1 * 5 = 10s
-                var retryAfter = DateTimeOffset.Parse(job.RetryAfterUtc);
-                var expectedMin = now.AddSeconds(9);
-                var expectedMax = now.AddSeconds(11);
-                if (retryAfter < expectedMin || retryAfter > expectedMax)
-                    throw new Exception($"RetryAfterUtc không đúng độ trễ lũy thừa: {retryAfter}");
+                if (job.RetryAfterUtc != null)
+                    throw new Exception("Job lỗi không được hẹn tự thử lại.");
 
                 var occExists = await db.ActiveSlotOccupancies.AnyAsync(o => o.JobId == jobId);
                 if (occExists)
@@ -229,6 +222,46 @@ public static class JobCrashRecoverySmokeTests
     /// <summary>
     /// Test 2: Crash trước submit nhưng hết attempts (Attempts >= MaxAttempts): phục hồi sang Failed (lease_expired_max_attempts).
     /// </summary>
+    public static async Task Test_LegacyAutoRetry_StopsButManualAndNewJobsRemainQueued()
+    {
+        var (dbOptions, tempDir) = CreateTestContext();
+        try
+        {
+            var (projectId, _) = await SeedBasicEntitiesAsync(dbOptions);
+            var now = DateTimeOffset.UtcNow;
+            await using (var db = new TiToAIDbContext(dbOptions))
+            {
+                foreach (var id in new[] { "auto-retry", "manual-retry", "new-job" })
+                    db.Jobs.Add(new Job
+                    {
+                        Id = id, ProjectId = projectId, TaskType = JobTaskType.Script,
+                        State = JobState.Queued, Attempts = id == "new-job" ? 0 : 1, MaxAttempts = 3,
+                        RetryAfterUtc = id == "auto-retry" ? now.AddMinutes(5).ToString("o") : null,
+                        ProviderKey = "chatgpt-web", StorageRootId = "root-docs",
+                        CreatedAtUtc = now.ToString("o"), UpdatedAtUtc = now.ToString("o")
+                    });
+                await db.SaveChangesAsync();
+            }
+            var recovery = new JobCrashRecoveryService(dbOptions, clock: () => now);
+            var result = await recovery.PerformRecoverySweepAsync();
+            if (result.FailedCount != 1 || result.RetriedCount != 0)
+                throw new Exception("Phải dừng đúng một lượt tự retry cũ.");
+            await using (var db = new TiToAIDbContext(dbOptions))
+            {
+                var autoRetry = await db.Jobs.SingleAsync(j => j.Id == "auto-retry");
+                if (autoRetry.State != JobState.Failed || autoRetry.RetryAfterUtc != null)
+                    throw new Exception("Lượt tự retry cũ phải dừng.");
+                if (await db.Jobs.CountAsync(j => j.State == JobState.Queued) != 2)
+                    throw new Exception("Job mới và retry thủ công phải giữ Queued.");
+            }
+            if ((await recovery.PerformRecoverySweepAsync()).RecoveredCount != 0)
+                throw new Exception("Quét lại không được thay đổi job đã dừng.");
+        }
+        finally
+        {
+            CleanupTestContext(tempDir);
+        }
+    }
     public static async Task Test_CrashBeforeSideEffect_MaxAttemptsExceeded_RecoversToFailedAndDeletesOccupancy()
     {
         var (dbOptions, tempDir) = CreateTestContext();
@@ -443,8 +476,8 @@ public static class JobCrashRecoverySmokeTests
             await using (var db = new TiToAIDbContext(dbOptions))
             {
                 var job = await db.Jobs.FirstAsync(j => j.Id == jobId);
-                if (job.State != JobState.Queued)
-                    throw new Exception($"Kỳ vọng trạng thái Queued sau sweep, thực tế: {job.State}");
+                if (job.State != JobState.Failed)
+                    throw new Exception($"Kỳ vọng trạng thái Failed sau sweep, thực tế: {job.State}");
 
                 var occExists = await db.ActiveSlotOccupancies.AnyAsync(o => o.JobId == jobId);
                 if (occExists)
@@ -1105,197 +1138,11 @@ public static class JobCrashRecoverySmokeTests
     }
 
     /// <summary>
-    /// Test 10: Reconcile kết quả muộn sau cancel:
-    /// - JobService.CancelAsync trên job AwaitingUser đã submit side effect: chuyển Canceled và giữ occupancy.
-    /// - Sau đó kết quả muộn đến và người dùng gọi ReconcileAsync (resolve / mark_succeeded):
-    ///   + BẮT BUỘC giữ nguyên trạng thái Canceled (KHÔNG chuyển Succeeded).
-    ///   + Chuyển Asset thành "Unlinked" (Status = "Unlinked", SceneId = null).
-    ///   + KHÔNG tự động áp kết quả vào Scene (scene.ImageAssetId vẫn là null).
-    ///   + Giải phóng ActiveSlotOccupancy an toàn sau khi đã ghi nhận kết quả.
+    /// Test 11: Hủy job đã submit side effect kết thúc ngay (không đối soát):
+    /// biến mất khỏi list_active, xóa cờ side effect và giải phóng slot cho job kế tiếp.
+    /// Kịch bản: submit -> recovery -> cancel -> không còn active và slot rảnh.
     /// </summary>
-    public static async Task Test10_LateResultAfterCancel_KeepsCanceled_UnlinksAsset_DoesNotApplyToScene()
-    {
-        var (dbOptions, tempDir) = CreateTestContext();
-        try
-        {
-            var (prjId, scnId) = await SeedBasicEntitiesAsync(dbOptions);
-            var now = DateTimeOffset.UtcNow;
-            var nowIso = now.ToString("o");
-            var expiredLease = now.AddMinutes(-10).ToString("o");
-
-            const string accountId = "account-chatgpt-default";
-            const string profileId = "shared_ai";
-            var jobId = Guid.NewGuid().ToString("D");
-
-            // 1. Tạo Job đang Running đã submit side-effect gắn với Scene
-            await using (var db = new TiToAIDbContext(dbOptions))
-            {
-                db.Jobs.Add(new Job
-                {
-                    Id = jobId,
-                    ProjectId = prjId,
-                    SceneId = scnId,
-                    TaskType = JobTaskType.Image,
-                    ProviderKey = "chatgpt-web",
-                    State = JobState.Running,
-                    Attempts = 1,
-                    MaxAttempts = 3,
-                    SideEffectSubmitted = 1,
-                    SideEffectAtUtc = now.AddMinutes(-15).ToString("o"),
-                    LeaseOwnerId = "worker-1",
-                    LeaseExpiresAtUtc = expiredLease,
-                    FencingToken = 10,
-                    CreatedAtUtc = nowIso,
-                    UpdatedAtUtc = nowIso
-                });
-
-                db.ExecutionBindings.Add(new ExecutionBinding
-                {
-                    JobId = jobId,
-                    ProviderAccountId = accountId,
-                    ProfileId = profileId,
-                    TabSlotId = "slot-1",
-                    CapacityConfigRevision = 1,
-                    AssignedAtUtc = nowIso,
-                    LeaseOwnerId = "worker-1",
-                    LeaseToken = 10
-                });
-
-                db.ActiveSlotOccupancies.Add(new ActiveSlotOccupancy
-                {
-                    ProviderAccountId = accountId,
-                    TabSlotId = "slot-1",
-                    JobId = jobId,
-                    LeaseOwnerId = "worker-1",
-                    LeaseToken = 10,
-                    AcquiredAtUtc = nowIso
-                });
-
-                await db.SaveChangesAsync();
-            }
-
-            // 2. Lease hết hạn -> Quét recovery đưa sang AwaitingUser (occupancy bảo lưu)
-            var recoveryService = new JobCrashRecoveryService(dbOptions, clock: () => now);
-            var sweepResult = await recoveryService.PerformRecoverySweepAsync();
-            if (sweepResult.MovedToReconcileCount != 1)
-            {
-                throw new Exception($"Kỳ vọng 1 job chuyển sang Reconcile, thực tế: {sweepResult.MovedToReconcileCount}");
-            }
-
-            // 3. Khởi tạo JobService qua production composition
-            var reservation = new JobReservation(dbOptions, () => now);
-            await using var scheduler = new JobScheduler(dbOptions, reservation, new DeterministicFakeJobExecutor(), clock: () => now);
-            var rootRegistry = new StorageRootRegistry(dbOptions);
-            var settingsService = new SettingsService(dbOptions, rootRegistry);
-            var snapshotFactory = new JobSnapshotFactory(settingsService);
-            var jobService = new JobService(dbOptions, snapshotFactory, scheduler, clock: () => now);
-
-            // 4. Người dùng gọi JobService.CancelAsync
-            var cancelRes = await jobService.CancelAsync(jobId);
-            if (cancelRes.State != JobState.Canceled)
-            {
-                throw new Exception($"Kỳ vọng CancelAsync trả về Canceled, thực tế: {cancelRes.State}");
-            }
-
-            // Kiểm tra DB: Job ở trạng thái Canceled, CancelRequested = 1, và ActiveSlotOccupancy VẪN ĐƯỢC GIỮ NGUYÊN (unresolved side-effect)
-            await using (var db = new TiToAIDbContext(dbOptions))
-            {
-                var j = await db.Jobs.FirstAsync(x => x.Id == jobId);
-                if (j.State != JobState.Canceled)
-                    throw new Exception($"Kỳ vọng Job trong DB = Canceled, thực tế: {j.State}");
-                if (j.CancelRequested != 1)
-                    throw new Exception($"Kỳ vọng Job trong DB có CancelRequested = 1, thực tế: {j.CancelRequested}");
-                if (j.ReasonCode != JobReasonCode.UserCanceled)
-                    throw new Exception($"Kỳ vọng ReasonCode = user_canceled, thực tế: {j.ReasonCode}");
-
-                var occ = await db.ActiveSlotOccupancies.FirstOrDefaultAsync(o => o.JobId == jobId);
-                if (occ == null)
-                    throw new Exception("ActiveSlotOccupancy phải được giữ nguyên sau khi cancel tác vụ có unresolved side-effect!");
-            }
-
-            // 5. Kết quả muộn (Late Result) đến từ provider: tạo bản ghi Asset trong DB
-            var assetId = Guid.NewGuid().ToString("N");
-            await using (var db = new TiToAIDbContext(dbOptions))
-            {
-                db.Assets.Add(new Asset
-                {
-                    Id = assetId,
-                    ProjectId = prjId,
-                    AssetType = "Image",
-                    StorageRootId = "root_default",
-                    RelativePath = $"{prjId}/images/{assetId}.png",
-                    ByteSize = 1024,
-                    Sha256Hash = "abc123hash",
-                    Status = "Linked",
-                    CreatedAtUtc = nowIso
-                });
-                await db.SaveChangesAsync();
-            }
-
-            // 6. Gọi JobService.ReconcileAsync với action = "resolve" (hoặc "mark_succeeded")
-            var reconcileRes = await jobService.ReconcileAsync(new JobReconcileRequest(
-                JobId: jobId,
-                Action: "resolve",
-                ResultReference: assetId
-            ));
-
-            // KHẲNG ĐỊNH 1: Trạng thái trả về BẮT BUỘC là Canceled (TUYỆT ĐỐI KHÔNG chuyển Succeeded!)
-            if (reconcileRes.CurrentState != JobState.Canceled)
-            {
-                throw new Exception($"Kỳ vọng Reconcile kết quả muộn giữ Canceled, thực tế bị chuyển sang: {reconcileRes.CurrentState}");
-            }
-
-            // KHẲNG ĐỊNH 2: Kiểm tra toàn vẹn DB
-            await using (var db = new TiToAIDbContext(dbOptions))
-            {
-                var j = await db.Jobs.FirstAsync(x => x.Id == jobId);
-                if (j.State != JobState.Canceled)
-                {
-                    throw new Exception($"Job trong DB phải giữ nguyên trạng thái Canceled! Thực tế: {j.State}");
-                }
-                if (j.ReasonCode != JobReasonCode.UserCanceled)
-                {
-                    throw new Exception($"ReasonCode phải là user_canceled! Thực tế: {j.ReasonCode}");
-                }
-                if (j.ResultReference != assetId)
-                {
-                    throw new Exception($"ResultReference phải được ghi nhận: {j.ResultReference}");
-                }
-
-                // KHẲNG ĐỊNH 3: Asset chuyển sang Unlinked
-                var asset = await db.Assets.FirstAsync(a => a.Id == assetId);
-                if (asset.Status != "Unlinked")
-                {
-                    throw new Exception($"Asset phải chuyển sang Status = 'Unlinked'! Thực tế: {asset.Status}");
-                }
-
-                // KHẲNG ĐỊNH 4: Scene KHÔNG bị tự động áp kết quả vào ImageAssetId
-                var scene = await db.Scenes.FirstAsync(s => s.Id == scnId);
-                if (scene.ImageAssetId == assetId)
-                {
-                    throw new Exception("Scene TUYỆT ĐỐI KHÔNG được tự áp Asset vào ImageAssetId khi Job đã bị hủy!");
-                }
-
-                // KHẲNG ĐỊNH 5: ActiveSlotOccupancy đã được giải phóng an toàn
-                var occ = await db.ActiveSlotOccupancies.FirstOrDefaultAsync(o => o.JobId == jobId);
-                if (occ != null)
-                {
-                    throw new Exception("ActiveSlotOccupancy phải được giải phóng sau khi đối soát kết quả muộn thành công!");
-                }
-            }
-        }
-        finally
-        {
-            CleanupTestContext(tempDir);
-        }
-    }
-
-    /// <summary>
-    /// Test 11 (Regression Q1): Job Canceled unresolved phải xuất hiện trong job.list_active,
-    /// và sau khi đối soát an toàn (reconcile) thì biến mất khỏi list_active đồng thời giải phóng slot rảnh.
-    /// Kịch bản: submit -> recovery -> cancel -> service mới list_active vẫn thấy job -> reconcile -> không còn active và slot rảnh.
-    /// </summary>
-    public static async Task Test11_CanceledUnresolvedJob_ListedInListActive_RemovedAfterReconcileAndSlotFreed()
+    public static async Task Test11_CancelAfterSubmit_ReleasesSlotImmediately_NoReconcile()
     {
         var (dbOptions, tempDir) = CreateTestContext();
         try
@@ -1384,46 +1231,21 @@ public static class JobCrashRecoverySmokeTests
                 throw new Exception($"Kỳ vọng CancelAsync trả về Canceled, thực tế: {cancelRes.State}");
             }
 
-            // 5. MÔ PHỎNG RESTART / KHỞI TẠO SERVICE MỚI
+            // 5. Hủy là kết thúc ngay: job không còn trong list_active, không còn cờ side effect và slot được giải phóng
             var freshJobService = new JobService(dbOptions, snapshotFactory, scheduler, clock: () => now);
-
-            // KHẲNG ĐỊNH 1: list_active từ service mới BẮT BUỘC phải thấy Job 1 (vì Canceled còn unresolved side effect & occupancy)!
-            var activeListBeforeReconcile = await freshJobService.ListActiveAsync();
-            var foundJob1 = activeListBeforeReconcile.Jobs.FirstOrDefault(j => j.Id == job1Id);
-            if (foundJob1 == null)
+            var activeAfterCancel = await freshJobService.ListActiveAsync();
+            if (activeAfterCancel.Jobs.Any(j => j.Id == job1Id))
             {
-                throw new Exception("Job Canceled unresolved BẮT BUỘC phải xuất hiện trong list_active theo execution-contract-v1.1 §5!");
+                throw new Exception("Job đã hủy PHẢI biến mất khỏi list_active, không có bước đối soát!");
             }
 
-            // 6. Đối soát an toàn qua JobReconciliationService (action: "cancel" với ConfirmedNotReceived = true)
-            var reconcileService = new JobReconciliationService(dbOptions, clock: () => now);
-            var reconcileRes = await reconcileService.ReconcileAsync(new JobReconcileRequest(
-                JobId: job1Id,
-                Action: "cancel",
-                ConfirmedNotReceived: true
-            ));
-
-            if (reconcileRes.CurrentState != JobState.Canceled)
-            {
-                throw new Exception($"Reconcile cancel phải giữ nguyên trạng thái Canceled! Thực tế: {reconcileRes.CurrentState}");
-            }
-
-            // KHẲNG ĐỊNH 2: list_active sau reconcile KHÔNG ĐƯỢC chứa Job 1 nữa (đã resolved)!
-            var activeListAfterReconcile = await freshJobService.ListActiveAsync();
-            var notFoundJob1 = activeListAfterReconcile.Jobs.FirstOrDefault(j => j.Id == job1Id);
-            if (notFoundJob1 != null)
-            {
-                throw new Exception("Job Canceled sau khi reconcile an toàn PHẢI BIẾN MẤT khỏi list_active!");
-            }
-
-            // KHẲNG ĐỊNH 3: ActiveSlotOccupancy đã được giải phóng (slot rảnh)
             await using (var db = new TiToAIDbContext(dbOptions))
             {
-                var occAfter = await db.ActiveSlotOccupancies.FirstOrDefaultAsync(o => o.JobId == job1Id);
-                if (occAfter != null)
-                {
-                    throw new Exception("ActiveSlotOccupancy phải được giải phóng sau đối soát an toàn!");
-                }
+                var j1 = await db.Jobs.AsNoTracking().FirstAsync(x => x.Id == job1Id);
+                if (j1.SideEffectSubmitted != 0)
+                    throw new Exception("Hủy phải xóa cờ side effect để job không chờ đối soát!");
+                if (await db.ActiveSlotOccupancies.AnyAsync(o => o.JobId == job1Id))
+                    throw new Exception("ActiveSlotOccupancy phải được giải phóng ngay khi hủy!");
             }
 
             // KHẲNG ĐỊNH 4: Capacity=1 rảnh, Job 2 có thể reserve thành công ngay lập tức
@@ -1459,13 +1281,7 @@ public static class JobCrashRecoverySmokeTests
         }
     }
 
-    /// <summary>
-    /// Test 12 (Regression Q2): Tác vụ đã hủy (Canceled hoặc CancelRequested=1):
-    /// - Chặn đứng retry/resubmit (kể cả khi ConfirmedNotReceived = true), không làm sống lại thành lần sinh AI mới.
-    /// - Chặn finalize khi không có checkpoint.
-    /// - Khi có checkpoint: finalize qua production giữ nguyên ý định Canceled, lưu asset Unlinked, không áp vào scene và không gọi AI lại.
-    /// </summary>
-    public static async Task Test12_CanceledJob_ReconcileRetryAndResubmitBlocked_FinalizePreservesCanceledIntent()
+    public static async Task Test12_LateResultAfterCancel_StaysCanceled_UnlinksAsset()
     {
         var (dbOptions, tempDir) = CreateTestContext();
         try
@@ -1473,272 +1289,48 @@ public static class JobCrashRecoverySmokeTests
             var (prjId, scnId) = await SeedBasicEntitiesAsync(dbOptions);
             var now = DateTimeOffset.UtcNow;
             var nowIso = now.ToString("o");
-            var expiredLease = now.AddMinutes(-10).ToString("o");
-
-            const string accountId = "account-chatgpt-default";
-            const string profileId = "shared_ai";
             var jobId = Guid.NewGuid().ToString("D");
+            var assetId = Guid.NewGuid().ToString("N");
 
-            // Cấu hình storage root trong DB
-            var rootDir = Path.Combine(tempDir, "storage_root");
-            Directory.CreateDirectory(rootDir);
             await using (var db = new TiToAIDbContext(dbOptions))
             {
-                db.AppSettings.Add(new AppSetting
-                {
-                    Key = "storage.roots.root_default",
-                    Value = rootDir,
-                    UpdatedAtUtc = nowIso
-                });
-
-                // Job đang Running và đã submit side-effect
                 db.Jobs.Add(new Job
                 {
-                    Id = jobId,
-                    ProjectId = prjId,
-                    SceneId = scnId,
-                    TaskType = JobTaskType.Image,
-                    ProviderKey = "chatgpt-web",
-                    StorageRootId = "root_default",
-                    PromptSnapshotText = "Prompt test 12",
-                    ConfigSnapshotJson = "{}",
-                    State = JobState.Running,
-                    Attempts = 1,
-                    MaxAttempts = 3,
-                    SideEffectSubmitted = 1,
-                    SideEffectAtUtc = now.AddMinutes(-15).ToString("o"),
-                    LeaseOwnerId = "worker-1",
-                    LeaseExpiresAtUtc = expiredLease,
-                    FencingToken = 10,
-                    CreatedAtUtc = nowIso,
-                    UpdatedAtUtc = nowIso
+                    Id = jobId, ProjectId = prjId, SceneId = scnId, TaskType = JobTaskType.Image, ProviderKey = "chatgpt-web",
+                    State = JobState.Running, Attempts = 1, MaxAttempts = 3, SideEffectSubmitted = 1,
+                    LeaseOwnerId = "worker-1", LeaseExpiresAtUtc = now.AddMinutes(5).ToString("o"), FencingToken = 10,
+                    CreatedAtUtc = nowIso, UpdatedAtUtc = nowIso
                 });
-
-                db.ExecutionBindings.Add(new ExecutionBinding
-                {
-                    JobId = jobId,
-                    ProviderAccountId = accountId,
-                    ProfileId = profileId,
-                    TabSlotId = "slot-1",
-                    CapacityConfigRevision = 1,
-                    AssignedAtUtc = nowIso,
-                    LeaseOwnerId = "worker-1",
-                    LeaseToken = 10
-                });
-
-                db.ActiveSlotOccupancies.Add(new ActiveSlotOccupancy
-                {
-                    ProviderAccountId = accountId,
-                    TabSlotId = "slot-1",
-                    JobId = jobId,
-                    LeaseOwnerId = "worker-1",
-                    LeaseToken = 10,
-                    AcquiredAtUtc = nowIso
-                });
-
-                await db.SaveChangesAsync();
-            }
-
-            // Crash recovery -> AwaitingUser
-            var recoveryService = new JobCrashRecoveryService(dbOptions, clock: () => now);
-            await recoveryService.PerformRecoverySweepAsync();
-
-            var rootRegistry = new StorageRootRegistry(dbOptions);
-            var fileStore = new AssetFileStore();
-            var fakeExecutor = new DeterministicFakeJobExecutor
-            {
-                FileStore = fileStore,
-                RootRegistry = rootRegistry,
-                FinalizeRelativePath = $"{prjId}/images/output_test12.png"
-            };
-
-            var reservation = new JobReservation(dbOptions, () => now);
-            await using var scheduler = new JobScheduler(dbOptions, reservation, fakeExecutor, clock: () => now);
-            var settingsService = new SettingsService(dbOptions, rootRegistry);
-            var snapshotFactory = new JobSnapshotFactory(settingsService);
-            var jobService = new JobService(dbOptions, snapshotFactory, scheduler, clock: () => now);
-
-            // Người dùng gọi JobService.CancelAsync
-            await jobService.CancelAsync(jobId);
-
-            var reconcileService = new JobReconciliationService(dbOptions, clock: () => now);
-
-            // KHẲNG ĐỊNH 1: Chặn retry trên tác vụ đã hủy (kể cả khi ConfirmedNotReceived = true)
-            bool retryBlocked = false;
-            try
-            {
-                await reconcileService.ReconcileAsync(new JobReconcileRequest(
-                    JobId: jobId,
-                    Action: "retry",
-                    ConfirmedNotReceived: true
-                ));
-            }
-            catch (JobValidationException)
-            {
-                retryBlocked = true;
-            }
-            if (!retryBlocked)
-            {
-                throw new Exception("Reconcile retry trên tác vụ đã Canceled BẮT BUỘC phải bị chặn với JobValidationException!");
-            }
-
-            // KHẲNG ĐỊNH 2: Chặn resubmit trên tác vụ đã hủy (kể cả khi ConfirmedNotReceived = true)
-            bool resubmitBlocked = false;
-            try
-            {
-                await reconcileService.ReconcileAsync(new JobReconcileRequest(
-                    JobId: jobId,
-                    Action: "resubmit",
-                    ConfirmedNotReceived: true
-                ));
-            }
-            catch (JobValidationException)
-            {
-                resubmitBlocked = true;
-            }
-            if (!resubmitBlocked)
-            {
-                throw new Exception("Reconcile resubmit trên tác vụ đã Canceled BẮT BUỘC phải bị chặn với JobValidationException!");
-            }
-
-            // KHẲNG ĐỊNH 3: Chặn finalize khi CHƯA có checkpoint
-            bool finalizeWithoutCheckpointBlocked = false;
-            try
-            {
-                await reconcileService.ReconcileAsync(new JobReconcileRequest(
-                    JobId: jobId,
-                    Action: "finalize"
-                ));
-            }
-            catch (JobValidationException)
-            {
-                finalizeWithoutCheckpointBlocked = true;
-            }
-            if (!finalizeWithoutCheckpointBlocked)
-            {
-                throw new Exception("Reconcile finalize trên tác vụ đã Canceled khi chưa có checkpoint BẮT BUỘC phải bị chặn!");
-            }
-
-            // Thiết lập checkpoint kết quả trung gian trong DB (giả lập AI đã sinh xong nhưng lỗi storage)
-            const string checkpointPayload = "Payload checkpoint thu hoi tu AI sau cancel";
-            var assetId = Guid.NewGuid().ToString("N");
-            var relPath = $"{prjId}/images/{assetId}.png";
-            fakeExecutor.FinalizeRelativePath = relPath;
-            fakeExecutor.ResultReferenceToReturn = assetId;
-
-            await using (var db = new TiToAIDbContext(dbOptions))
-            {
                 db.Assets.Add(new Asset
                 {
-                    Id = assetId,
-                    ProjectId = prjId,
-                    AssetType = "Image",
-                    StorageRootId = "root_default",
-                    RelativePath = relPath,
-                    ByteSize = 1024,
-                    Sha256Hash = "hash123",
-                    Status = "Linked",
-                    CreatedAtUtc = nowIso
+                    Id = assetId, ProjectId = prjId, AssetType = "Image", StorageRootId = "root_default",
+                    RelativePath = $"{prjId}/images/{assetId}.png", ByteSize = 1024, Sha256Hash = "abc123hash",
+                    Status = "Linked", CreatedAtUtc = nowIso
                 });
-
-                var j = await db.Jobs.FirstAsync(x => x.Id == jobId);
-                j.ResultReference = assetId;
-                j.ResultText = checkpointPayload;
                 await db.SaveChangesAsync();
             }
 
-            var initialAiSubmits = fakeExecutor.TotalAiSubmits;
+            var reservation = new JobReservation(dbOptions, () => now);
+            await using var scheduler = new JobScheduler(dbOptions, reservation, new DeterministicFakeJobExecutor(), clock: () => now);
+            var settingsService = new SettingsService(dbOptions, new StorageRootRegistry(dbOptions));
+            var jobService = new JobService(dbOptions, new JobSnapshotFactory(settingsService), scheduler, clock: () => now);
+            await jobService.CancelAsync(jobId);
 
-            // Gọi Reconcile finalize khi ĐÃ CÓ checkpoint
-            var finalizeRes = await reconcileService.ReconcileAsync(new JobReconcileRequest(
-                JobId: jobId,
-                Action: "finalize"
-            ));
+            // Worker cũ vẫn giữ fencing token 10 và báo thành công muộn.
+            var blocked = false;
+            try { await reservation.CommitSuccessAsync(jobId, 10, assetId, null); }
+            catch (FencingTokenStaleException) { blocked = true; }
+            if (!blocked)
+                throw new Exception("Kết quả muộn sau khi hủy phải bị chặn.");
 
-            if (finalizeRes.CurrentState != JobState.Queued)
-            {
-                throw new Exception($"Reconcile finalize checkpoint phải đưa job về Queued để scheduler finalize! Thực tế: {finalizeRes.CurrentState}");
-            }
-
-            // Scheduler dispatch finalize output
-            var dispatched = await scheduler.DispatchNextSingleJobAsync();
-            if (!dispatched)
-            {
-                throw new Exception("Scheduler phải dispatch được lượt finalize của checkpoint!");
-            }
-
-            // Đợi scheduler xử lý xong
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            Job? finalizedJob = null;
-            while (sw.Elapsed < TimeSpan.FromSeconds(5))
-            {
-                await using var db = new TiToAIDbContext(dbOptions);
-                var j = await db.Jobs.AsNoTracking().FirstOrDefaultAsync(x => x.Id == jobId);
-                if (j != null && (j.State == JobState.Canceled || j.State == JobState.Succeeded))
-                {
-                    finalizedJob = j;
-                    break;
-                }
-                await Task.Delay(50);
-            }
-
-            if (finalizedJob == null)
-            {
-                await using var db = new TiToAIDbContext(dbOptions);
-                var currentJob = await db.Jobs.AsNoTracking().FirstAsync(x => x.Id == jobId);
-                throw new TimeoutException($"Hết thời gian chờ scheduler finalize checkpoint: state={currentJob.State}, reason={currentJob.ReasonCode}, worker={scheduler.LastWorkerException}");
-            }
-
-            // KHẲNG ĐỊNH 4: KHÔNG TĂNG AI submits (TotalAiSubmits giữ nguyên)
-            if (fakeExecutor.TotalAiSubmits != initialAiSubmits)
-            {
-                throw new Exception($"Finalize checkpoint của tác vụ đã hủy TUYỆT ĐỐI KHÔNG được gọi AI sinh lại! Ban đầu: {initialAiSubmits}, hiện tại: {fakeExecutor.TotalAiSubmits}");
-            }
-
-            // KHẲNG ĐỊNH 5: Kiểm tra kết quả trong DB: giữ Canceled, UserCanceled, Asset Unlinked, Scene không bị áp
             await using (var db = new TiToAIDbContext(dbOptions))
             {
-                var j = await db.Jobs.FirstAsync(x => x.Id == jobId);
-                if (j.State != JobState.Canceled)
-                {
-                    throw new Exception($"Job sau khi finalize checkpoint của lệnh hủy phải ở Canceled! Thực tế: {j.State}");
-                }
-                if (j.ReasonCode != JobReasonCode.UserCanceled)
-                {
-                    throw new Exception($"Job reasonCode phải là user_canceled! Thực tế: {j.ReasonCode}");
-                }
-
-                // Asset được tạo và có Status = Unlinked
-                if (string.IsNullOrWhiteSpace(j.ResultReference))
-                {
-                    throw new Exception("Job ResultReference phải được cập nhật AssetId!");
-                }
-                var asset = await db.Assets.FirstAsync(a => a.Id == j.ResultReference);
+                var job = await db.Jobs.AsNoTracking().FirstAsync(x => x.Id == jobId);
+                if (job.State != JobState.Canceled || !string.IsNullOrWhiteSpace(job.ResultReference))
+                    throw new Exception("Job đã hủy không được nhận kết quả muộn.");
+                var asset = await db.Assets.AsNoTracking().FirstAsync(x => x.Id == assetId);
                 if (asset.Status != "Unlinked")
-                {
-                    throw new Exception($"Asset phải có Status = 'Unlinked'! Thực tế: {asset.Status}");
-                }
-
-                // File thật đã được ghi trong storage
-                var fullFilePath = Path.Combine(rootDir, asset.RelativePath);
-                if (!File.Exists(fullFilePath))
-                {
-                    throw new Exception($"File kết quả phải được AssetFileStore ghi thật trong storage tại {fullFilePath}");
-                }
-
-                // Scene không bị áp Asset
-                var scn = await db.Scenes.FirstAsync(s => s.Id == scnId);
-                if (scn.ImageAssetId != null)
-                {
-                    throw new Exception("Scene TUYỆT ĐỐI KHÔNG được áp Asset khi Job đã bị hủy!");
-                }
-
-                // Occupancy đã được giải phóng
-                var occ = await db.ActiveSlotOccupancies.FirstOrDefaultAsync(o => o.JobId == jobId);
-                if (occ != null)
-                {
-                    throw new Exception("ActiveSlotOccupancy phải được giải phóng sau khi finalize checkpoint của tác vụ hủy!");
-                }
+                    throw new Exception($"Asset của kết quả muộn phải Unlinked, thực tế: {asset.Status}");
             }
         }
         finally
@@ -1785,9 +1377,12 @@ public static class JobCrashRecoverySmokeTests
             }
         }
 
+        await RunCheckAsync("Legacy auto-retry stops; manual and new jobs remain queued",
+            Test_LegacyAutoRetry_StopsButManualAndNewJobsRemainQueued);
+
         await RunCheckAsync(
-            "Test 1: Crash before side-effect recovers to Queued with exponential retry_after and deletes occupancy",
-            Test_CrashBeforeSideEffect_RecoversToQueuedWithRetryAfterAndDeletesOccupancy);
+            "Test 1: Crash before side-effect stops at Failed and deletes occupancy",
+            Test_CrashBeforeSideEffect_StopsAndDeletesOccupancy);
 
         await RunCheckAsync(
             "Test 2: Crash before side-effect with max attempts recovers to Failed and deletes occupancy",
@@ -1822,16 +1417,12 @@ public static class JobCrashRecoverySmokeTests
             Test9_Capacity1_Submit_LeaseExpired_AwaitingUser_Cancel_BlocksNewJobUntilReconciled);
 
         await RunCheckAsync(
-            "Test 10: Late result reconcile after cancel keeps Canceled, unlinks asset, and does not apply to scene",
-            Test10_LateResultAfterCancel_KeepsCanceled_UnlinksAsset_DoesNotApplyToScene);
+            "Test 11: Cancel after submit finishes immediately, frees slot, no reconcile",
+            Test11_CancelAfterSubmit_ReleasesSlotImmediately_NoReconcile);
 
         await RunCheckAsync(
-            "Test 11: Canceled unresolved job listed in list_active, removed after reconcile and slot freed",
-            Test11_CanceledUnresolvedJob_ListedInListActive_RemovedAfterReconcileAndSlotFreed);
-
-        await RunCheckAsync(
-            "Test 12: Canceled job retry/resubmit blocked, finalize preserves canceled intent without new AI submit",
-            Test12_CanceledJob_ReconcileRetryAndResubmitBlocked_FinalizePreservesCanceledIntent);
+            "Test 12: Late result after cancel stays Canceled and unlinks the asset",
+            Test12_LateResultAfterCancel_StaysCanceled_UnlinksAsset);
 
         Console.WriteLine("=================================================================");
         if (failed == 0)

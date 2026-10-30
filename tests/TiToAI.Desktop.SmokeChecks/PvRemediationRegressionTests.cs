@@ -152,7 +152,8 @@ public static class PvRemediationRegressionTests
                 AudioOption: AudioOptions.None,
                 AudioAssetId: null,
                 TargetSceneCount: 1,
-                TargetDurationPerSceneSeconds: 15
+                TargetDurationPerSceneSeconds: 15,
+                VideoStrategy: VideoStrategies.MultiVideo
             ));
 
             await workflowService.StartWorkflowAsync(new StartProjectWorkflowRequest(prjId));
@@ -962,10 +963,11 @@ public static class PvRemediationRegressionTests
                 AudioOption: AudioOptions.None,
                 AudioAssetId: null,
                 TargetSceneCount: 2,
-                TargetDurationPerSceneSeconds: 15
+                TargetDurationPerSceneSeconds: 15,
+                VideoStrategy: VideoStrategies.MultiVideo
             ));
 
-            string clientRequestId = "req-idempotent-" + Guid.NewGuid().ToString("N");
+            string clientRequestId ="req-idempotent-" + Guid.NewGuid().ToString("N");
 
             // Lần 1: Bắt đầu workflow
             var resp1 = await workflowService.StartWorkflowAsync(new StartProjectWorkflowRequest(

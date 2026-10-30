@@ -6,9 +6,9 @@ import { bridgeClient } from "../../services/bridgeClient.ts";
 import type { G1Command } from "../../contracts/bridge.ts";
 
 /**
- * Ba mục đích prompt hợp lệ theo T10 backend (PromptTemplateService.ValidPurposes)
+ * Năm mục đích prompt hợp lệ, khớp backend (PromptTemplateService.ValidPurposes)
  */
-export type PromptPurpose = "Script" | "Image" | "VideoPrompt";
+export type PromptPurpose = "Script" | "ComposeImage" | "VideoPrompt" | "Storyboard" | "Image";
 
 export interface PromptVariableDefinition {
   name: string;

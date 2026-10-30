@@ -125,12 +125,13 @@ public sealed partial class ProjectWorkflowService
             IReadOnlyList<ScenePlanItemDto> sceneItems;
             if (config.VideoStrategy == VideoStrategies.SingleVideo)
             {
-                var storyboard = TryParseStoryboard(job.ResultText, config.TargetDurationPerSceneSeconds);
+                var grid = VideoWorkflowPromptComposer.IsGridMode(config);
+                var storyboard = TryParseStoryboard(job.ResultText, config.TargetDurationPerSceneSeconds, grid);
                 if (storyboard != null)
                 {
-                    await new StoryboardContentService(_dbOptions).SaveAsync(job.ProjectId, job.ResultText, config.TargetDurationPerSceneSeconds, cancellationToken).ConfigureAwait(false);
+                    await new StoryboardContentService(_dbOptions).SaveAsync(job.ProjectId, job.ResultText, config.TargetDurationPerSceneSeconds, cancellationToken, grid).ConfigureAwait(false);
                 }
-                sceneItems = storyboard != null ? StoryboardScenePlan(storyboard) : Array.Empty<ScenePlanItemDto>();
+                sceneItems = storyboard != null ? StoryboardScenePlan(storyboard, grid) : Array.Empty<ScenePlanItemDto>();
             }
             else
             {
@@ -150,7 +151,9 @@ public sealed partial class ProjectWorkflowService
                     cfgSetting.UpdatedAtUtc = nowIso;
                 }
                 await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                await WriteAutoRenderLogAsync(job.Id, "error", config.VideoStrategy == VideoStrategies.SingleVideo
+                await WriteAutoRenderLogAsync(job.Id, "error", VideoWorkflowPromptComposer.IsGridMode(config)
+                    ? $"Phản hồi Script không phải storyboard đúng {ReferenceImageModes.GridShotCount} shot liên tiếp {ReferenceImageModes.GridDurationSeconds} giây (mỗi shot có imagePrompt và motionPrompt) nên chưa tạo cảnh. Hãy kiểm tra mẫu Script và bắt đầu lại."
+                    : config.VideoStrategy == VideoStrategies.SingleVideo
                     ? "Phản hồi Script không phải storyboard hợp lệ nên chưa tạo cảnh. Hãy kiểm tra mẫu Script và bắt đầu lại."
                     : $"Phản hồi Script chưa hợp lệ nên chưa tạo cảnh: cần JSON có đúng {Math.Max(1, config.TargetSceneCount)} cảnh và mỗi cảnh có imagePrompt. Hãy kiểm tra mẫu Script và bắt đầu lại.",
                     CancellationToken.None).ConfigureAwait(false);
@@ -313,11 +316,60 @@ public sealed partial class ProjectWorkflowService
             }
             staleTaskTypes.Remove(JobTaskType.Image);
 
+            // Chế độ ảnh 9 ô: job Image đầu (Ghép ảnh) chỉ cho ra ảnh nguồn; ảnh của cảnh chỉ thành ảnh gửi render khi job 3×3 xong.
+            var gridMode = VideoWorkflowPromptComposer.IsGridMode(config);
+            var isGridJob = gridMode && GetSnapshotStepKey(job.ConfigSnapshotJson)?.StartsWith(GridStepPrefix, StringComparison.Ordinal) == true;
+            if (isGridJob && !string.IsNullOrWhiteSpace(job.ResultReference))
+            {
+                var markerKey = GridMarkerKey(scene.Id);
+                var marker = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == markerKey, cancellationToken).ConfigureAwait(false);
+                if (marker == null)
+                {
+                    dbContext.AppSettings.Add(new AppSetting { Key = markerKey, Value = job.ResultReference, UpdatedAtUtc = nowIso });
+                }
+                else
+                {
+                    marker.Value = job.ResultReference;
+                    marker.UpdatedAtUtc = nowIso;
+                }
+            }
+
+            if (gridMode && !isGridJob && !string.IsNullOrWhiteSpace(job.ResultReference))
+            {
+                // Giữ ảnh ghép trung gian để UI hiển thị riêng với ảnh 3×3 sau khi ảnh của cảnh được thay.
+                var composedKey = ComposedMarkerKey(scene.Id);
+                var composedMarker = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == composedKey, cancellationToken).ConfigureAwait(false);
+                if (composedMarker == null)
+                {
+                    dbContext.AppSettings.Add(new AppSetting { Key = composedKey, Value = job.ResultReference, UpdatedAtUtc = nowIso });
+                }
+                else
+                {
+                    composedMarker.Value = job.ResultReference;
+                    composedMarker.UpdatedAtUtc = nowIso;
+                }
+            }
+
+            if (!isPaused && gridMode && !isGridJob)
+            {
+                // Ảnh ghép xong -> job tạo ảnh 3×3 từ ảnh ghép.
+                var gridRequest = await BuildGridImageRequestAsync(dbContext, config, scene, cancellationToken).ConfigureAwait(false);
+                continuationIntent = new WorkflowContinuationIntent(
+                    IntentId: Guid.NewGuid().ToString("D").ToLowerInvariant(),
+                    ProjectId: job.ProjectId,
+                    SceneId: scene.Id,
+                    TaskType: JobTaskType.Image,
+                    CustomPromptText: gridRequest.CustomPromptText,
+                    MediaSnapshot: gridRequest.MediaSnapshot,
+                    RunId: config.CurrentRunId ?? string.Empty,
+                    CreatedAtUtc: nowIso,
+                    WorkflowStepKey: gridRequest.WorkflowStepKey);
+            }
             // Kích hoạt bước tiếp theo: VideoPrompt
             // Chú ý: Kể cả khi scene.PromptText đã có draft từ Script, VẪN enqueue VideoPrompt
             // để AI writer hoàn thiện thành motion prompt đầy đủ với template đã render (§3.3, PV-R5, PV-R11).
             // Nhiều video đã có prompt từ Script thì bỏ qua bước này (VIDEO_TWO_FLOW_SPLIT §3.2).
-            if (!isPaused && (config.VideoStrategy == VideoStrategies.SingleVideo || string.IsNullOrWhiteSpace(scene.PromptText)))
+            else if (!isPaused && (config.VideoStrategy == VideoStrategies.SingleVideo || string.IsNullOrWhiteSpace(scene.PromptText)))
             {
                 var composition = await composer.ComposeVideoPromptAiRequestAsync(
                     config,
@@ -465,6 +517,14 @@ public sealed partial class ProjectWorkflowService
                 {
                     cfgSetting.Value = await SerializeStoredConfigAsync(dbContext, updatedConfig, cancellationToken).ConfigureAwait(false);
                     cfgSetting.UpdatedAtUtc = nowIso;
+                }
+
+                // Run "InProgress" được set lúc khởi động; khi run hoàn tất phải chuyển Project sang Completed.
+                var completedProject = await dbContext.Projects.FirstOrDefaultAsync(p => p.Id == job.ProjectId, cancellationToken).ConfigureAwait(false);
+                if (completedProject != null)
+                {
+                    completedProject.Status = "Completed";
+                    completedProject.UpdatedAtUtc = nowIso;
                 }
             }
         }
@@ -650,6 +710,11 @@ public sealed partial class ProjectWorkflowService
             .Where(s => s.ProjectId == projectId)
             .ToListAsync(cancellationToken).ConfigureAwait(false);
         var allReady = scenes.Count > 0 && scenes.All(s => !string.IsNullOrWhiteSpace(s.ImageAssetId) && !string.IsNullOrWhiteSpace(s.PromptText));
+        // Chế độ 9 ô: không render từ ảnh nguồn/ảnh cũ khi ảnh 3×3 chưa sẵn sàng.
+        foreach (var scene in scenes)
+        {
+            if (allReady && await NeedsGridImageAsync(dbContext, config, scene, cancellationToken).ConfigureAwait(false)) allReady = false;
+        }
         var anyPendingPrep = await dbContext.Jobs.AsNoTracking().AnyAsync(j =>
             j.ProjectId == projectId &&
             (j.TaskType == JobTaskType.Image || j.TaskType == JobTaskType.VideoPrompt) &&
@@ -995,18 +1060,22 @@ public sealed partial class ProjectWorkflowService
         return applied;
     }
 
-    private static string? GetWorkflowRunId(string? configSnapshotJson)
+    private static string? GetWorkflowRunId(string? configSnapshotJson) => ReadSnapshotString(configSnapshotJson, "WorkflowRunId");
+
+    private static string? GetSnapshotStepKey(string? configSnapshotJson) => ReadSnapshotString(configSnapshotJson, "WorkflowStepKey");
+
+    private static string? ReadSnapshotString(string? configSnapshotJson, string name)
     {
         if (string.IsNullOrWhiteSpace(configSnapshotJson)) return null;
         try
         {
             using var document = JsonDocument.Parse(configSnapshotJson);
             var root = document.RootElement;
-            if (!root.TryGetProperty("WorkflowRunId", out var runId) && !root.TryGetProperty("workflowRunId", out runId))
+            if (!root.TryGetProperty(name, out var value) && !root.TryGetProperty(char.ToLowerInvariant(name[0]) + name[1..], out value))
             {
                 return null;
             }
-            return runId.ValueKind == JsonValueKind.String ? runId.GetString() : null;
+            return value.ValueKind == JsonValueKind.String ? value.GetString() : null;
         }
         catch (JsonException)
         {
@@ -1024,11 +1093,11 @@ public sealed partial class ProjectWorkflowService
     };
 
     /// <summary>Storyboard hợp lệ thì trả về; kết quả Script không phải storyboard sẽ đi theo đường scenes cũ.</summary>
-    private static StoryboardContent? TryParseStoryboard(string resultText, int durationSeconds)
+    private static StoryboardContent? TryParseStoryboard(string resultText, int durationSeconds, bool grid = false)
     {
         try
         {
-            return StoryboardContentService.Parse(resultText, durationSeconds);
+            return grid ? StoryboardContentService.ParseGrid(resultText, durationSeconds) : StoryboardContentService.Parse(resultText, durationSeconds);
         }
         catch (ProjectWorkflowValidationException)
         {
@@ -1039,13 +1108,16 @@ public sealed partial class ProjectWorkflowService
     /// <summary>
     /// Luồng một video: cả storyboard là một phân cảnh. Mốc thời gian nằm trong purpose để prompt video giữ thứ tự các đoạn.
     /// </summary>
-    private static IReadOnlyList<ScenePlanItemDto> StoryboardScenePlan(StoryboardContent storyboard) =>
+    private static IReadOnlyList<ScenePlanItemDto> StoryboardScenePlan(StoryboardContent storyboard, bool grid = false) =>
         new[]
         {
             new ScenePlanItemDto(
                 SequenceOrder: 1,
                 Name: "Video",
-                Purpose: string.Join("\n", storyboard.Shots.Select(shot => $"{shot.StartSeconds}–{shot.EndSeconds} giây: {shot.Description}")),
+                // Chế độ 9 ô: thứ tự dòng chính là thứ tự ô; mỗi ô kèm chuyển động để prompt video bám đúng.
+                Purpose: string.Join("\n", storyboard.Shots.Select((shot, index) => grid
+                    ? $"Ô {index + 1} ({shot.StartSeconds}–{shot.EndSeconds} giây): {shot.Description} Chuyển động: {shot.MotionPrompt}"
+                    : $"{shot.StartSeconds}–{shot.EndSeconds} giây: {shot.Description}")),
                 TargetDurationSeconds: storyboard.DurationSeconds,
                 ImageStrategy: SceneImageStrategy.ReuseFoundation,
                 MotionPromptDraft: string.Empty)

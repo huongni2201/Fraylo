@@ -30,6 +30,7 @@ public sealed class JobScheduler : IJobWakeupNotifier, IAsyncDisposable
 
     private readonly Channel<JobWakeupSignal> _wakeupChannel;
     private readonly CancellationTokenSource _cts = new();
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _workerCancellations = new();
     private readonly ConcurrentDictionary<string, Task> _runningWorkerTasks = new();
     private Task? _schedulerLoopTask;
     private int _isDisposed;
@@ -278,6 +279,7 @@ public sealed class JobScheduler : IJobWakeupNotifier, IAsyncDisposable
         long fencingToken = reservedJob.FencingToken;
         string role = reservedJob.TaskType;
         using var workerCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        _workerCancellations[jobId] = workerCts;
         IDisposable? tabLease = null;
         Timer? heartbeatTimer = null;
         bool sideEffectCommitted = false;
@@ -431,6 +433,7 @@ public sealed class JobScheduler : IJobWakeupNotifier, IAsyncDisposable
         }
         finally
         {
+            _workerCancellations.TryRemove(jobId, out _);
             if (heartbeatTimer is not null)
             {
                 await heartbeatTimer.DisposeAsync().ConfigureAwait(false);
@@ -451,11 +454,23 @@ public sealed class JobScheduler : IJobWakeupNotifier, IAsyncDisposable
         }
     }
 
+    /// <summary>Dừng worker đang chạy của job (người dùng hủy): đóng tab và ngừng chờ provider.</summary>
+    public void CancelRunningWorker(string jobId)
+    {
+        if (_workerCancellations.TryGetValue(jobId, out var cts))
+        {
+            try { cts.Cancel(); } catch (ObjectDisposedException) { }
+        }
+    }
+
     private async Task HandleExecutionFailureAsync(Job job, long fencingToken, string reason, bool sideEffectCommitted)
     {
         try
         {
-            var decision = JobRetryAndCancelPolicy.EvaluateFailure(job, reason, sideEffectCommitted);
+            // Chỉ render video đã gửi mới cần giữ ranh giới side effect (không gửi lại mù, khôi phục từ side chat);
+            // Script/Image/VideoPrompt lỗi sau khi gửi chỉ là lỗi thường: xóa cờ để thử lại được, không có bước đối soát.
+            var keepSideEffect = sideEffectCommitted && job.TaskType == JobTaskType.VideoRender;
+            var decision = JobRetryAndCancelPolicy.EvaluateFailure(job, reason, keepSideEffect);
 
             if (decision.TargetState == JobState.AwaitingUser)
             {
@@ -504,7 +519,8 @@ public sealed class JobScheduler : IJobWakeupNotifier, IAsyncDisposable
                     decision.FinalReasonCode,
                     canRetry,
                     retryDelay,
-                    CancellationToken.None).ConfigureAwait(false);
+                    CancellationToken.None,
+                    clearSideEffect: sideEffectCommitted && !keepSideEffect).ConfigureAwait(false);
 
                 job.Revision += 1;
                 var newState = canRetry ? JobState.Queued : JobState.Failed;

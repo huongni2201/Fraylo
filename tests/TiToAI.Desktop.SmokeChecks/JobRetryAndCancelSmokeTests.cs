@@ -179,37 +179,22 @@ public static class JobRetryAndCancelSmokeTests
     }
 
     /// <summary>
-    /// Test 2: Exponential Backoff tính đúng theo 2^attempts * 5s, có chặn trần hữu hạn.
+    /// Test 2: Job lỗi dừng ngay dù vẫn còn ngân sách thử lại.
     /// </summary>
-    public static void Test2_Backoff_CalculatedCorrectly_Exponential2PowAttemptsTimes5()
+    public static void Test2_Failure_DoesNotAutoRetry()
     {
-        // attempts = 0: 2^0 * 5 = 1 * 5 = 5 giây
-        var backoff0 = JobRetryAndCancelPolicy.CalculateBackoff(0);
-        Assert(backoff0 == TimeSpan.FromSeconds(5), $"Backoff cho attempt 0 phải là 5s, thực tế: {backoff0.TotalSeconds}s.");
-
-        // attempts = 1: 2^1 * 5 = 2 * 5 = 10 giây
-        var backoff1 = JobRetryAndCancelPolicy.CalculateBackoff(1);
-        Assert(backoff1 == TimeSpan.FromSeconds(10), $"Backoff cho attempt 1 phải là 10s, thực tế: {backoff1.TotalSeconds}s.");
-
-        // attempts = 2: 2^2 * 5 = 4 * 5 = 20 giây
-        var backoff2 = JobRetryAndCancelPolicy.CalculateBackoff(2);
-        Assert(backoff2 == TimeSpan.FromSeconds(20), $"Backoff cho attempt 2 phải là 20s, thực tế: {backoff2.TotalSeconds}s.");
-
-        // attempts = 3: 2^3 * 5 = 8 * 5 = 40 giây
-        var backoff3 = JobRetryAndCancelPolicy.CalculateBackoff(3);
-        Assert(backoff3 == TimeSpan.FromSeconds(40), $"Backoff cho attempt 3 phải là 40s, thực tế: {backoff3.TotalSeconds}s.");
-
-        // attempts = 4: 2^4 * 5 = 16 * 5 = 80 giây
-        var backoff4 = JobRetryAndCancelPolicy.CalculateBackoff(4);
-        Assert(backoff4 == TimeSpan.FromSeconds(80), $"Backoff cho attempt 4 phải là 80s, thực tế: {backoff4.TotalSeconds}s.");
-
-        // attempts âm (phòng ngừa dữ liệu bất thường): quy về 0 => 5s
-        var backoffNegative = JobRetryAndCancelPolicy.CalculateBackoff(-5);
-        Assert(backoffNegative == TimeSpan.FromSeconds(5), "Backoff cho attempt âm phải được chuẩn hóa về 5s.");
-
-        // Kiểm tra chặn trần hữu hạn (finite cap): ví dụ cap 60 giây
-        var cappedBackoff = JobRetryAndCancelPolicy.CalculateBackoff(10, TimeSpan.FromSeconds(60));
-        Assert(cappedBackoff == TimeSpan.FromSeconds(60), $"Backoff phải bị chặn ở 60s, thực tế: {cappedBackoff.TotalSeconds}s.");
+        foreach (var taskType in JobTaskType.All)
+        {
+            var job = new Job { TaskType = taskType, Attempts = 1, MaxAttempts = 3 };
+            foreach (var reason in new[] { JobReasonCode.NetworkError, "execution_failed", JobReasonCode.ProviderRejected })
+            {
+                var decision = JobRetryAndCancelPolicy.EvaluateFailure(job, reason, false);
+                Assert(!decision.CanRetry && decision.TargetState == JobState.Failed && decision.RetryDelay == null,
+                    $"{taskType}/{reason}: job lỗi không được tự retry.");
+                Assert(decision.FinalReasonCode == reason, "Phải giữ mã lỗi gốc.");
+                Assert(!JobRetryAndCancelPolicy.CanRetry(job, reason, false), "Helper không được cho phép tự retry.");
+            }
+        }
     }
 
     /// <summary>
@@ -933,8 +918,8 @@ public static class JobRetryAndCancelSmokeTests
         await RunCheckAsync("Test 1: Retry reaches MaxAttempts transitions to Failed with max_attempts_exceeded",
             Test1_Retry_ReachesMaxAttempts_TransitionsToFailed);
 
-        RunSyncCheck("Test 2: Exponential backoff calculated correctly (2^attempts * 5s)",
-            Test2_Backoff_CalculatedCorrectly_Exponential2PowAttemptsTimes5);
+        RunSyncCheck("Test 2: Failed jobs never retry automatically",
+            Test2_Failure_DoesNotAutoRetry);
 
         await RunCheckAsync("Test 3: Pool capacity full preserves attempts without consumption",
             Test3_PoolFull_TabCapacityUnavailable_PreservesAttempts);

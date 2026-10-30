@@ -102,8 +102,8 @@ public static class JobRecoverySmokeTests
     {
         Console.WriteLine("\n--- [T16] Bắt đầu chạy Fault Injection Smoke Tests ---");
 
-        await Test_Fault1_CrashBeforeSubmitIntent_SafeRetryWithExponentialBackoff();
-        Console.WriteLine("  ✓ Fault 1: Crash trước submit intent -> Cho phép retry với Exponential Backoff & giải phóng slot PASS");
+        await Test_Fault1_CrashBeforeSubmitIntent_StopsWithoutAutoRetry();
+        Console.WriteLine("  ✓ Fault 1: Crash trước submit intent -> Dừng ở Failed và giải phóng slot PASS");
 
         await Test_Fault2_CrashAfterSubmitIntent_TransitionToAwaitingUser_NoAutoRetry();
         Console.WriteLine("  ✓ Fault 2: Crash sau submit intent -> Chuyển AwaitingUser (CẤM retry tự động, giữ slot occupancy) PASS");
@@ -125,9 +125,9 @@ public static class JobRecoverySmokeTests
 
     /// <summary>
     /// Fault 1: Worker crash / timeout khi chưa gửi side effect (SideEffectSubmitted == 0).
-    /// Recovery sweep phải đưa job về Queued kèm retry_after và giải phóng slot occupancy.
+    /// Recovery sweep phải dừng job ở Failed và giải phóng slot occupancy.
     /// </summary>
-    public static async Task Test_Fault1_CrashBeforeSubmitIntent_SafeRetryWithExponentialBackoff()
+    public static async Task Test_Fault1_CrashBeforeSubmitIntent_StopsWithoutAutoRetry()
     {
         var (dbOptions, tempDir, _, _) = CreateTestContext();
         try
@@ -183,23 +183,23 @@ public static class JobRecoverySmokeTests
                 throw new InvalidOperationException($"Kỳ vọng phục hồi 1 job, thực tế: {recovered}");
             }
 
-            // Assert: Job chuyển về Queued kèm retry_after, slot occupancy đã được giải phóng
+            // Assert: Job dừng ở Failed, slot occupancy đã được giải phóng
             using (var db = new TiToAIDbContext(dbOptions))
             {
                 var job = await db.Jobs.FirstAsync(j => j.Id == jobId);
-                if (job.State != JobState.Queued)
+                if (job.State != JobState.Failed)
                 {
-                    throw new InvalidOperationException($"Job phải ở trạng thái Queued, thực tế: {job.State}");
+                    throw new InvalidOperationException($"Job phải ở trạng thái Failed, thực tế: {job.State}");
                 }
-                if (job.RetryAfterUtc == null)
+                if (job.RetryAfterUtc != null)
                 {
-                    throw new InvalidOperationException("Job phải có RetryAfterUtc để giãn cách lũy thừa.");
+                    throw new InvalidOperationException("Job lỗi không được hẹn tự thử lại.");
                 }
 
                 var occ = await db.ActiveSlotOccupancies.FirstOrDefaultAsync(o => o.JobId == jobId);
                 if (occ != null)
                 {
-                    throw new InvalidOperationException("Slot occupancy phải được giải phóng khi job quay về Queued.");
+                    throw new InvalidOperationException("Slot occupancy phải được giải phóng khi job lỗi.");
                 }
             }
         }
@@ -354,8 +354,8 @@ public static class JobRecoverySmokeTests
     }
 
     /// <summary>
-    /// Fault 4: Người dùng hủy tác vụ sau khi gửi side effect (CancelRequested = 1).
-    /// Khi worker nộp kết quả muộn (Late Result): Lưu Asset dạng Unlinked, chuyển Canceled, không mất file.
+    /// Fault 4: Người dùng hủy tác vụ sau khi gửi side effect: Canceled ngay, giải phóng slot.
+    /// Kết quả muộn của worker bị chặn, job không thành Succeeded.
     /// </summary>
     public static async Task Test_Fault4_CancelAfterSubmitIntent_LateResultPreservesAssetAsUnlinked()
     {
@@ -397,65 +397,38 @@ public static class JobRecoverySmokeTests
             // Commit side effect
             await reservation.CommitSideEffectAsync(jobId, fencingToken);
 
-            // Người dùng yêu cầu Hủy sau khi submit
+            // Người dùng yêu cầu Hủy sau khi submit: kết thúc ngay, không còn bước đối soát
             var cancelRes = await jobService.CancelAsync(jobId);
-            if (!cancelRes.CancelRequested)
+            if (cancelRes.State != JobState.Canceled)
             {
-                throw new InvalidOperationException("Cancel sau submit phải đánh dấu CancelRequested = true.");
+                throw new InvalidOperationException($"Cancel sau submit phải chuyển Canceled ngay, thực tế: {cancelRes.State}");
             }
 
-            // Giả lập worker hoàn tất và đã tạo 1 Asset kết quả
-            string assetId = Guid.NewGuid().ToString("N");
             using (var db = new TiToAIDbContext(dbOptions))
             {
-                db.Assets.Add(new Asset
-                {
-                    Id = assetId,
-                    ProjectId = "prj_t16",
-                    AssetType = "Document",
-                    StorageRootId = "root-default-docs",
-                    RelativePath = "ws_t16/projects/prj_t16/docs/result.json",
-                    ByteSize = 1024,
-                    Sha256Hash = "testhash",
-                    Status = "Linked",
-                    CreatedAtUtc = simulatedTime.ToString("o")
-                });
-                await db.SaveChangesAsync();
-            }
-
-            // Worker nộp late result qua CommitSuccessAsync
-            var commitResult = await reservation.CommitSuccessAsync(
-                jobId,
-                fencingToken,
-                resultReference: assetId,
-                resultText: "Nội dung kịch bản AI muộn"
-            );
-
-            if (commitResult.State != JobState.Canceled)
-            {
-                throw new InvalidOperationException($"Late result khi CancelRequested=1 phải có State=Canceled, thực tế: {commitResult.State}");
-            }
-            if (!commitResult.WasCancelRequested)
-            {
-                throw new InvalidOperationException("WasCancelRequested phải là true.");
-            }
-
-            // Assert: Asset không bị xóa, mà chuyển sang trạng thái Unlinked
-            using (var db = new TiToAIDbContext(dbOptions))
-            {
-                var asset = await db.Assets.FirstAsync(a => a.Id == assetId);
-                if (asset.Status != "Unlinked")
-                {
-                    throw new InvalidOperationException($"Asset kết quả phải chuyển sang 'Unlinked', thực tế: '{asset.Status}'");
-                }
-
-                var job = await db.Jobs.FirstAsync(j => j.Id == jobId);
+                var job = await db.Jobs.AsNoTracking().FirstAsync(j => j.Id == jobId);
                 if (job.State != JobState.Canceled) throw new InvalidOperationException("Job phải là Canceled.");
-                if (job.ResultReference != assetId) throw new InvalidOperationException("ResultReference phải được giữ nguyên để đối soát.");
+                if (job.SideEffectSubmitted != 0) throw new InvalidOperationException("Cờ side effect phải được xóa khi hủy.");
+                if (await db.ActiveSlotOccupancies.AnyAsync(o => o.JobId == jobId))
+                    throw new InvalidOperationException("Slot occupancy phải được giải phóng ngay.");
+            }
 
-                // Slot occupancy phải được giải phóng
-                var occ = await db.ActiveSlotOccupancies.FirstOrDefaultAsync(o => o.JobId == jobId);
-                if (occ != null) throw new InvalidOperationException("Slot occupancy phải được giải phóng.");
+            // Worker nộp kết quả muộn: bị chặn, job không bao giờ thành Succeeded
+            var lateBlocked = false;
+            try
+            {
+                await reservation.CommitSuccessAsync(jobId, fencingToken, resultReference: "late_ref", resultText: "Nội dung kịch bản AI muộn");
+            }
+            catch (FencingTokenStaleException)
+            {
+                lateBlocked = true;
+            }
+            if (!lateBlocked) throw new InvalidOperationException("Kết quả muộn sau khi hủy phải bị chặn.");
+
+            using (var db = new TiToAIDbContext(dbOptions))
+            {
+                var job = await db.Jobs.AsNoTracking().FirstAsync(j => j.Id == jobId);
+                if (job.State != JobState.Canceled) throw new InvalidOperationException("Job phải giữ Canceled sau kết quả muộn.");
             }
         }
         finally
@@ -788,6 +761,15 @@ public static class JobRecoverySmokeTests
 
             // Tua thời gian để vượt qua retry_after
             simulatedTime = simulatedTime.AddSeconds(15);
+
+            // Người dùng chủ động thử lại trước khi Worker 2 nhận job.
+            await using (var db = new TiToAIDbContext(dbOptions))
+            {
+                var failed = await db.Jobs.FirstAsync(j => j.Id == jobId);
+                failed.State = JobState.Queued;
+                failed.ReasonCode = null;
+                await db.SaveChangesAsync();
+            }
 
             // Worker 2 reserve job thành công (FencingToken = 2)
             var res2 = await reservation.TryReserveJobAsync(jobId, "worker-2", TimeSpan.FromSeconds(10));

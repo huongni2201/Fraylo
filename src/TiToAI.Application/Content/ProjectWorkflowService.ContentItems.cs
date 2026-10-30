@@ -29,6 +29,14 @@ public sealed partial class ProjectWorkflowService
             catch { }
         }
 
+        // Phản hồi không có nội dung TikTok (vd. job VideoPrompt) không được xóa nội dung đã có từ bước Script.
+        if (string.IsNullOrWhiteSpace(item.TikTokContent))
+        {
+            var previous = list.FirstOrDefault(x => x.Id == item.Id || (x.SceneId != null && x.SceneId == item.SceneId));
+            if (previous is not null && !string.IsNullOrWhiteSpace(previous.TikTokContent))
+                item = item with { TikTokContent = previous.TikTokContent };
+        }
+
         list.RemoveAll(x => x.Id == item.Id || (x.SceneId != null && x.SceneId == item.SceneId));
         list.Add(item);
 
@@ -368,8 +376,12 @@ public sealed partial class ProjectWorkflowService
             throw new ProjectWorkflowValidationException("Cảnh này chưa có prompt video. Hãy tạo prompt video trước khi tạo video.");
         }
         await EnsureScenePromptsRenderableAsync(dbContext, new[] { targetSceneId }, cancellationToken).ConfigureAwait(false);
+        if (scene != null && await NeedsGridImageAsync(dbContext, config, scene, cancellationToken).ConfigureAwait(false))
+        {
+            throw new ProjectWorkflowValidationException("Ảnh storyboard 3×3 chưa sẵn sàng nên chưa thể tạo video.");
+        }
 
-        var imageAssetId = targetItem.ImageAssetId ?? scene?.ImageAssetId ?? config.FoundationImageAssetId ?? config.ReadyImageAssetId ?? config.ProductAssetId;
+        var imageAssetId =targetItem.ImageAssetId ?? scene?.ImageAssetId ?? config.FoundationImageAssetId ?? config.ReadyImageAssetId ?? config.ProductAssetId;
         var audioAssetId = targetItem.AudioAssetId ?? scene?.AudioAssetId ?? (config.AudioOption == AudioOptions.CustomAudio ? config.AudioAssetId : null);
 
         var snapshot = new JobMediaSnapshotDto(
