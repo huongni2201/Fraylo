@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Fraylo.Contracts\Fraylo.Contracts.csproj" />
+    <ProjectReference Include="..\Fraylo.Infrastructure\Fraylo.Infrastructure.csproj" />
+    <ProjectReference Include="..\Fraylo.Application\Fraylo.Application.csproj" />
+    <ProjectReference Include="..\Fraylo.Browser\Fraylo.Browser.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>Fraylo</AssemblyName>
+    <RootNamespace>Fraylo.Desktop</RootNamespace>
+    <Product>Fraylo</Product>
+    <Title>Fraylo</Title>
+    <Description>Fraylo — Ideas into motion.</Description>
+    <ApplicationIcon>..\Fraylo.Web\public\brand\fraylo.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <Target Name="BuildWebUi" BeforeTargets="CoreCompile">
+    <Exec Command="pnpm run build" WorkingDirectory="$(MSBuildProjectDirectory)\..\Fraylo.Web" />
+  </Target>
+
+  <Target Name="CopyWebUi" AfterTargets="Build">
+    <ItemGroup>
+      <WebUiFile Include="$(MSBuildProjectDirectory)\..\Fraylo.Web\dist\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(WebUiFile)" DestinationFiles="@(WebUiFile->'$(TargetDir)wwwroot\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="PublishWebUi" AfterTargets="Publish">
+    <ItemGroup>
+      <WebUiPublishFile Include="$(MSBuildProjectDirectory)\..\Fraylo.Web\dist\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(WebUiPublishFile)" DestinationFiles="@(WebUiPublishFile->'$(PublishDir)wwwroot\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <!-- Launcher Fraylo đã cài trước khi đổi tên cần executable cũ để nâng cấp. -->
+    <Copy SourceFiles="$(PublishDir)Fraylo.exe" DestinationFiles="$(PublishDir)TiToAI.Desktop.exe" />
+  </Target>
+
+</Project>

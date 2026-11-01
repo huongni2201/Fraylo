@@ -17,15 +17,15 @@ Vấn đề cần sửa trong luồng nhiều phân cảnh hiện tại: **phân
 
 | Điểm | Vị trí | Thực tế |
 |---|---|---|
-| Nhiều cảnh bị gom thành một render | [ProjectWorkflowService.ContentItems.cs](../../src/TiToAI.Application/Content/ProjectWorkflowService.ContentItems.cs) `CreateSceneVideoAsync` (dòng 311–314) | Khi Project có >1 Scene, luôn gọi `EnqueueProjectRenderAsync`: một job render cho cả Project. |
+| Nhiều cảnh bị gom thành một render | [ProjectWorkflowService.ContentItems.cs](../../src/Fraylo.Application/Content/ProjectWorkflowService.ContentItems.cs) `CreateSceneVideoAsync` (dòng 311–314) | Khi Project có >1 Scene, luôn gọi `EnqueueProjectRenderAsync`: một job render cho cả Project. |
 | Chặn luồng nhiều video | Cùng file, dòng 330–347 | Khi đã có video khác hoàn thành hoặc đang render, báo "Mỗi dự án chỉ có một video đầu ra". Vì vậy luồng A **không chạy được** với >1 cảnh trong code hiện tại. "Giữ nguyên" thực tế nghĩa là khôi phục đường này cho chế độ A. |
-| Ảnh riêng chỉ có ở ModelAndProduct | [ProjectWorkflowService.Scenes.cs](../../src/TiToAI.Application/Content/ProjectWorkflowService.Scenes.cs) dòng 344–345; [ProjectWorkflowService.Config.cs](../../src/TiToAI.Application/Content/ProjectWorkflowService.Config.cs) `CanGenerateImage` dòng 303–304 | Job Image chỉ được enqueue khi `WorkflowMode == ModelAndProduct` và cảnh chưa có ảnh. |
-| Cảnh storyboard không có ảnh riêng | [ProjectWorkflowService.Pipeline.cs](../../src/TiToAI.Application/Content/ProjectWorkflowService.Pipeline.cs) dòng 163–164 | `ImageAssetId` = ảnh chung của ReadyImage/ProductOnly, hoặc `null` với ModelAndProduct. Với hai mode còn lại, mọi cảnh dùng chung một ảnh, không có ảnh theo cảnh. |
+| Ảnh riêng chỉ có ở ModelAndProduct | [ProjectWorkflowService.Scenes.cs](../../src/Fraylo.Application/Content/ProjectWorkflowService.Scenes.cs) dòng 344–345; [ProjectWorkflowService.Config.cs](../../src/Fraylo.Application/Content/ProjectWorkflowService.Config.cs) `CanGenerateImage` dòng 303–304 | Job Image chỉ được enqueue khi `WorkflowMode == ModelAndProduct` và cảnh chưa có ảnh. |
+| Cảnh storyboard không có ảnh riêng | [ProjectWorkflowService.Pipeline.cs](../../src/Fraylo.Application/Content/ProjectWorkflowService.Pipeline.cs) dòng 163–164 | `ImageAssetId` = ảnh chung của ReadyImage/ProductOnly, hoặc `null` với ModelAndProduct. Với hai mode còn lại, mọi cảnh dùng chung một ảnh, không có ảnh theo cảnh. |
 | Prompt ảnh theo cảnh | Pipeline.cs dòng 919 và Scenes.cs dòng 347 | `imagePrompt` của mỗi shot được lưu làm `scene.plan.<id>` và dùng làm prompt job Image. Đường này chưa được xác nhận chạy trên provider thật (MULTISCENE doc ghi "chưa xác nhận Image job tạo ảnh cho từng shot"). |
-| Storyboard bắt buộc `imagePrompt` | [StoryboardContent.cs](../../src/TiToAI.Application/Content/StoryboardContent.cs) dòng 52 | Luồng B không có ảnh theo đoạn nên không nên bắt buộc trường này. |
+| Storyboard bắt buộc `imagePrompt` | [StoryboardContent.cs](../../src/Fraylo.Application/Content/StoryboardContent.cs) dòng 52 | Luồng B không có ảnh theo đoạn nên không nên bắt buộc trường này. |
 | Auto render gom cả Project | Pipeline.cs `TryAutoEnqueueVideoRenderForProjectAsync` dòng 603–661 | Chỉ render khi **mọi** cảnh đã có ảnh và prompt, rồi gọi `CreateSceneVideoAsync` (gom một render). |
-| Cấu hình lưu JSON | `project.workflow.config.<projectId>` trong AppSettings ([VideoWorkflowDtos.cs](../../src/TiToAI.Contracts/Content/VideoWorkflowDtos.cs) `ProjectWorkflowConfigDto`, dòng 98) | Thêm trường cấu hình không cần đổi schema SQLite (đang `user_version=3`). |
-| Thời lượng không khớp | Backend [ProviderCapabilities.cs](../../src/TiToAI.Application/Providers/ProviderCapabilities.cs) dòng 171: Muse `10, 15, 30`; web [videoWorkflowApi.ts](../../src/TiToAI.Web/src/features/projects/videoWorkflowApi.ts) dòng 170 và [SceneForm.tsx](../../src/TiToAI.Web/src/features/projects/SceneForm.tsx) dòng 87, 280: `10, 15` | Cần đồng bộ khi làm luồng B (tối đa 30s). |
+| Cấu hình lưu JSON | `project.workflow.config.<projectId>` trong AppSettings ([VideoWorkflowDtos.cs](../../src/Fraylo.Contracts/Content/VideoWorkflowDtos.cs) `ProjectWorkflowConfigDto`, dòng 98) | Thêm trường cấu hình không cần đổi schema SQLite (đang `user_version=3`). |
+| Thời lượng không khớp | Backend [ProviderCapabilities.cs](../../src/Fraylo.Application/Providers/ProviderCapabilities.cs) dòng 171: Muse `10, 15, 30`; web [videoWorkflowApi.ts](../../src/Fraylo.Web/src/features/projects/videoWorkflowApi.ts) dòng 170 và [SceneForm.tsx](../../src/Fraylo.Web/src/features/projects/SceneForm.tsx) dòng 87, 280: `10, 15` | Cần đồng bộ khi làm luồng B (tối đa 30s). |
 
 Kết luận: hai luồng hiện đang trộn trong cùng một đường gom render. Tách cần làm **ở mức run**, không thêm nhánh rải rác trong từng hàm.
 
@@ -75,18 +75,18 @@ Gợi ý kỹ thuật: có thể tái dùng `ProjectWorkflowService.BuildProject
 
 Các file sau đang có thay đổi chưa commit trong `git status` (14 file, gồm `ProjectWorkflowService.*`, `VideoWorkflowPromptComposer.cs`, `JobService.cs`). **Cần commit hoặc xác nhận trạng thái trước khi bắt đầu**, để không trộn thay đổi của nhiều việc.
 
-- `src/TiToAI.Contracts/Content/VideoWorkflowDtos.cs` — `VideoStrategy`, `ProjectWorkflowConfigDto`
-- `src/TiToAI.Contracts/Content/ContentCreationDtos.cs` — DTO request/response
-- `src/TiToAI.Application/Content/ProjectWorkflowService.Config.cs` — mặc định, đổi chế độ, `CanGenerateImage`
-- `src/TiToAI.Application/Content/ProjectWorkflowService.Lifecycle.cs` — kiểm tra khi bắt đầu run
-- `src/TiToAI.Application/Content/ProjectWorkflowService.Pipeline.cs` — áp dụng Script/Image/VideoPrompt, auto render
-- `src/TiToAI.Application/Content/ProjectWorkflowService.ContentItems.cs` — `CreateSceneVideoAsync`, `EnqueueProjectRenderAsync`
-- `src/TiToAI.Application/Content/ProjectWorkflowService.Scenes.cs` — `EnqueueJobsForExistingScenesAsync`
-- `src/TiToAI.Application/Content/StoryboardContent.cs` — parser storyboard theo đoạn
-- `src/TiToAI.Application/Content/VideoWorkflowPromptComposer.cs` — prompt cho luồng B
-- `src/TiToAI.Application/Providers/ProviderCapabilities.cs` — nguồn thời lượng duy nhất
-- `src/TiToAI.Web/src/features/projects/VideoProductionTab.tsx`, `videoWorkflowApi.ts`, `SceneForm.tsx`
-- Test: `tests/TiToAI.Desktop.SmokeChecks/VideoWorkflowSmokeTests.cs`, `tests/TiToAI.Storyboard.SmokeChecks/*`, `src/TiToAI.Web/src/features/projects/videoProductionTab.test.ts`
+- `src/Fraylo.Contracts/Content/VideoWorkflowDtos.cs` — `VideoStrategy`, `ProjectWorkflowConfigDto`
+- `src/Fraylo.Contracts/Content/ContentCreationDtos.cs` — DTO request/response
+- `src/Fraylo.Application/Content/ProjectWorkflowService.Config.cs` — mặc định, đổi chế độ, `CanGenerateImage`
+- `src/Fraylo.Application/Content/ProjectWorkflowService.Lifecycle.cs` — kiểm tra khi bắt đầu run
+- `src/Fraylo.Application/Content/ProjectWorkflowService.Pipeline.cs` — áp dụng Script/Image/VideoPrompt, auto render
+- `src/Fraylo.Application/Content/ProjectWorkflowService.ContentItems.cs` — `CreateSceneVideoAsync`, `EnqueueProjectRenderAsync`
+- `src/Fraylo.Application/Content/ProjectWorkflowService.Scenes.cs` — `EnqueueJobsForExistingScenesAsync`
+- `src/Fraylo.Application/Content/StoryboardContent.cs` — parser storyboard theo đoạn
+- `src/Fraylo.Application/Content/VideoWorkflowPromptComposer.cs` — prompt cho luồng B
+- `src/Fraylo.Application/Providers/ProviderCapabilities.cs` — nguồn thời lượng duy nhất
+- `src/Fraylo.Web/src/features/projects/VideoProductionTab.tsx`, `videoWorkflowApi.ts`, `SceneForm.tsx`
+- Test: `tests/Fraylo.Desktop.SmokeChecks/VideoWorkflowSmokeTests.cs`, `tests/Fraylo.Storyboard.SmokeChecks/*`, `src/Fraylo.Web/src/features/projects/videoProductionTab.test.ts`
 
 Schema SQLite: không đổi. Dữ liệu run cũ không cần chuyển đổi (AGENTS cho phép reset khi đổi kiến trúc).
 

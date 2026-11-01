@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>FrayloLauncher</AssemblyName>
+    <Product>Fraylo</Product>
+    <Title>Fraylo Launcher</Title>
+    <ApplicationIcon>..\Fraylo.Web\public\brand\fraylo.ico</ApplicationIcon>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+</Project>

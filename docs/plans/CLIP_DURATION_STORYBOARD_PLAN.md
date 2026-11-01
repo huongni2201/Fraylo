@@ -141,7 +141,7 @@ Sửa brief chung làm stale kế hoạch/prompt/video của các clip phụ thu
 3. **Kế hoạch/prompt:** sửa template và validator để tách clip/shot; duration thống nhất với request. Giữ pipeline thật/blocker hiện hành, không thay AI còn thiếu bằng chuỗi minh họa. Hoàn tất khi kiểm N clip không tăng số job video theo số shot và invalidation đúng.
 4. **Nghiệm thu:** chạy checks phù hợp, cập nhật spec/links bị thay trong phạm vi này, báo phần triển khai được và phần bị dependency chặn. Provider thật/runtime chưa chạy ghi NOT_RUN.
 
-Điểm khảo sát ban đầu: `src/TiToAI.Web/src/features/projects/VideoProductionTab.tsx`, `ProjectPage.tsx`, `SceneForm.tsx`, `videoWorkflowApi.ts`, `src/TiToAI.Contracts/Content/VideoWorkflowDtos.cs`, `src/TiToAI.Application/Content/ProjectWorkflowService.cs`, bridge handlers và test tương ứng. Đây là đường dẫn gợi ý, không cấp ownership hay xác nhận tất cả phải sửa. Giữ nguyên queue/executor/account lifecycle nếu không có lỗi trực tiếp trong delta này.
+Điểm khảo sát ban đầu: `src/Fraylo.Web/src/features/projects/VideoProductionTab.tsx`, `ProjectPage.tsx`, `SceneForm.tsx`, `videoWorkflowApi.ts`, `src/Fraylo.Contracts/Content/VideoWorkflowDtos.cs`, `src/Fraylo.Application/Content/ProjectWorkflowService.cs`, bridge handlers và test tương ứng. Đây là đường dẫn gợi ý, không cấp ownership hay xác nhận tất cả phải sửa. Giữ nguyên queue/executor/account lifecycle nếu không có lỗi trực tiếp trong delta này.
 
 ## 6. Acceptance và bằng chứng
 

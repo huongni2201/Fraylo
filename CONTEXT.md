@@ -1,6 +1,6 @@
-# TiToAI
+# Fraylo
 
-TiToAI là ứng dụng Windows local-first tập trung tạo một video TikTok trong mỗi Project và quản lý lần đăng video đó. Thuật ngữ dưới đây là ngôn ngữ chuẩn cho thiết kế mới.
+Fraylo là ứng dụng Windows local-first tập trung tạo một video TikTok trong mỗi Project và quản lý lần đăng video đó. Thuật ngữ dưới đây là ngôn ngữ chuẩn cho thiết kế mới.
 
 ## Sản xuất video
 
@@ -17,7 +17,7 @@ Một phân đoạn/storyboard nội bộ tùy chọn, có thể tạo clip trun
 _Avoid_: Workspace video, standalone video
 
 **Asset**:
-Tệp media/tài liệu local do TiToAI quản lý và có thể được nhiều Project tham chiếu.
+Tệp media/tài liệu local do Fraylo quản lý và có thể được nhiều Project tham chiếu.
 _Avoid_: Project-owned file
 
 ## Đăng TikTok và thực thi

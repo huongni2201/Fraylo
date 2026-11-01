@@ -1,0 +1,160 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-text: var(--primary-text);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #110d0c;
+  --foreground: #f6efec;
+  --card: #1a1413;
+  --card-foreground: #f6efec;
+  --popover: #1a1413;
+  --popover-foreground: #f6efec;
+  --primary: #ff5a45;
+  --primary-foreground: #1a0805;
+  --primary-text: #ff8a78;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --info: #38bdf8;
+  --secondary: #241b1a;
+  --secondary-foreground: #d9ccc8;
+  --muted: #241b1a;
+  --muted-foreground: #a89994;
+  --accent: #31211f;
+  --accent-foreground: #f6efec;
+  --destructive: #f05252;
+  --destructive-foreground: #ffffff;
+  --border: #392b29;
+  --input: #46352f;
+  --ring: #ff8a78;
+  --radius: 0.5rem;
+  --sidebar: #0b0807;
+  --sidebar-foreground: #b9aaa5;
+  --sidebar-border: #261c1a;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --background: #faf6f3;
+  --foreground: #1f1412;
+  --card: #ffffff;
+  --card-foreground: #1f1412;
+  --popover: #ffffff;
+  --popover-foreground: #1f1412;
+  --primary: #d63a26;
+  --primary-foreground: #ffffff;
+  --primary-text: #b82d1b;
+  --success: #047857;
+  --warning: #b45309;
+  --info: #0369a1;
+  --secondary: #f6efeb;
+  --secondary-foreground: #54423d;
+  --muted: #f3ebe7;
+  --muted-foreground: #6b5a55;
+  --accent: #fdeae6;
+  --accent-foreground: #1f1412;
+  --destructive: #c81e1e;
+  --destructive-foreground: #ffffff;
+  --border: #e6d9d3;
+  --input: #dccdc6;
+  --ring: #d63a26;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #54423d;
+  --sidebar-border: #eee3de;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  img,
+  video {
+    filter: none !important;
+    color-scheme: normal;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* Universal Clickable Elements have pointer cursor */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]):not([data-disabled]),
+  [type="button"]:not(:disabled),
+  [type="submit"]:not(:disabled),
+  [type="reset"]:not(:disabled),
+  a[href],
+  select:not(:disabled),
+  summary,
+  label[for] {
+    cursor: pointer;
+  }
+
+  /* Interactive shadcn / radix elements */
+  [role="menuitem"]:not([data-disabled]),
+  [role="option"]:not([aria-disabled="true"]):not([data-disabled]),
+  [role="tab"]:not([aria-disabled="true"]):not([data-disabled]),
+  [role="switch"]:not([data-disabled]),
+  [role="checkbox"]:not([data-disabled]),
+  [role="radio"]:not([data-disabled]),
+  .cursor-pointer,
+  .clickable {
+    cursor: pointer;
+  }
+
+  /* Disabled state */
+  button:disabled,
+  [type="button"]:disabled,
+  [type="submit"]:disabled,
+  [type="reset"]:disabled,
+  select:disabled,
+  [disabled],
+  [aria-disabled="true"],
+  [data-disabled] {
+    cursor: not-allowed;
+  }
+}

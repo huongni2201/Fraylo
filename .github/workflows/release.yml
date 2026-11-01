@@ -1,4 +1,4 @@
-name: Release TiToAI
+name: Release Fraylo
 
 on:
   push:
@@ -18,12 +18,12 @@ jobs:
           global-json-file: global.json
       - uses: pnpm/action-setup@v4
         with:
-          package_json_file: src/TiToAI.Web/package.json
+          package_json_file: src/Fraylo.Web/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: 24.19.0
       - run: pnpm install --frozen-lockfile
-        working-directory: src/TiToAI.Web
+        working-directory: src/Fraylo.Web
       - name: Cài Inno Setup
         run: choco install innosetup -y --no-progress
       - name: Đóng gói
@@ -33,7 +33,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            dist/releases/TiToAI-*-win-x64.zip
-            dist/releases/TiToAI-Setup-v*.exe
+            dist/releases/Fraylo-*-win-x64.zip
+            dist/releases/Fraylo-Setup-v*.exe
             dist/releases/manifest.json
           generate_release_notes: true

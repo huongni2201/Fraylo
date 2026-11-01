@@ -1,5 +1,5 @@
 /**
- * TiToAI — Negative Integration Tests for Browser Manager API
+ * Fraylo — Negative Integration Tests for Browser Manager API
  *
  * Xác minh:
  * 1. Khi Host trả về lỗi UNKNOWN_COMMAND: listProfiles() và checkSession() PHẢI reject với UNKNOWN_COMMAND.
@@ -71,7 +71,7 @@ function dispatchHostMessage(messageData) {
 
 // 3. Dynamic import browserManagerApi sau khi window.chrome.webview đã sẵn sàng
 const { browserManagerApi } = await import(
-  "../../src/TiToAI.Web/src/features/browsers/browserManagerApi.ts"
+  "../../src/Fraylo.Web/src/features/browsers/browserManagerApi.ts"
 );
 
 console.log("=== BẮT ĐẦU CHẠY NEGATIVE INTEGRATION TESTS BROWSER MANAGER API ===");

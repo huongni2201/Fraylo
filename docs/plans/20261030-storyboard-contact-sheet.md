@@ -128,7 +128,7 @@ File đối chiếu: các file trong P1–P4; adapter ảnh/video hiện hành t
 
 ### P1 — Contract và nội dung 9 shot
 
-Files dự kiến: `src/TiToAI.Contracts/Content/VideoWorkflowDtos.cs`, `src/TiToAI.Application/Content/ProjectWorkflowService.Config.cs`, `ProjectWorkflowService.Lifecycle.cs`, `StoryboardContent.cs`, `VideoWorkflowPromptComposer.cs` trong cùng thư mục Content.
+Files dự kiến: `src/Fraylo.Contracts/Content/VideoWorkflowDtos.cs`, `src/Fraylo.Application/Content/ProjectWorkflowService.Config.cs`, `ProjectWorkflowService.Lifecycle.cs`, `StoryboardContent.cs`, `VideoWorkflowPromptComposer.cs` trong cùng thư mục Content.
 
 - [ ] Thêm mode, default/validation và snapshot; mode grid chỉ hợp lệ với SingleVideo/15 giây.
 - [ ] Xác định nguồn ảnh 3×3 theo workflow mode (ảnh ghép / ảnh sẵn sàng / ảnh sản phẩm) và bước Ghép ảnh chỉ áp cho `ModelAndProduct`; yêu cầu đủ đầu vào theo mode như validation hiện có.
@@ -138,7 +138,7 @@ Files dự kiến: `src/TiToAI.Contracts/Content/VideoWorkflowDtos.cs`, `src/TiT
 
 ### P2 — Một ảnh ghép và một render
 
-Files dự kiến: `ProjectWorkflowService.Pipeline.cs`, `ProjectWorkflowService.Scenes.cs`, `ProjectWorkflowService.ContentItems.cs`, `ProjectWorkflowService.Lifecycle.cs` trong `src/TiToAI.Application/Content/`; adapter thực tế chỉ sửa nếu P0 chứng minh thiếu khả năng đính kèm/tải ảnh.
+Files dự kiến: `ProjectWorkflowService.Pipeline.cs`, `ProjectWorkflowService.Scenes.cs`, `ProjectWorkflowService.ContentItems.cs`, `ProjectWorkflowService.Lifecycle.cs` trong `src/Fraylo.Application/Content/`; adapter thực tế chỉ sửa nếu P0 chứng minh thiếu khả năng đính kèm/tải ảnh.
 
 - [x] Với `ModelAndProduct`: nối Script → Ghép ảnh → Image 3×3; với `ReadyImage`/`ProductOnly`: Script → Image 3×3 dùng thẳng ảnh có sẵn. Rồi VideoPrompt → Render theo dependency và revision. (smoke `workflow` ca 20, 21)
 - [ ] Thay nhánh dùng ảnh gốc bằng một job Image tạo grid từ ảnh nguồn của bước trước; không để đường `composeFirst` Direct render bằng ảnh ghép khi mode grid bật.
@@ -150,7 +150,7 @@ Files dự kiến: `ProjectWorkflowService.Pipeline.cs`, `ProjectWorkflowService
 
 ### P3 — Giao diện cấu hình và preview
 
-Files: `src/TiToAI.Web/src/features/projects/VideoProductionTab.tsx`, `videoWorkflowApi.ts`, `videoProductionTab.test.ts` trong cùng thư mục; component preview hiện có nếu cần.
+Files: `src/Fraylo.Web/src/features/projects/VideoProductionTab.tsx`, `videoWorkflowApi.ts`, `videoProductionTab.test.ts` trong cùng thư mục; component preview hiện có nếu cần.
 
 - [ ] Thêm lựa chọn và validation; một preview grid, chín đoạn nội dung, một video cuối.
 - [ ] Hiển thị tiến trình và lỗi thật, nhãn thử nghiệm và tạo lại theo cơ chế hiện hành; mốc Ghép ảnh chỉ hiện với `ModelAndProduct`, kèm preview ảnh ghép trung gian.
@@ -159,7 +159,7 @@ Files: `src/TiToAI.Web/src/features/projects/VideoProductionTab.tsx`, `videoWork
 
 ### P4 — Regression, live và tài liệu
 
-Files: `tests/TiToAI.Storyboard.SmokeChecks/`, `tests/TiToAI.Desktop.SmokeChecks/VideoWorkflowSmokeTests.cs`, các test workflow/recovery liên quan; plan này và VIDEO_TWO_FLOW_SPLIT, STATUS/TASKS khi có kết quả triển khai.
+Files: `tests/Fraylo.Storyboard.SmokeChecks/`, `tests/Fraylo.Desktop.SmokeChecks/VideoWorkflowSmokeTests.cs`, các test workflow/recovery liên quan; plan này và VIDEO_TWO_FLOW_SPLIT, STATUS/TASKS khi có kết quả triển khai.
 
 - [ ] Chạy Storyboard smoke, Desktop workflow/remediation và web tests/typecheck/build; build backend/solution theo baseline. App đang mở khóa DLL thì dùng thư mục output riêng hoặc ghi blocker.
 - [ ] Regression: MultiVideo vẫn render theo cảnh; SingleVideo Direct vẫn dùng đường cũ; mode grid không đổi semantics của cả hai.

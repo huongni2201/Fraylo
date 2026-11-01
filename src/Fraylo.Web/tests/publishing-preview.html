@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="vi" data-theme="dark">
+  <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Fraylo · Xem trước Đăng video</title></head>
+  <body class="bg-background text-foreground">
+    <p class="border-b bg-muted p-3 text-center text-sm">Bản xem trước bằng dữ liệu giả · không gửi video lên TikTok</p>
+    <div id="root" class="p-6"></div>
+    <script type="module">
+      import React from "react";
+      import { createRoot } from "react-dom/client";
+      import "../src/styles/globals.css";
+      import { PublishingPage } from "../src/features/publishing/PublishingPage.tsx";
+      const api = {
+        list: async () => ({ videos: [{ projectId: "preview-project", projectName: "Bộ sưu tập thu đông", assetId: "preview-video", fileName: "bo-suu-tap-thu-dong.mp4", byteSize: 18432000, caption: "Một chút cảm hứng cho ngày mới. #thoitrang #phongcach", createdAtUtc: "2026-11-01T00:00:00Z" }, ...Array.from({ length: 24 }, (_, i) => ({ projectId: "preview-project-" + i, projectName: "Video mẫu " + (i + 1), assetId: "preview-video-" + i, fileName: "video-mau-" + (i + 1) + ".mp4", byteSize: 8000000 + i * 100000, caption: "Caption mẫu " + (i + 1) + " #tiktok", createdAtUtc: new Date(Date.UTC(2026, 9, 31, 12, 0) - i * 3600000).toISOString() }))], attempts: [] }),
+        listAccounts: async () => [{ accountId: "preview-account", accountIdentity: "@titoai_demo", profileId: "preview-profile", sessionStatus: "Connected" }],
+        publish: async () => { throw new Error("Bản xem trước không đăng video thật."); },
+      };
+      createRoot(document.getElementById("root")).render(React.createElement(PublishingPage, {
+        active: true, api, initialProjectId: "preview-project", onOpenAccounts: () => {}, onReviewVideo: () => {},
+      }));
+    </script>
+  </body>
+</html>

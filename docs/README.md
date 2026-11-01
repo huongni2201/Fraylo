@@ -1,6 +1,8 @@
-# TiToAI — tài liệu hiện hành
+# Fraylo — tài liệu hiện hành
 
-Trong môi trường phát triển, mở [Chay-TiToAI.cmd](../Chay-TiToAI.cmd) ở thư mục dự án để build và chạy mã mới nhất. Đóng TiToAI đang chạy trước; nếu build hoặc kiểm tra đóng gói thất bại, tập lệnh sẽ báo lỗi và không mở ứng dụng. Cần cài .NET SDK, Node.js và pnpm, cùng các dependency của dự án.
+Trong môi trường phát triển, mở [Chay-Fraylo.cmd](../Chay-Fraylo.cmd) ở thư mục dự án để build và chạy mã mới nhất. Đóng Fraylo đang chạy trước; nếu build hoặc kiểm tra đóng gói thất bại, tập lệnh sẽ báo lỗi và không mở ứng dụng. Cần cài .NET SDK, Node.js và pnpm, cùng các dependency của dự án.
+
+[Nhận diện Fraylo](branding/README.md) — tên, logo, icon và các định danh kỹ thuật TiToAI được giữ để dùng tiếp dữ liệu cũ.
 
 
 1. [STATUS](agents/STATUS.md) — checkpoint và giới hạn kiểm chứng.

@@ -23,7 +23,7 @@ Hoàn tất VF0–VF5 theo thứ tự phụ thuộc, chứng minh ứng dụng h
 
 ### 2. Xác minh database và build tích hợp (VF1, VF5)
 
-**Files:** kiểm tra `src/TiToAI.Infrastructure/Persistence/Sql/final-schema.sql`, bootstrapper và `tests/TiToAI.FinalSchema.SmokeChecks/`; sửa file liên quan chỉ khi phát hiện lỗi và theo ownership.
+**Files:** kiểm tra `src/Fraylo.Infrastructure/Persistence/Sql/final-schema.sql`, bootstrapper và `tests/Fraylo.FinalSchema.SmokeChecks/`; sửa file liên quan chỉ khi phát hiện lỗi và theo ownership.
 
 - [ ] Chạy build solution và frontend trên source hiện tại, dùng output riêng nếu app khóa file; ghi lệnh và kết quả.
 - [ ] Chạy lại kiểm tra schema/model, DB mới, DB cũ có backup và reset trên fixture riêng; kiểm tra backup có thể mở và dữ liệu fixture được giữ trong bản backup.
@@ -33,7 +33,7 @@ Hoàn tất VF0–VF5 theo thứ tự phụ thuộc, chứng minh ứng dụng h
 
 ### 3. Nghiệm thu desktop và Analytics (VF2, VF5)
 
-**Files:** `src/TiToAI.Desktop/`, `src/TiToAI.Web/src/`, các smoke test liên quan; tài liệu trạng thái.
+**Files:** `src/Fraylo.Desktop/`, `src/Fraylo.Web/src/`, các smoke test liên quan; tài liệu trạng thái.
 
 - [ ] Khởi động bản build hiện hành trong môi trường kiểm thử sau khi xác định rõ DB sẽ dùng; kiểm tra hành vi backup/reset trước khi dùng DB chính.
 - [ ] Kiểm tra Analytics chọn account, session, kéo ba báo cáo và hiển thị/import trên app; đối chiếu null, số 0 và Content chỉ có header.
@@ -42,7 +42,7 @@ Hoàn tất VF0–VF5 theo thứ tự phụ thuộc, chứng minh ứng dụng h
 
 ### 4. Kiểm tra output và publishing (VF3, VF4)
 
-**Files:** `src/TiToAI.Application/Publishing/`, `src/TiToAI.Browser/Publishing/`, `src/TiToAI.Web/src/features/publishing/`, `tests/TiToAI.Publishing.SmokeChecks/`; tham chiếu [handoff](TIKTOK_PUBLISHING_HANDOFF.md).
+**Files:** `src/Fraylo.Application/Publishing/`, `src/Fraylo.Browser/Publishing/`, `src/Fraylo.Web/src/features/publishing/`, `tests/Fraylo.Publishing.SmokeChecks/`; tham chiếu [handoff](TIKTOK_PUBLISHING_HANDOFF.md).
 
 - [ ] Kiểm tra một Project chọn đúng một video revision hiện hành; file thiếu hoặc clip trung gian không được báo sẵn sàng đăng.
 - [ ] Chạy lại logic và DOM publishing trong môi trường browser hoạt động; kiểm tra account, login, cancel và trạng thái chưa xác nhận.
@@ -51,7 +51,7 @@ Hoàn tất VF0–VF5 theo thứ tự phụ thuộc, chứng minh ứng dụng h
 
 ### 5. Xác minh tạo video và đóng gate
 
-**Files:** `src/TiToAI.Application/Content/`, provider adapters và test liên quan; `docs/agents/TASKS.md`, `docs/agents/STATUS.md`.
+**Files:** `src/Fraylo.Application/Content/`, provider adapters và test liên quan; `docs/agents/TASKS.md`, `docs/agents/STATUS.md`.
 
 - [ ] Đối chiếu capability/provider matrix với hành vi adapter hiện tại; ghi rõ từng năng lực chưa xác minh, không giả dữ liệu hoặc báo Running/Ready sai.
 - [ ] Kiểm tra luồng từ brief đến output bằng fixture và, khi có điều kiện, provider thật; kiểm tra lỗi, hủy, retry và recovery theo phạm vi bị ảnh hưởng.
@@ -89,14 +89,14 @@ Build và regression liên quan đạt trên source hiện hành; database backu
 
 ## Phục hồi Infrastructure smoke — 2026-10-27
 
-- Runner mới dùng DB và thư mục tạm; build `dotnet build tests/TiToAI.Infrastructure.SmokeChecks --no-restore -m:1` PASS 0/0. Chạy DLL ngoài sandbox PASS theme, Project/Scene và storage/settings, bao gồm bảo vệ xóa khi job hoạt động, concurrency, asset dùng chung, file staging, rollback và ràng buộc Job/Scene theo Project. Trong sandbox, File.Move vẫn bị từ chối.
+- Runner mới dùng DB và thư mục tạm; build `dotnet build tests/Fraylo.Infrastructure.SmokeChecks --no-restore -m:1` PASS 0/0. Chạy DLL ngoài sandbox PASS theme, Project/Scene và storage/settings, bao gồm bảo vệ xóa khi job hoạt động, concurrency, asset dùng chung, file staging, rollback và ràng buộc Job/Scene theo Project. Trong sandbox, File.Move vẫn bị từ chối.
 - Không thay đổi mã ứng dụng hoặc DB chính. Runtime desktop, provider và publishing thật vẫn NOT_RUN; VF0/VF5 chưa đóng.
 
 ## Kiểm tra tiếp theo, bỏ qua VF0 — 2026-10-28
 
 - Theo yêu cầu người dùng, bỏ qua công việc VF0 và chạy các kiểm tra độc lập; VF0 vẫn IN PROGRESS và không coi các phụ thuộc đã đóng.
-- `dotnet build TiToAI.sln --no-restore -m:1`: PASS 0 warning/error. `pnpm build` tại `src/TiToAI.Web`: PASS, cảnh báo bundle lớn hơn 500 kB. Lần chạy FinalSchema đồng thời với solution build thất bại không có chẩn đoán; build riêng và chạy DLL sau đó PASS.
-- `dotnet build tests/TiToAI.FinalSchema.SmokeChecks --no-restore -m:1` và chạy DLL: PASS parity SQL/model, bootstrap DB mới, reset legacy và backup trên fixture tạm.
-- `dotnet build tests/TiToAI.Publishing.SmokeChecks --no-restore -m:1`: PASS 0/0; chạy DLL ngoài sandbox với Edge và fixture: 20 nhóm PASS. `node --test src/appNavigation.test.ts src/features/publishing/publishingPage.test.ts src/features/projects/videoProductionTab.test.ts src/features/settings/settingsPage.test.ts`: 11/11 PASS, có cảnh báo React `act`.
+- `dotnet build Fraylo.sln --no-restore -m:1`: PASS 0 warning/error. `pnpm build` tại `src/Fraylo.Web`: PASS, cảnh báo bundle lớn hơn 500 kB. Lần chạy FinalSchema đồng thời với solution build thất bại không có chẩn đoán; build riêng và chạy DLL sau đó PASS.
+- `dotnet build tests/Fraylo.FinalSchema.SmokeChecks --no-restore -m:1` và chạy DLL: PASS parity SQL/model, bootstrap DB mới, reset legacy và backup trên fixture tạm.
+- `dotnet build tests/Fraylo.Publishing.SmokeChecks --no-restore -m:1`: PASS 0/0; chạy DLL ngoài sandbox với Edge và fixture: 20 nhóm PASS. `node --test src/appNavigation.test.ts src/features/publishing/publishingPage.test.ts src/features/projects/videoProductionTab.test.ts src/features/settings/settingsPage.test.ts`: 11/11 PASS, có cảnh báo React `act`.
 - Không khởi động desktop: `--test-database-path` và `--test-webview2-profile-dir` cô lập DB/WebView2, nhưng `MainWindow` vẫn tạo `ProfileRegistry` và `StorageRootRegistry` với đường dẫn mặc định trong LocalAppData. Chưa xác minh cô lập toàn bộ tài nguyên để thử an toàn. Desktop navigation/restart, Analytics trong app, DPI, provider thật và TikTok thật NOT_RUN. Không chạm DB chính hoặc gửi video.
 - CodeGraph MCP không trả kết quả sau hơn 50 giây; kiểm tra source liên quan bằng `rg` theo fallback. Không sửa mã ứng dụng, không đóng VF0/VF5 hoặc gate tổng thể.

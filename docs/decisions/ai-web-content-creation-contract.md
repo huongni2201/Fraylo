@@ -31,7 +31,7 @@ Hệ thống giữ nguyên 3 mục đích Prompt cốt lõi: `Script`, `Image`, 
 
 ## 3. Danh mục DTOs và Schema Contract
 
-Các DTOs đã được định nghĩa tại `src/TiToAI.Contracts/Content/ContentCreationDtos.cs`:
+Các DTOs đã được định nghĩa tại `src/Fraylo.Contracts/Content/ContentCreationDtos.cs`:
 
 ### 3.1. Hợp đồng Bài đăng TikTok (`TikTokPostDto`)
 - `caption` (`string`): Đoạn văn bản mô tả video, hook và lời kêu gọi hành động (CTA).
@@ -88,7 +88,7 @@ Lưu trữ đầy đủ tại thời điểm enqueue trong SQLite:
 
 ## 4. Danh mục Lệnh Bridge (Allow-list)
 
-Đã bổ sung vào `BridgeContract.cs` và `src/TiToAI.Web/src/contracts/bridge.ts`:
+Đã bổ sung vào `BridgeContract.cs` và `src/Fraylo.Web/src/contracts/bridge.ts`:
 
 ```typescript
   // Content Creation (AI Web — ChatGPT/Gemini Web)
@@ -103,7 +103,7 @@ Lưu trữ đầy đủ tại thời điểm enqueue trong SQLite:
 
 ## 5. Parser và Xử lý Khả năng Chống chịu (Resilience)
 
-Triển khai tại `src/TiToAI.Application/Content/ContentCandidateParser.cs`:
+Triển khai tại `src/Fraylo.Application/Content/ContentCandidateParser.cs`:
 1. **Trích xuất JSON:** Tự động phát hiện và bóc tách khối mã markdown ````json ... ```` hoặc chuỗi JSON thuần.
 2. **Không crash khi lỗi:** Khi JSON lỗi cú pháp, thiếu trường bắt buộc hoặc rỗng, parser trả về `isCompliant = false`, danh sách `Errors` chi tiết và bảo toàn nguyên vẹn `rawText`.
 
