@@ -236,8 +236,11 @@ public sealed class JobScheduler : IJobWakeupNotifier, IAsyncDisposable
                     NotifyStateChanged(reserveResult.Job.Id, reserveResult.Job.ProjectId, JobState.Queued, JobState.Reserved, null, null, reserveResult.Job.Revision);
 
                     var workerJob = reserveResult.Job;
+                    // Đăng ký trước khi worker chạy: worker kết thúc nhanh sẽ tự gỡ, không để lại mục treo.
+                    var registered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     var workerTask = Task.Run(async () =>
                     {
+                        await registered.Task.ConfigureAwait(false);
                         try
                         {
                             await ExecuteWorkerAsync(workerJob, assignedProfileId, assignedAccountId).ConfigureAwait(false);
@@ -249,6 +252,7 @@ public sealed class JobScheduler : IJobWakeupNotifier, IAsyncDisposable
                     });
 
                     _runningWorkerTasks.TryAdd(workerJob.Id, workerTask);
+                    registered.SetResult();
                     return true;
                 }
                 // Nếu không reserve được do provider/capacity của job này, loop tiếp tục thử job kế tiếp (không chặn job khác!)
@@ -429,7 +433,8 @@ public sealed class JobScheduler : IJobWakeupNotifier, IAsyncDisposable
         catch (Exception ex)
         {
             LastWorkerException = ex;
-            await HandleExecutionFailureAsync(reservedJob, fencingToken, ex.Message, sideEffectCommitted).ConfigureAwait(false);
+            System.Diagnostics.Debug.WriteLine($"[JobScheduler] Worker {jobId} lỗi: {ex.Message}");
+            await HandleExecutionFailureAsync(reservedJob, fencingToken, "execution_failed", sideEffectCommitted).ConfigureAwait(false);
         }
         finally
         {

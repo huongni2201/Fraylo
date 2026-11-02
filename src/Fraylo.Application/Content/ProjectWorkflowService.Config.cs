@@ -43,12 +43,34 @@ public sealed partial class ProjectWorkflowService
     }
 
     /// <summary>
-    /// Lấy cấu hình quy trình sản xuất video cấp Dự án.
-    /// Nếu chưa có, trả về giá trị mặc định hợp lệ.
+    /// Lấy cấu hình quy trình sản xuất video cấp Dự án với <b>trạng thái hiển thị</b>: RunState được suy từ queue
+    /// (vd: Failed khi mọi bước đã dừng mà còn bước lỗi/bị loại/hủy). Nếu chưa có, trả về giá trị mặc định hợp lệ.
     /// </summary>
-    public async Task<ProjectWorkflowConfigDto> GetWorkflowConfigAsync(
+    public Task<ProjectWorkflowConfigDto> GetWorkflowConfigAsync(
         string projectId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        LoadWorkflowConfigAsync(projectId, deriveRunState: true, includeSteps: false, cancellationToken);
+
+    /// <summary>Như <see cref="GetWorkflowConfigAsync"/> và kèm <c>Steps</c> (lần thử hiện hành từng bước, quyền retry). Chỉ dùng cho bridge.</summary>
+    public Task<ProjectWorkflowConfigDto> GetWorkflowConfigWithStepsAsync(
+        string projectId,
+        CancellationToken cancellationToken = default) =>
+        LoadWorkflowConfigAsync(projectId, deriveRunState: true, includeSteps: true, cancellationToken);
+
+    /// <summary>
+    /// Cấu hình với <b>trạng thái điều khiển</b>: RunState đúng như đã lưu, không suy. Pipeline (apply, continuation,
+    /// auto-render, recovery) và các thao tác ghi trạng thái dùng bản này, để một bước lỗi không làm cảnh khác bỏ việc.
+    /// </summary>
+    private Task<ProjectWorkflowConfigDto> GetStoredWorkflowConfigAsync(
+        string projectId,
+        CancellationToken cancellationToken = default) =>
+        LoadWorkflowConfigAsync(projectId, deriveRunState: false, includeSteps: false, cancellationToken);
+
+    private async Task<ProjectWorkflowConfigDto> LoadWorkflowConfigAsync(
+        string projectId,
+        bool deriveRunState,
+        bool includeSteps,
+        CancellationToken cancellationToken)
     {
         var normalizedProjectId = NormalizeAndValidateGuid(projectId, nameof(projectId));
 
@@ -75,11 +97,25 @@ public sealed partial class ProjectWorkflowService
             .FirstOrDefaultAsync(g => g.Id == project.GroupId, cancellationToken);
 
         var stored = await LoadStoredConfigAsync(dbContext, normalizedProjectId, cancellationToken);
+        // Queue là nguồn trạng thái hiển thị: kể cả khi bỏ lỡ sự kiện lỗi hoặc mở lại app sau timeout.
+        IReadOnlyList<WorkflowStepStateDto>? steps = null;
+        if (deriveRunState &&
+            stored.RunState is WorkflowRunState.Running or WorkflowRunState.Paused or WorkflowRunState.Failed &&
+            stored.CurrentRunId != null)
+        {
+            var run = await BuildRunStepsAsync(dbContext, ApplyGroupDefaults(stored, group), includeSteps, cancellationToken);
+            stored = stored with { RunState = DeriveDisplayRunState(stored.RunState, run) };
+            if (includeSteps)
+            {
+                steps = run.Steps;
+            }
+        }
         return ApplyGroupDefaults(stored, group) with
         {
             FinalVideoAssetId = finalVideoAssetId,
             GroupId = project.GroupId,
-            GroupName = group?.Name
+            GroupName = group?.Name,
+            Steps = steps
         };
     }
 
@@ -244,15 +280,11 @@ public sealed partial class ProjectWorkflowService
         {
             throw new ProjectWorkflowValidationException($"Chế độ ảnh tham chiếu '{referenceImageMode}' không hợp lệ.");
         }
-        // Storyboard 9 ô là một ảnh cho một video 15 giây: chỉ hợp lệ với luồng một video (cấu hình thiếu trường này là Direct).
-        if (referenceImageMode == ReferenceImageModes.StoryboardGrid9)
+        // Storyboard 9 ô là một ảnh cho một video: chỉ hợp lệ với luồng một video (cấu hình thiếu trường này là Direct).
+        if (referenceImageMode == ReferenceImageModes.StoryboardGrid9 && videoStrategy != VideoStrategies.SingleVideo)
         {
-            var requestedDuration = request.TargetDurationPerSceneSeconds > 0 ? request.TargetDurationPerSceneSeconds : existing.TargetDurationPerSceneSeconds;
-            if (videoStrategy != VideoStrategies.SingleVideo || requestedDuration != ReferenceImageModes.GridDurationSeconds)
-            {
-                throw new ProjectWorkflowValidationException(
-                    $"Ảnh storyboard {ReferenceImageModes.GridShotCount} ô chỉ dùng cho chế độ một video, thời lượng {ReferenceImageModes.GridDurationSeconds} giây.");
-            }
+            throw new ProjectWorkflowValidationException(
+                $"Ảnh storyboard {ReferenceImageModes.GridShotCount} ô chỉ dùng cho chế độ một video.");
         }
         var scriptGuidance = request.ScriptGuidance is null ? existing.ScriptGuidance : PromptGuidance.Normalize(request.ScriptGuidance);
         var videoGuidance = request.VideoGuidance is null ? existing.VideoGuidance : PromptGuidance.Normalize(request.VideoGuidance);
@@ -335,6 +367,11 @@ public sealed partial class ProjectWorkflowService
             foreach (var sc in scenes)
             {
                 sc.UpdatedAtUtc = updated.UpdatedAtUtc;
+                // Cảnh đang kế thừa thời lượng cũ của dự án (hoặc chưa đặt) thì theo thời lượng mới; render ưu tiên giá trị của cảnh.
+                if (durationChanged && (sc.TargetDurationSeconds <= 0 || sc.TargetDurationSeconds == existing.TargetDurationPerSceneSeconds))
+                {
+                    sc.TargetDurationSeconds = updated.TargetDurationPerSceneSeconds;
+                }
                 var sKey = GetSceneKey(sc.Id);
                 var sSetting = await dbContext.AppSettings.FirstOrDefaultAsync(item => item.Key == sKey, cancellationToken).ConfigureAwait(false);
                 SceneWorkflowDetailDto? existingDetail = null;

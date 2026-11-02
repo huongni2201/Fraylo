@@ -56,12 +56,7 @@ public static class Program
             return await VideoWorkflowSmokeTests.RunAllAsync();
         }
 
-        if (args.Length > 0 && (string.Equals(args[0], "provider", StringComparison.OrdinalIgnoreCase) || string.Equals(args[0], "workflow-def", StringComparison.OrdinalIgnoreCase) || string.Equals(args[0], "t18a", StringComparison.OrdinalIgnoreCase)))
-        {
-            return await ProviderRegistryAndWorkflowSmokeTests.RunAllAsync();
-        }
-
-        if (args.Length > 0 && string.Equals(args[0], "t18", StringComparison.OrdinalIgnoreCase))
+        if (args.Length > 0 && (string.Equals(args[0], "provider", StringComparison.OrdinalIgnoreCase) || string.Equals(args[0], "workflow-def", StringComparison.OrdinalIgnoreCase) || string.Equals(args[0], "t18a", StringComparison.OrdinalIgnoreCase) || string.Equals(args[0], "t18", StringComparison.OrdinalIgnoreCase)))
         {
             return await ProviderRegistryAndWorkflowSmokeTests.RunAllAsync();
         }

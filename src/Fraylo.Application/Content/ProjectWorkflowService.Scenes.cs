@@ -121,6 +121,28 @@ public sealed partial class ProjectWorkflowService
             }
         }
 
+        // Metadata cảnh không lưu lifecycle job; luôn lấy trạng thái hiện hành từ queue.
+        var activeJobs = await dbContext.Jobs.AsNoTracking()
+            .Where(j => j.ProjectId == normalizedProjectId && j.SceneId != null &&
+                        (j.State == JobState.Queued || j.State == JobState.Reserved ||
+                         j.State == JobState.Running || j.State == JobState.AwaitingUser))
+            .OrderByDescending(j => j.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+        var currentRunId = (await GetWorkflowConfigAsync(normalizedProjectId, cancellationToken)).CurrentRunId;
+        for (var i = 0; i < result.Count; i++)
+        {
+            var detail = result[i];
+            var activeJob = activeJobs.FirstOrDefault(j => j.SceneId == detail.SceneId &&
+                (GetWorkflowRunId(j.ConfigSnapshotJson) == null || GetWorkflowRunId(j.ConfigSnapshotJson) == currentRunId));
+            result[i] = detail with
+            {
+                ActiveJobId = activeJob?.Id,
+                ActiveJobType = activeJob?.TaskType,
+                ActiveJobState = activeJob?.State,
+                ActiveJobProgressPercent = null
+            };
+        }
+
         return result;
     }
 
@@ -469,7 +491,7 @@ public sealed partial class ProjectWorkflowService
             WorkflowStepKey: $"{GridStepPrefix}{scene.Id}.{scene.UpdatedAtUtc}",
             MediaSnapshot: new JobMediaSnapshotDto(
                 SourceImageAssetId: source,
-                DurationSeconds: ReferenceImageModes.GridDurationSeconds,
+                DurationSeconds: config.TargetDurationPerSceneSeconds,
                 MediaRoles: new Dictionary<string, string> { ["SourceImage"] = source }));
     }
 

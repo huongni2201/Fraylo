@@ -11,6 +11,11 @@
     <PackageReference Include="Microsoft.Web.WebView2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Gốc URL R2 chứa manifest.json; lấy từ biến môi trường UPDATE_BASE_URL lúc build (xem .env.example). -->
+    <AssemblyMetadata Include="UpdateBaseUrl" Value="$(UPDATE_BASE_URL)" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>

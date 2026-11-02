@@ -62,11 +62,10 @@ public static class ReferenceImageModes
     /// <summary>Dùng ảnh nguồn (ảnh ghép / ảnh sẵn sàng / ảnh sản phẩm) trực tiếp.</summary>
     public const string Direct = "Direct";
 
-    /// <summary>Tạo một ảnh storyboard 3×3 từ 9 shot rồi gửi nguyên ảnh đó để render một video 15 giây.</summary>
+    /// <summary>Tạo một ảnh storyboard 3×3 từ 9 shot rồi gửi nguyên ảnh đó để render một video theo thời lượng đã chọn (10, 15 hoặc 30 giây).</summary>
     public const string StoryboardGrid9 = "StoryboardGrid9";
 
     public const int GridShotCount = 9;
-    public const int GridDurationSeconds = 15;
 
     public static bool IsValid(string? mode) => mode is Direct or StoryboardGrid9;
 }
@@ -105,6 +104,54 @@ public static class WorkflowRunState
     public const string Completed = "Completed";
     public const string Failed = "Failed";
 }
+
+/// <summary>Loại bước logic của một run. Một bước logic = (loại, SceneId); Script không có SceneId.</summary>
+public static class WorkflowStepKinds
+{
+    public const string Script = "script";
+    public const string Compose = "compose";
+    public const string Grid = "grid";
+    public const string Image = "image";
+    public const string Prompt = "prompt";
+    public const string Render = "render";
+}
+
+/// <summary>Kết quả của lần thử hiện hành một bước logic.</summary>
+public static class WorkflowStepOutcomes
+{
+    /// <summary>Job chưa kết thúc, hoặc Succeeded nhưng kết quả chưa được apply.</summary>
+    public const string Pending = "Pending";
+    public const string Succeeded = "Succeeded";
+    /// <summary>Job Succeeded nhưng kết quả bị loại khi apply (storyboard/prompt không hợp lệ, ảnh rỗng).</summary>
+    public const string Rejected = "Rejected";
+    public const string Failed = "Failed";
+    public const string Canceled = "Canceled";
+}
+
+/// <summary>Lần thử hiện hành của một bước logic trong run hiện tại.</summary>
+public sealed record WorkflowStepStateDto(
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("sceneId")] string? SceneId,
+    [property: JsonPropertyName("jobId")] string JobId,
+    [property: JsonPropertyName("jobRevision")] long JobRevision,
+    [property: JsonPropertyName("outcome")] string Outcome,
+    [property: JsonPropertyName("reasonCode")] string? ReasonCode,
+    [property: JsonPropertyName("reasonMessage")] string? ReasonMessage,
+    [property: JsonPropertyName("canRetry")] bool CanRetry,
+    [property: JsonPropertyName("blockedReason")] string? BlockedReason,
+    [property: JsonPropertyName("attemptCount")] int AttemptCount);
+
+/// <summary>Yêu cầu thử lại đúng một bước lỗi (workflow.retry_step). Run, loại bước và cảnh lấy từ job nguồn.</summary>
+public sealed record RetryWorkflowStepRequest(
+    [property: JsonPropertyName("projectId")] string ProjectId,
+    [property: JsonPropertyName("jobId")] string JobId,
+    [property: JsonPropertyName("expectedJobRevision")] long ExpectedJobRevision);
+
+/// <summary>Kết quả đưa bước vào hàng đợi: JobId là job đang chạy lại (cùng job hoặc job mới).</summary>
+public sealed record RetryWorkflowStepResponseData(
+    [property: JsonPropertyName("jobId")] string JobId,
+    [property: JsonPropertyName("jobRevision")] long JobRevision,
+    [property: JsonPropertyName("runState")] string RunState);
 
 /// <summary>
 /// Trạng thái sẵn sàng và tiến độ của từng Cảnh (Scene Workflow Status).
@@ -155,7 +202,9 @@ public sealed record ProjectWorkflowConfigDto(
     [property: JsonPropertyName("groupName")] string? GroupName = null,
     [property: JsonPropertyName("inheritedAssetSlots")] IReadOnlyList<string>? InheritedAssetSlots = null,
     [property: JsonPropertyName("videoStrategy")] string VideoStrategy = VideoStrategies.MultiVideo,
-    [property: JsonPropertyName("referenceImageMode")] string ReferenceImageMode = ReferenceImageModes.Direct);
+    [property: JsonPropertyName("referenceImageMode")] string ReferenceImageMode = ReferenceImageModes.Direct,
+    // Chỉ điền khi đọc qua GetWorkflowConfigWithStepsAsync (bridge): lần thử hiện hành của từng bước logic trong run.
+    [property: JsonPropertyName("steps")] IReadOnlyList<WorkflowStepStateDto>? Steps = null);
 
 /// <summary>
 /// Thông tin chi tiết quy trình của một Cảnh (Scene Workflow Detail).

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Fraylo.Contracts.Content;
 using Fraylo.Contracts.Jobs;
 using Fraylo.Infrastructure.Persistence;
+using Fraylo.Infrastructure.Persistence.Entities;
 
 namespace Fraylo.Application.Content;
 
@@ -50,14 +51,18 @@ internal static class WorkflowInputGuard
         }
     }
 
-    /// <summary>Ghi cờ stale vào metadata workflow của cảnh, giữ các trường khác. Cảnh chưa có metadata workflow thì bỏ qua.</summary>
+    /// <summary>Ghi cờ stale vào metadata workflow của cảnh, giữ các trường khác. Cảnh chưa có metadata thì tạo mới để Đăng video vẫn chặn được.</summary>
     public static async Task MarkSceneVideoStaleAsync(FrayloDbContext dbContext, string sceneId, string reason, IEnumerable<string> staleTaskTypes, CancellationToken cancellationToken)
     {
-        var meta = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == "scene.workflow." + sceneId, cancellationToken);
-        if (meta == null || string.IsNullOrWhiteSpace(meta.Value) || JsonNode.Parse(meta.Value) is not JsonObject node)
+        var key = "scene.workflow." + sceneId;
+        var meta = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == key, cancellationToken);
+        if (meta == null)
         {
-            return;
+            meta = new AppSetting { Key = key, Value = "{}", UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("o") };
+            dbContext.AppSettings.Add(meta);
         }
+        var node = (string.IsNullOrWhiteSpace(meta.Value) ? null : JsonNode.Parse(meta.Value)) as JsonObject ?? new JsonObject();
+        node["sceneId"] ??= sceneId;
 
         var types = (node["staleTaskTypes"] as JsonArray)?.Select(t => t?.GetValue<string>()).OfType<string>().ToHashSet()
             ?? new HashSet<string>();

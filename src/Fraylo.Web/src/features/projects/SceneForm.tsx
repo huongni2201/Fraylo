@@ -84,8 +84,8 @@ export function SceneForm({
       errors.name = "Tên phân cảnh không được vượt quá 100 ký tự.";
     }
 
-    if (!targetDurationSeconds || ![10, 15].includes(Number(targetDurationSeconds))) {
-      errors.duration = "Vui lòng chọn thời lượng được nhà cung cấp hỗ trợ (10 giây hoặc 15 giây).";
+    if (!targetDurationSeconds || ![10, 15, 30].includes(Number(targetDurationSeconds))) {
+      errors.duration = "Vui lòng chọn thời lượng được nhà cung cấp hỗ trợ (10, 15 hoặc 30 giây).";
     }
 
     setFieldErrors(errors);
@@ -277,7 +277,8 @@ export function SceneForm({
               >
                 <option value={15}>15 giây (Ưu tiên)</option>
                 <option value={10}>10 giây</option>
-                {![10, 15].includes(targetDurationSeconds) && (
+                <option value={30}>30 giây</option>
+                {![10, 15, 30].includes(targetDurationSeconds) && (
                   <option value={targetDurationSeconds}>
                     {targetDurationSeconds} giây (Cần chọn lại thời lượng được hỗ trợ)
                   </option>

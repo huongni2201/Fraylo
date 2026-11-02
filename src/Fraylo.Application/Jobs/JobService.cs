@@ -411,23 +411,31 @@ public sealed class JobService
         }
 
         var prevState = job.State;
-        job.State = JobState.Canceled;
-        job.CancelRequested = 1;
-        job.SideEffectSubmitted = 0; // Người dùng bỏ tác vụ: không giữ cờ side effect chờ đối soát.
-        job.ReasonCode = JobReasonCode.UserCanceled;
-        job.LeaseExpiresAtUtc = null;
-        job.LeaseOwnerId = null;
-        job.Revision += 1;
-        job.UpdatedAtUtc = UtcNow.ToString("o");
+        var prevRevision = job.Revision;
+        var newRevision = prevRevision + 1;
+        var now = UtcNow.ToString("o");
 
-        var occupancy = await dbContext.ActiveSlotOccupancies
-            .FirstOrDefaultAsync(o => o.JobId == jobId, cancellationToken).ConfigureAwait(false);
-        if (occupancy != null)
+        // Compare-and-set theo revision: worker commit Succeeded/Failed chen giữa lúc đọc và ghi sẽ làm lệnh hủy thất bại thay vì ghi đè.
+        var updated = await dbContext.Jobs
+            .Where(j => j.Id == jobId && j.Revision == prevRevision && j.State == prevState)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(j => j.State, JobState.Canceled)
+                .SetProperty(j => j.CancelRequested, 1)
+                .SetProperty(j => j.SideEffectSubmitted, 0) // Người dùng bỏ tác vụ: không giữ cờ side effect chờ đối soát.
+                .SetProperty(j => j.ReasonCode, JobReasonCode.UserCanceled)
+                .SetProperty(j => j.LeaseExpiresAtUtc, (string?)null)
+                .SetProperty(j => j.LeaseOwnerId, (string?)null)
+                .SetProperty(j => j.Revision, newRevision)
+                .SetProperty(j => j.UpdatedAtUtc, now), cancellationToken).ConfigureAwait(false);
+        if (updated == 0)
         {
-            dbContext.ActiveSlotOccupancies.Remove(occupancy);
+            throw new JobConcurrencyConflictException("Tác vụ vừa đổi trạng thái; hãy tải lại danh sách rồi thử hủy lại.", jobId);
         }
 
-        await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await dbContext.ActiveSlotOccupancies
+            .Where(o => o.JobId == jobId)
+            .ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+        job.Revision = newRevision;
         _scheduler.CancelRunningWorker(jobId);
 
         return new JobCancelResponseData(
@@ -557,65 +565,10 @@ public sealed class JobService
                 job.Id);
         }
 
-        // Render MuseAI hết thời gian chờ sau khi đã gửi: chỉ thử lại bằng cách tiếp tục chờ side chat đã lưu, không gửi lại.
-        bool resumableRender = JobRetryAndCancelPolicy.IsResumableRenderReason(job.ReasonCode)
-            && await Fraylo.Application.Providers.MuseAiPlaywrightAutomation.CanResumeRenderAsync(dbContext, job, cancellationToken).ConfigureAwait(false);
-
-        if (job.SideEffectSubmitted != 0 && !resumableRender)
+        var blocked = await EvaluateRetryEligibilityAsync(dbContext, job, cancellationToken).ConfigureAwait(false);
+        if (blocked is not null)
         {
-            throw new JobValidationException(
-                "Không thể thử lại (retry) tác vụ đã phát sinh tác dụng phụ (side-effect) ra bên ngoài.",
-                nameof(job.SideEffectSubmitted));
-        }
-
-        bool hasOccupancy = await dbContext.ActiveSlotOccupancies
-            .AsNoTracking()
-            .AnyAsync(o => o.JobId == job.Id, cancellationToken).ConfigureAwait(false);
-
-        bool hasUnresolved = hasOccupancy ||
-            (job.SideEffectSubmitted == 1 && !resumableRender &&
-             string.IsNullOrWhiteSpace(job.ResultReference) &&
-             string.IsNullOrWhiteSpace(job.ResultText));
-
-        if (hasUnresolved)
-        {
-            throw new JobValidationException(
-                "Tác vụ có tác dụng phụ chưa được giải quyết, không thể retry.",
-                nameof(job.SideEffectSubmitted));
-        }
-
-        if (job.CancelRequested != 0)
-        {
-            throw new JobValidationException(
-                "Tác vụ đã yêu cầu hủy bỏ bởi người dùng, không thể retry.",
-                nameof(job.CancelRequested));
-        }
-
-        var nonRetryableReasons = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            JobReasonCode.UserCanceled,
-            JobReasonCode.CanceledLateResult,
-            JobReasonCode.LoginRequired,
-            JobReasonCode.SessionExpired,
-            JobReasonCode.AuthClosed,
-            JobReasonCode.WrongAccount,
-            JobReasonCode.StorageRootUnavailable,
-            "adapter_not_available"
-        };
-
-        if (JobRetryAndCancelPolicy.IsAutomationUnavailable(job.ReasonCode)
-            || (!string.IsNullOrWhiteSpace(job.ReasonCode) && nonRetryableReasons.Contains(job.ReasonCode)))
-        {
-            throw new JobValidationException(
-                $"Tác vụ thất bại với lý do '{job.ReasonCode}' không đủ điều kiện thử lại tự động.",
-                nameof(job.ReasonCode));
-        }
-
-        if (job.Attempts >= job.MaxAttempts)
-        {
-            throw new JobValidationException(
-                $"Tác vụ đã vượt quá ngân sách số lần thử tối đa ({job.Attempts}/{job.MaxAttempts}). Hết ngân sách muốn chạy lại phải tạo tác vụ mới có chủ ý.",
-                nameof(job.Attempts));
+            throw blocked;
         }
 
         job.State = JobState.Queued;
@@ -638,6 +591,89 @@ public sealed class JobService
         );
     }
 
+
+    /// <summary>
+    /// Lý do job Failed không thể thử lại (null = thử lại được). Cùng bộ điều kiện với RetryAsync,
+    /// để UI hiện nút Thử lại hoặc lý do chặn thay vì đợi lỗi khi bấm.
+    /// </summary>
+    public async Task<string?> GetRetryBlockReasonAsync(string jobId, CancellationToken cancellationToken = default)
+    {
+        await using var dbContext = new FrayloDbContext(_dbOptions);
+        var job = await dbContext.Jobs.AsNoTracking().FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken).ConfigureAwait(false);
+        if (job is null || job.State != JobState.Failed)
+        {
+            return "Tác vụ không ở trạng thái lỗi.";
+        }
+        var blocked = await EvaluateRetryEligibilityAsync(dbContext, job, cancellationToken).ConfigureAwait(false);
+        return blocked?.Message;
+    }
+
+    private static async Task<JobValidationException?> EvaluateRetryEligibilityAsync(
+        FrayloDbContext dbContext, Job job, CancellationToken cancellationToken)
+    {
+        // Render MuseAI hết thời gian chờ sau khi đã gửi: chỉ thử lại bằng cách tiếp tục chờ side chat đã lưu, không gửi lại.
+        bool resumableRender = JobRetryAndCancelPolicy.IsResumableRenderReason(job.ReasonCode)
+            && await Fraylo.Application.Providers.MuseAiPlaywrightAutomation.CanResumeRenderAsync(dbContext, job, cancellationToken).ConfigureAwait(false);
+
+        if (job.SideEffectSubmitted != 0 && !resumableRender)
+        {
+            return new JobValidationException(
+                "Không thể thử lại (retry) tác vụ đã phát sinh tác dụng phụ (side-effect) ra bên ngoài.",
+                nameof(job.SideEffectSubmitted));
+        }
+
+        bool hasOccupancy = await dbContext.ActiveSlotOccupancies
+            .AsNoTracking()
+            .AnyAsync(o => o.JobId == job.Id, cancellationToken).ConfigureAwait(false);
+
+        bool hasUnresolved = hasOccupancy ||
+            (job.SideEffectSubmitted == 1 && !resumableRender &&
+             string.IsNullOrWhiteSpace(job.ResultReference) &&
+             string.IsNullOrWhiteSpace(job.ResultText));
+
+        if (hasUnresolved)
+        {
+            return new JobValidationException(
+                "Tác vụ có tác dụng phụ chưa được giải quyết, không thể retry.",
+                nameof(job.SideEffectSubmitted));
+        }
+
+        if (job.CancelRequested != 0)
+        {
+            return new JobValidationException(
+                "Tác vụ đã yêu cầu hủy bỏ bởi người dùng, không thể retry.",
+                nameof(job.CancelRequested));
+        }
+
+        var nonRetryableReasons = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            JobReasonCode.UserCanceled,
+            JobReasonCode.CanceledLateResult,
+            JobReasonCode.LoginRequired,
+            JobReasonCode.SessionExpired,
+            JobReasonCode.AuthClosed,
+            JobReasonCode.WrongAccount,
+            JobReasonCode.StorageRootUnavailable,
+            "adapter_not_available"
+        };
+
+        if (JobRetryAndCancelPolicy.IsAutomationUnavailable(job.ReasonCode)
+            || (!string.IsNullOrWhiteSpace(job.ReasonCode) && nonRetryableReasons.Contains(job.ReasonCode)))
+        {
+            return new JobValidationException(
+                $"Tác vụ thất bại với lý do '{job.ReasonCode}' không đủ điều kiện thử lại tự động.",
+                nameof(job.ReasonCode));
+        }
+
+        if (job.Attempts >= job.MaxAttempts)
+        {
+            return new JobValidationException(
+                $"Tác vụ đã vượt quá ngân sách số lần thử tối đa ({job.Attempts}/{job.MaxAttempts}). Hết ngân sách muốn chạy lại phải tạo tác vụ mới có chủ ý.",
+                nameof(job.Attempts));
+        }
+
+        return null;
+    }
     /// <summary>
     /// Liệt kê lịch sử các tác vụ đã hoàn tất và được giải quyết an toàn (job.list_history) theo contract v1.1 §5:
     /// - Chỉ trả về các job ở trạng thái terminal: Succeeded, Failed, Canceled

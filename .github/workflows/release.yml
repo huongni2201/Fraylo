@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
@@ -26,14 +26,36 @@ jobs:
         working-directory: src/Fraylo.Web
       - name: Cài Inno Setup
         run: choco install innosetup -y --no-progress
+      - name: Cấp khóa ký cập nhật
+        shell: pwsh
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          if (-not $env:RELEASE_SIGNING_KEY) { throw "Thiếu secret RELEASE_SIGNING_KEY (PKCS#8 base64 của release-signing.key)." }
+          $dir = Join-Path $env:LOCALAPPDATA "Fraylo"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Set-Content (Join-Path $dir "release-signing.key") $env:RELEASE_SIGNING_KEY -NoNewline
       - name: Đóng gói
         shell: pwsh
+        env:
+          RELEASE_NOTES: ${{ github.event.head_commit.message }}
+          UPDATE_BASE_URL: ${{ secrets.UPDATE_BASE_URL }}
         run: scripts/package-release.ps1 -Version "${{ github.ref_name }}".TrimStart('v')
-      - uses: softprops/action-gh-release@v2
+      - name: Đẩy lên Cloudflare R2
         if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: |
-            dist/releases/Fraylo-*-win-x64.zip
-            dist/releases/Fraylo-Setup-v*.exe
-            dist/releases/manifest.json
-          generate_release_notes: true
+        shell: pwsh
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          $r = "dist/releases"
+          # manifest.json đẩy cuối và không cache: app chỉ thấy bản mới khi zip đã sẵn sàng.
+          foreach ($f in Get-ChildItem "$r/Fraylo-*-win-x64.zip", "$r/Fraylo-Setup-v*.exe") {
+            aws s3 cp $f.FullName "s3://$env:R2_BUCKET/$($f.Name)" --endpoint-url $env:R2_ENDPOINT
+            if ($LASTEXITCODE) { throw "upload $($f.Name) thất bại" }
+          }
+          aws s3 cp "$r/manifest.json" "s3://$env:R2_BUCKET/manifest.json" --endpoint-url $env:R2_ENDPOINT --cache-control "no-cache" --content-type application/json
+          if ($LASTEXITCODE) { throw "upload manifest.json thất bại" }

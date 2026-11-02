@@ -103,6 +103,7 @@ export const bridgeCommandAllowlist = [
   "workflow.list_content_items",
   "workflow.update_content_item",
   "workflow.create_scene_video",
+  "workflow.retry_step",
 
   // Gate G3 / T25 — TikTok Analytics & Affiliate Dashboard
   "analytics.get_summary",

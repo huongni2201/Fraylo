@@ -861,6 +861,28 @@ public static class JobRetryAndCancelSmokeTests
         }
     }
 
+    private static void Test9_UpdateManifestSignature_RejectsTamperedOrMissing()
+    {
+        using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        var publicKey = Convert.ToBase64String(key.ExportSubjectPublicKeyInfo());
+        string Sign(string data) => Convert.ToBase64String(key.SignData(System.Text.Encoding.UTF8.GetBytes(data), System.Security.Cryptography.HashAlgorithmName.SHA256));
+        var signature = Sign("1.2.3|ABCDEF");
+
+        void Expect(bool expected, string? version, string? sha, string? sig, string pub)
+        {
+            if (Fraylo.Desktop.Hosting.AppUpdateService.VerifyManifest(version, sha, sig, pub) != expected)
+                throw new InvalidOperationException($"VerifyManifest({version}, {sha}) mong đợi {expected}.");
+        }
+
+        Expect(true, "1.2.3", "abcdef", signature, publicKey);
+        Expect(false, "1.2.4", "ABCDEF", signature, publicKey);
+        Expect(false, "1.2.3", "ABCDEE", signature, publicKey);
+        Expect(false, "1.2.3", "ABCDEF", null, publicKey);
+        Expect(false, "1.2.3", "ABCDEF", "not-base64!", publicKey);
+        using var other = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        Expect(false, "1.2.3", "ABCDEF", signature, Convert.ToBase64String(other.ExportSubjectPublicKeyInfo()));
+    }
+
     /// <summary>
     /// Phương thức điều phối chạy toàn bộ 8 ca kiểm thử định lượng Task T16.
     /// </summary>
@@ -938,6 +960,9 @@ public static class JobRetryAndCancelSmokeTests
 
         await RunCheckAsync("Test 8: Interleaved worker read before recovery commit blocked by CAS and fencing token",
             Test8_InterleavedWorker_ReadBeforeRecovery_CommitBlockedByCasAndFencingToken);
+
+        RunSyncCheck("Test 9: Update manifest signature accepts only the publisher key, version and hash",
+            Test9_UpdateManifestSignature_RejectsTamperedOrMissing);
 
         Console.WriteLine("-----------------------------------------------------------------");
         Console.WriteLine($"Kết quả kiểm thử Task T16: {passed} PASS, {failed} FAIL.");

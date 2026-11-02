@@ -109,17 +109,7 @@ public sealed class JobCrashRecoveryService
                 await dbConn.OpenAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            IDbContextTransaction transaction;
-            if (dbConn is SqliteConnection sqliteConn)
-            {
-                var sqliteTx = sqliteConn.BeginTransaction(deferred: false);
-                transaction = await txContext.Database.UseTransactionAsync(sqliteTx, cancellationToken).ConfigureAwait(false)
-                    ?? throw new InvalidOperationException("Không thể tạo SqliteTransaction cho crash recovery sweep.");
-            }
-            else
-            {
-                transaction = await txContext.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken).ConfigureAwait(false);
-            }
+            var transaction = await txContext.Database.BeginImmediateAsync(cancellationToken).ConfigureAwait(false);
 
             await using (transaction)
             {

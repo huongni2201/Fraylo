@@ -227,7 +227,15 @@ public sealed class PlaywrightBrowserController : IBrowserProcessController
                 };
                 // Cloudflare của ChatGPT/Gemini chặn cờ automation mặc định; TikTok giữ nguyên, không che.
                 if (profile.Kind != BrowserProfileKind.TikTok)
+                {
                     launchOptions.Args = ["--disable-blink-features=AutomationControlled"];
+                    if (isHeadless)
+                    {
+                        // Chrome headless bị Cloudflare/ChatGPT nhận diện (không ra ô nhập); chạy có cửa sổ nhưng đặt ngoài màn hình để "ẩn".
+                        launchOptions.Headless = false;
+                        launchOptions.Args = [.. launchOptions.Args, "--window-position=-32000,-32000", "--window-size=1280,900"];
+                    }
+                }
 
             IBrowserContext browserContext;
 

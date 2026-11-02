@@ -187,9 +187,9 @@
       "fraylo.browser": {
         "type": "Project",
         "dependencies": {
-          "Microsoft.Playwright": "[1.64.1, )",
           "Fraylo.Contracts": "[1.0.0, )",
-          "Fraylo.Infrastructure": "[1.0.0, )"
+          "Fraylo.Infrastructure": "[1.0.0, )",
+          "Microsoft.Playwright": "[1.64.1, )"
         }
       },
       "fraylo.contracts": {
@@ -198,9 +198,9 @@
       "fraylo.infrastructure": {
         "type": "Project",
         "dependencies": {
+          "Fraylo.Contracts": "[1.0.0, )",
           "Microsoft.EntityFrameworkCore.Sqlite": "[10.0.13, )",
-          "SQLitePCLRaw.bundle_e_sqlite3": "[3.0.5, )",
-          "Fraylo.Contracts": "[1.0.0, )"
+          "SQLitePCLRaw.bundle_e_sqlite3": "[3.0.5, )"
         }
       },
       "Microsoft.EntityFrameworkCore.Sqlite": {

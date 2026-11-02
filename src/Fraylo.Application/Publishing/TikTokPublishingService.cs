@@ -41,7 +41,10 @@ public sealed class TikTokPublishingService(
         finally { Gate.Release(); }
 
         await using var readDb = new FrayloDbContext(dbOptions);
-        var projects = await readDb.Projects.AsNoTracking().OrderByDescending(p => p.UpdatedAtUtc).ToListAsync(ct);
+        // Dự án chưa có video nào không thể có video đăng được: bỏ qua sớm để khỏi chạy hàng chục truy vấn cho mỗi dự án nháp.
+        var projects = await readDb.Projects.AsNoTracking()
+            .Where(p => p.CurrentVideoRevisionId != null || readDb.Scenes.Any(s => s.ProjectId == p.Id && s.VideoAssetId != null))
+            .OrderByDescending(p => p.UpdatedAtUtc).ToListAsync(ct);
         var videos = new List<PublishVideoDto>();
         foreach (var project in projects)
         {
@@ -164,14 +167,12 @@ public sealed class TikTokPublishingService(
         if (await db.Jobs.AsNoTracking().AnyAsync(j => j.ProjectId == project.Id &&
             (j.State == "Queued" || j.State == "Reserved" || j.State == "Running" || j.State == "AwaitingUser"), ct)) return [];
         var scenes = await db.Scenes.AsNoTracking().Where(s => s.ProjectId == project.Id).OrderBy(s => s.SequenceOrder).ToListAsync(ct);
-        foreach (var scene in scenes)
+        var sceneKeys = scenes.Select(s => "scene.workflow." + s.Id).ToList();
+        var sceneMetadata = await db.AppSettings.AsNoTracking().Where(s => sceneKeys.Contains(s.Key)).Select(s => s.Value).ToListAsync(ct);
+        foreach (var value in sceneMetadata)
         {
-            var metadata = await db.AppSettings.AsNoTracking().SingleOrDefaultAsync(s => s.Key == "scene.workflow." + scene.Id, ct);
-            if (metadata != null)
-            {
-                using var document = JsonDocument.Parse(metadata.Value);
-                if (document.RootElement.EnumerateObject().Any(p => p.Name.Equals("isStale", StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == JsonValueKind.True)) return [];
-            }
+            using var document = JsonDocument.Parse(value);
+            if (document.RootElement.EnumerateObject().Any(p => p.Name.Equals("isStale", StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == JsonValueKind.True)) return [];
         }
         // SceneId chỉ có với clip của từng cảnh; caption của clip đó không được lấy từ cảnh khác.
         var candidates = new List<(string AssetId, string Name, string? SceneId)>();
@@ -223,7 +224,12 @@ public sealed class TikTokPublishingService(
     private async Task RecoverInterruptedAsync(CancellationToken ct)
     {
         await using var db = new FrayloDbContext(dbOptions);
-        var rows = await db.AppSettings.AsNoTracking().Where(s => s.Key.StartsWith(AttemptPrefix)).Select(s => s.Value).ToListAsync(ct);
+        // Chỉ đọc các lần đăng chưa ở trạng thái cuối (Published/Failed): lịch sử cũ không phải quét lại mỗi lần mở trang.
+        var rows = await db.AppSettings.AsNoTracking()
+            .Where(s => s.Key.StartsWith(AttemptPrefix) &&
+                (s.Value.Contains("\"Preparing\"") || s.Value.Contains("\"Submitted\"") || s.Value.Contains("\"Uncertain\"") ||
+                 s.Value.Contains("\"UserConfirmedPublished\"") || s.Value.Contains("\"UserConfirmedNotPublished\"")))
+            .Select(s => s.Value).ToListAsync(ct);
         foreach (var json in rows)
         {
             var item = Read(json);

@@ -53,7 +53,7 @@ public static class PromptEngineSmokeTests
         Assert(variables.SequenceEqual(new[] { "channel_name", "topic" }), "Danh sách biến phải đúng và ổn định.");
         var rendered = PromptRenderer.Render(template, new Dictionary<string, string>
         {
-            ["channel_name"] = "TiToAI",
+            ["channel_name"] = "Fraylo",
             ["topic"] = "Công nghệ",
         });
         Assert(rendered == "Xin chào Fraylo! Chủ đề: Công nghệ; cú pháp: {literal}.", "Render và escape phải chính xác.");

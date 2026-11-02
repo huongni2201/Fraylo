@@ -19,7 +19,7 @@ export function PublishStateBadge({ state }: { state: PublishState }) {
   const { icon: Icon, variant, className, spin } = styles[state];
   return (
     <Badge variant={variant} className={cn("gap-1.5 whitespace-nowrap", className)}>
-      <Icon className={cn("size-3.5", spin && "animate-spin motion-reduce:animate-none")} aria-hidden="true" />
+      <Icon className={cn("size-3.5", spin && "animate-spin")} aria-hidden="true" />
       {publishStateLabels[state]}
     </Badge>
   );

@@ -25,3 +25,10 @@
 .vs/
 .idea/
 .tmp
+
+# Output của công cụ debug/Playwright MCP
+/debug.log
+/.playwright-mcp/
+
+# Bí mật phát hành
+.env

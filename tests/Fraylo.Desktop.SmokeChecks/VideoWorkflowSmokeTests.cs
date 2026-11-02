@@ -108,6 +108,26 @@ public static class VideoWorkflowSmokeTests
         await RunCaseAsync("21. Ảnh 9 ô (Ảnh sẵn sàng): contract Script, cấu hình không hợp lệ, job 3×3 từ ảnh sẵn sàng",
             TestCase21_StoryboardGridReadyImageAndValidationAsync);
 
+        await RunCaseAsync("22. Script timeout: workflow không kẹt Running", TestCase22_FailedJobUpdatesWorkflowReadAsync);
+
+        await RunCaseAsync("23. Retry bước: prompt bị loại → dừng đúng bước, retry chỉ tạo lại prompt, ảnh/storyboard giữ nguyên, bấm đúp không nhân đôi",
+            TestCase23_RejectedPromptRetryKeepsEarlierStepsAsync);
+
+        await RunCaseAsync("24. Retry bước: ảnh 3×3 lỗi → chạy lại đúng job 3×3, không ghép lại; hết ngân sách thì chặn",
+            TestCase24_FailedGridImageRetriesSameJobAsync);
+
+        await RunCaseAsync("25. Retry bước: job ảnh báo xong nhưng không có ảnh → bị loại, không ghi đè ảnh cảnh, retry giữ nhận diện 3×3",
+            TestCase25_EmptyImageResultIsRejectedAndRetriedAsync);
+
+        await RunCaseAsync("26. Trạng thái bước: lần thử hiện hành, cảnh khác không bị chặn, giới hạn 3 lần, bước đã hủy không retry",
+            TestCase26_LogicalStepStateAndDisplayRunStateAsync);
+
+        await RunCaseAsync("27. Retry bước: Script không phải storyboard → retry job Script mới, run Failed lưu về Running, tạo cảnh khi hợp lệ",
+            TestCase27_RejectedScriptRetryAsync);
+
+        await RunCaseAsync("28. Retry bước: thiếu tệp đầu vào bị chặn; khi Paused vẫn retry được nhưng không sinh bước sau cho tới khi Tiếp tục",
+            TestCase28_RetryMissingInputAndPausedRunAsync);
+
         Console.WriteLine("\n-----------------------------------------------------------------");
         Console.WriteLine($"Kết quả kiểm thử Video Workflow: {_passCount} PASS, {_failCount} FAIL.");
         Console.WriteLine("=================================================================\n");
@@ -945,6 +965,20 @@ public static class VideoWorkflowSmokeTests
                 job1Id = (await db.Jobs.FirstAsync(j => j.SceneId == scene1Id)).Id;
             }
 
+            var queuedDetail = (await workflowService.ListSceneWorkflowDetailsAsync(prjId)).Single();
+            Assert(queuedDetail.ActiveJobId == job1Id && queuedDetail.ActiveJobState == JobState.Queued,
+                "Chi tiết cảnh phải phản ánh job đang chờ trong queue.");
+            using (var db = new FrayloDbContext(dbOptions))
+            {
+                var renderJob = await db.Jobs.SingleAsync(j => j.Id == job1Id);
+                renderJob.TaskType = JobTaskType.VideoRender;
+                renderJob.State = JobState.Running;
+                await db.SaveChangesAsync();
+            }
+            var runningDetail = (await workflowService.ListSceneWorkflowDetailsAsync(prjId)).Single();
+            Assert(runningDetail.ActiveJobType == JobTaskType.VideoRender && runningDetail.ActiveJobState == JobState.Running,
+                "Job render đang chạy không được hiển thị thành chờ nhà cung cấp.");
+
             // Tạo Asset thật trong DB để thỏa mãn ràng buộc khóa ngoại (Foreign Key)
             var videoClipAssetId = SeedAsset(dbOptions, "Video", "videos/clip_scene1.mp4");
 
@@ -960,6 +994,9 @@ public static class VideoWorkflowSmokeTests
 
             bool applied1 = await workflowService.ApplyJobOutputAsync(job1Id);
             Assert(applied1, "Apply kết quả VideoRender cho Cảnh 1 phải thành công.");
+            var completedDetail = (await workflowService.ListSceneWorkflowDetailsAsync(prjId)).Single();
+            Assert(completedDetail.ActiveJobId == null && completedDetail.VideoAssetId == videoClipAssetId,
+                "Sau apply phải thấy video hoàn tất và không còn active job.");
 
             // Kiểm tra Cảnh 1: Đã có video clip hoàn tất!
             using (var db = new FrayloDbContext(dbOptions))
@@ -1214,9 +1251,7 @@ public static class VideoWorkflowSmokeTests
             }
             Assert(blockedLegacy5s, "Bắt đầu với duration 5s chưa được hỗ trợ phải bị chặn và yêu cầu chọn lại.");
 
-            // CD06: 30s hiện là thời lượng provider hỗ trợ nên cấu hình được chấp nhận; cảnh 5s cũ vẫn chặn Start
-            bool blocked30s = false;
-            try
+            // CD06: 30s được chấp nhận và cảnh đang kế thừa thời lượng dự án (5s cũ) phải đồng bộ theo 30s để render không dùng giá trị cũ
             {
                 await service.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
                     ProjectId: prjId,
@@ -1230,13 +1265,8 @@ public static class VideoWorkflowSmokeTests
                     TargetSceneCount: loadedConfig.TargetSceneCount,
                     TargetDurationPerSceneSeconds: 30
                 ));
-                await service.StartWorkflowAsync(new StartProjectWorkflowRequest(prjId));
             }
-            catch (ProjectWorkflowValidationException ex) when (ex.Message.Contains("Cảnh 'Cảnh cũ 5s'"))
-            {
-                blocked30s = true;
-            }
-            Assert(blocked30s, "Cấu hình 30s được chấp nhận; Start vẫn phải bị chặn bởi cảnh 5s cũ.");
+            Assert((await service.ListSceneWorkflowDetailsAsync(prjId))[0].TargetDurationSeconds == 30, "Cảnh kế thừa thời lượng dự án phải đồng bộ sang 30s.");
 
             // Cập nhật cảnh cũ và cấu hình sang 15s (hoặc 10s) theo capability MuseAI
             await service.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
@@ -1924,7 +1954,6 @@ public static class VideoWorkflowSmokeTests
             foreach (var invalid in new[]
             {
                 Config(VideoStrategies.MultiVideo, 15, ReferenceImageModes.StoryboardGrid9),
-                Config(VideoStrategies.SingleVideo, 10, ReferenceImageModes.StoryboardGrid9),
                 Config(VideoStrategies.SingleVideo, 15, "Khac")
             })
             {
@@ -1989,6 +2018,497 @@ public static class VideoWorkflowSmokeTests
             }
         }
         finally { CleanupTestEnvironment(tempDir); }
+    }
+
+    private static async Task TestCase22_FailedJobUpdatesWorkflowReadAsync()
+    {
+        var (dbOptions, tempDir, projectId, workflow) = await CreateGridEnvironmentAsync(WorkflowModes.ReadyImage, false);
+        try
+        {
+            var imageId = SeedAsset(dbOptions, "Image", "ready/timeout.jpg");
+            await workflow.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
+                projectId, WorkflowModes.ReadyImage, "", null, null, imageId, AudioOptions.None, null, 1, 15,
+                VideoStrategy: VideoStrategies.SingleVideo, ReferenceImageMode: ReferenceImageModes.StoryboardGrid9));
+            await workflow.StartWorkflowAsync(new StartProjectWorkflowRequest(projectId));
+            await using (var db = new FrayloDbContext(dbOptions))
+            {
+                var job = await db.Jobs.SingleAsync(j => j.ProjectId == projectId);
+                job.State = JobState.Failed;
+                job.ReasonCode = "execution_failed";
+                await db.SaveChangesAsync();
+            }
+            var config = await workflow.GetWorkflowConfigAsync(projectId);
+            Assert(config.RunState == WorkflowRunState.Failed,
+                $"Script timeout đã Failed nhưng dự án vẫn {config.RunState}.");
+            Assert((await workflow.ListSceneWorkflowDetailsAsync(projectId)).Count == 0,
+                "Timeout trước khi viết cảnh không được tạo cảnh giả.");
+
+            // Retry thủ công giữ job/run cũ: trạng thái phải phục hồi ngay theo queue.
+            foreach (var state in new[] { JobState.Queued, JobState.Running, JobState.AwaitingUser, JobState.Canceled })
+            {
+                await using var db = new FrayloDbContext(dbOptions);
+                (await db.Jobs.SingleAsync(j => j.ProjectId == projectId)).State = state;
+                await db.SaveChangesAsync();
+                var expected = state == JobState.Canceled ? WorkflowRunState.Failed : WorkflowRunState.Running;
+                Assert((await workflow.GetWorkflowConfigAsync(projectId)).RunState == expected,
+                    $"Workflow phải đồng bộ khi job chuyển {state}.");
+            }
+
+            var nextRun = await workflow.StartWorkflowAsync(new StartProjectWorkflowRequest(projectId));
+            Assert(nextRun.RunId != config.CurrentRunId, "Bắt đầu lại phải tạo run mới.");
+            Assert((await workflow.GetWorkflowConfigAsync(projectId)).RunState == WorkflowRunState.Running,
+                "Job lỗi/hủy của run cũ không được làm run mới Failed.");
+            await using (var db = new FrayloDbContext(dbOptions))
+            {
+                var currentJob = (await db.Jobs.Where(j => j.ProjectId == projectId).ToListAsync())
+                    .Single(j => j.State == JobState.Queued);
+                currentJob.State = JobState.Failed;
+                db.Jobs.Add(new Job { Id = Guid.NewGuid().ToString("D"), ProjectId = projectId,
+                    TaskType = JobTaskType.Script, State = JobState.Running, ProviderKey = ProviderKeys.ChatGPTWeb,
+                    CreatedAtUtc = DateTimeOffset.UtcNow.ToString("o"), UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("o") });
+                await db.SaveChangesAsync();
+            }
+            Assert((await workflow.GetWorkflowConfigAsync(projectId)).RunState == WorkflowRunState.Failed,
+                "Job thủ công ngoài workflow không được che lỗi của run hiện tại.");
+        }
+        finally { CleanupTestEnvironment(tempDir); }
+    }
+
+    private sealed record GridRun(
+        DbContextOptions<FrayloDbContext> DbOptions, string TempDir, string PrjId, ProjectWorkflowService Workflow,
+        string ReadyAssetId, string GridAssetId, string GridJobId);
+
+    /// <summary>Ảnh sẵn sàng + 9 ô, dừng sau khi Script được apply: job ảnh 3×3 đang chờ.</summary>
+    private static async Task<GridRun> StartReadyGridRunAtGridJobAsync()
+    {
+        var (dbOptions, tempDir, prjId, workflow) = await CreateGridEnvironmentAsync(WorkflowModes.ReadyImage, withComposeTemplate: false);
+        var readyAssetId = SeedAsset(dbOptions, "Image", "ready/retry_ready.jpg");
+        var gridAssetId = SeedAsset(dbOptions, "Image", "grid/retry_grid.png");
+        await workflow.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
+            prjId, WorkflowModes.ReadyImage, "Áo khoác", null, null, readyAssetId, AudioOptions.None, null, 1, 15,
+            VideoStrategy: VideoStrategies.SingleVideo, ReferenceImageMode: ReferenceImageModes.StoryboardGrid9));
+        await workflow.StartWorkflowAsync(new StartProjectWorkflowRequest(prjId));
+        string scriptJobId;
+        using (var db = new FrayloDbContext(dbOptions))
+        {
+            scriptJobId = (await db.Jobs.SingleAsync(j => j.ProjectId == prjId)).Id;
+        }
+        await SucceedJobAsync(dbOptions, scriptJobId, GridScriptJson(), null);
+        Assert(await workflow.ApplyJobOutputAsync(scriptJobId), "Apply Script 9 shot phải thành công.");
+        string gridJobId;
+        using (var db = new FrayloDbContext(dbOptions))
+        {
+            gridJobId = (await db.Jobs.SingleAsync(j => j.ProjectId == prjId && j.TaskType == JobTaskType.Image)).Id;
+        }
+        return new GridRun(dbOptions, tempDir, prjId, workflow, readyAssetId, gridAssetId, gridJobId);
+    }
+
+    private static WorkflowStepStateDto StepOf(ProjectWorkflowConfigDto config, string kind, string? sceneId = null) =>
+        config.Steps!.Single(s => s.Kind == kind && (sceneId == null || s.SceneId == sceneId));
+
+    private static async Task<string> StoredRunStateAsync(DbContextOptions<FrayloDbContext> dbOptions, string projectId)
+    {
+        using var db = new FrayloDbContext(dbOptions);
+        var setting = await db.AppSettings.AsNoTracking().SingleAsync(s => s.Key == $"project.workflow.config.{projectId}");
+        return JsonSerializer.Deserialize<ProjectWorkflowConfigDto>(setting.Value, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!.RunState;
+    }
+
+    /// <summary>Kịch bản 23: ảnh người dùng — prompt bị loại; retry chỉ tạo lại prompt; không tạo lại ảnh; bấm đúp không nhân đôi.</summary>
+    private static async Task TestCase23_RejectedPromptRetryKeepsEarlierStepsAsync()
+    {
+        var run = await StartReadyGridRunAtGridJobAsync();
+        try
+        {
+            var workflow = run.Workflow;
+            await SucceedJobAsync(run.DbOptions, run.GridJobId, null, run.GridAssetId);
+            Assert(await workflow.ApplyJobOutputAsync(run.GridJobId), "Apply ảnh 3×3 phải thành công.");
+            string promptJobId;
+            using (var db = new FrayloDbContext(run.DbOptions))
+            {
+                promptJobId = (await db.Jobs.SingleAsync(j => j.ProjectId == run.PrjId && j.TaskType == JobTaskType.VideoPrompt)).Id;
+            }
+
+            // Provider trả lời nhưng không có prompt hợp lệ: job Succeeded, kết quả bị loại.
+            await SucceedJobAsync(run.DbOptions, promptJobId, "Xin lỗi, tôi không thể tạo prompt cho nội dung này.", null);
+            await workflow.ApplyJobOutputAsync(promptJobId);
+
+            var stopped = await workflow.GetWorkflowConfigWithStepsAsync(run.PrjId);
+            Assert(stopped.RunState == WorkflowRunState.Failed, $"Prompt bị loại phải hiển thị dừng ở lỗi, thực tế {stopped.RunState}.");
+            Assert(await StoredRunStateAsync(run.DbOptions, run.PrjId) == WorkflowRunState.Running,
+                "Trạng thái điều khiển của pipeline vẫn là Running: lỗi một bước không được làm pipeline bỏ việc.");
+            var promptStep = StepOf(stopped, WorkflowStepKinds.Prompt);
+            Assert(promptStep.Outcome == WorkflowStepOutcomes.Rejected && promptStep.CanRetry
+                && promptStep.ReasonMessage!.Contains("prompt video hợp lệ"), "Bước prompt phải Rejected, có lý do và retry được.");
+            Assert(StepOf(stopped, WorkflowStepKinds.Script).Outcome == WorkflowStepOutcomes.Succeeded
+                && StepOf(stopped, WorkflowStepKinds.Grid).Outcome == WorkflowStepOutcomes.Succeeded, "Script và ảnh 3×3 giữ trạng thái hoàn tất.");
+            using (var db = new FrayloDbContext(run.DbOptions))
+            {
+                Assert(!await db.Jobs.AnyAsync(j => j.ProjectId == run.PrjId && j.TaskType == JobTaskType.VideoRender), "Prompt bị loại không được đưa vào render.");
+            }
+
+            var request = new RetryWorkflowStepRequest(run.PrjId, promptStep.JobId, promptStep.JobRevision);
+            var retried = await workflow.RetryWorkflowStepAsync(request);
+            Assert(retried.JobId != promptJobId && retried.RunState == WorkflowRunState.Running, "Retry kết quả bị loại phải tạo job mới và run chạy lại.");
+            string sceneId;
+            using (var db = new FrayloDbContext(run.DbOptions))
+            {
+                var oldJob = await db.Jobs.AsNoTracking().SingleAsync(j => j.Id == promptJobId);
+                var newJob = await db.Jobs.AsNoTracking().SingleAsync(j => j.Id == retried.JobId);
+                sceneId = newJob.SceneId!;
+                Assert(newJob.TaskType == JobTaskType.VideoPrompt && newJob.SceneId == oldJob.SceneId, "Job mới cùng loại và cùng cảnh.");
+                Assert(Rendered(newJob) == Rendered(oldJob), "Prompt gửi lại đúng nội dung gốc, không phải chuỗi JSON snapshot.");
+                Assert(newJob.ConfigSnapshotJson!.Contains($"#retry.{promptJobId}"), "Job mới có step key retry riêng.");
+                Assert(await db.Jobs.CountAsync(j => j.ProjectId == run.PrjId && j.TaskType == JobTaskType.Image) == 1, "Không được tạo lại ảnh.");
+                Assert(await db.Jobs.CountAsync(j => j.ProjectId == run.PrjId && j.TaskType == JobTaskType.VideoPrompt) == 2, "Chỉ có thêm đúng một job prompt.");
+                Assert((await db.Scenes.AsNoTracking().SingleAsync(s => s.Id == sceneId)).ImageAssetId == run.GridAssetId, "Ảnh 3×3 của cảnh giữ nguyên.");
+            }
+            var running = await workflow.GetWorkflowConfigWithStepsAsync(run.PrjId);
+            var runningStep = StepOf(running, WorkflowStepKinds.Prompt);
+            Assert(running.RunState == WorkflowRunState.Running && runningStep.JobId == retried.JobId
+                && runningStep.Outcome == WorkflowStepOutcomes.Pending && runningStep.AttemptCount == 2, "Sau retry: bước Chờ chạy, run Đang chạy, lịch sử có 2 lần thử.");
+
+            try
+            {
+                await workflow.RetryWorkflowStepAsync(request);
+                Assert(false, "Bấm đúp phải bị từ chối.");
+            }
+            catch (JobConcurrencyConflictException) { }
+            using (var db = new FrayloDbContext(run.DbOptions))
+            {
+                Assert(await db.Jobs.CountAsync(j => j.ProjectId == run.PrjId && j.TaskType == JobTaskType.VideoPrompt) == 2, "Bấm đúp không được nhân đôi job.");
+            }
+
+            await SucceedJobAsync(run.DbOptions, retried.JobId, "{\"video_prompt\": \"Camera trượt chậm qua chi tiết cổ áo khoác.\"}", null);
+            Assert(await workflow.ApplyJobOutputAsync(retried.JobId), "Prompt hợp lệ của lần thử lại phải được apply.");
+            var done = await workflow.GetWorkflowConfigWithStepsAsync(run.PrjId);
+            Assert(StepOf(done, WorkflowStepKinds.Prompt).Outcome == WorkflowStepOutcomes.Succeeded && done.RunState != WorkflowRunState.Failed,
+                "Prompt đã phục hồi thì job bị loại cũ không giữ run ở Failed.");
+            using (var db = new FrayloDbContext(run.DbOptions))
+            {
+                Assert((await db.Scenes.AsNoTracking().SingleAsync(s => s.Id == sceneId)).PromptText!.Contains("Camera"), "Prompt hợp lệ được lưu vào cảnh.");
+            }
+        }
+        finally { CleanupTestEnvironment(run.TempDir); }
+    }
+
+    /// <summary>Kịch bản 24: ảnh 3×3 (Mẫu + sản phẩm) Failed → RetryAsync cùng job; ảnh ghép giữ nguyên; hết ngân sách / lý do cần can thiệp thì chặn.</summary>
+    private static async Task TestCase24_FailedGridImageRetriesSameJobAsync()
+    {
+        var (dbOptions, tempDir, prjId, workflow) = await CreateGridEnvironmentAsync(WorkflowModes.ModelAndProduct, withComposeTemplate: true);
+        try
+        {
+            var modelAssetId = SeedAsset(dbOptions, "Image", "models/retry_model.jpg");
+            var productAssetId = SeedAsset(dbOptions, "Image", "products/retry_product.jpg");
+            var composedAssetId = SeedAsset(dbOptions, "Image", "composed/retry_composed.png");
+            await workflow.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
+                prjId, WorkflowModes.ModelAndProduct, "Váy xếp ly", modelAssetId, productAssetId, null, AudioOptions.None, null, 1, 15,
+                VideoStrategy: VideoStrategies.SingleVideo, ReferenceImageMode: ReferenceImageModes.StoryboardGrid9));
+            await workflow.StartWorkflowAsync(new StartProjectWorkflowRequest(prjId));
+            string scriptJobId;
+            using (var db = new FrayloDbContext(dbOptions)) { scriptJobId = (await db.Jobs.SingleAsync(j => j.ProjectId == prjId)).Id; }
+            await SucceedJobAsync(dbOptions, scriptJobId, GridScriptJson(), null);
+            await workflow.ApplyJobOutputAsync(scriptJobId);
+            string composeJobId;
+            using (var db = new FrayloDbContext(dbOptions)) { composeJobId = (await db.Jobs.SingleAsync(j => j.ProjectId == prjId && j.TaskType == JobTaskType.Image)).Id; }
+            await SucceedJobAsync(dbOptions, composeJobId, null, composedAssetId);
+            await workflow.ApplyJobOutputAsync(composeJobId);
+            string gridJobId;
+            using (var db = new FrayloDbContext(dbOptions))
+            {
+                gridJobId = (await db.Jobs.SingleAsync(j => j.ProjectId == prjId && j.TaskType == JobTaskType.Image && j.Id != composeJobId)).Id;
+                var gridJob = await db.Jobs.SingleAsync(j => j.Id == gridJobId);
+                gridJob.State = JobState.Failed;
+                gridJob.ReasonCode = "execution_failed";
+                gridJob.Attempts = 1;
+                await db.SaveChangesAsync();
+            }
+
+            var stopped = await workflow.GetWorkflowConfigWithStepsAsync(prjId);
+            var gridStep = StepOf(stopped, WorkflowStepKinds.Grid);
+            Assert(stopped.RunState == WorkflowRunState.Failed && gridStep.Outcome == WorkflowStepOutcomes.Failed && gridStep.CanRetry, "Ảnh 3×3 lỗi: run dừng, bước retry được.");
+            Assert(StepOf(stopped, WorkflowStepKinds.Compose).Outcome == WorkflowStepOutcomes.Succeeded, "Ghép ảnh vẫn hoàn tất, tách riêng với ảnh 3×3.");
+
+            try
+            {
+                await workflow.RetryWorkflowStepAsync(new RetryWorkflowStepRequest(prjId, gridJobId, gridStep.JobRevision + 5));
+                Assert(false, "Revision cũ phải bị từ chối.");
+            }
+            catch (JobConcurrencyConflictException) { }
+
+            var retried = await workflow.RetryWorkflowStepAsync(new RetryWorkflowStepRequest(prjId, gridJobId, gridStep.JobRevision));
+            Assert(retried.JobId == gridJobId && retried.JobRevision == gridStep.JobRevision + 1, "Job Failed được đưa lại hàng đợi bằng chính job đó.");
+            using (var db = new FrayloDbContext(dbOptions))
+            {
+                Assert((await db.Jobs.AsNoTracking().SingleAsync(j => j.Id == gridJobId)).State == JobState.Queued, "Job 3×3 về Queued.");
+                Assert(await db.Jobs.CountAsync(j => j.ProjectId == prjId && j.TaskType == JobTaskType.Image) == 2, "Không có job ghép ảnh mới.");
+                Assert((await db.Jobs.AsNoTracking().SingleAsync(j => j.Id == composeJobId)).ResultReference == composedAssetId, "Ảnh ghép giữ nguyên.");
+                Assert((await db.Scenes.AsNoTracking().SingleAsync(s => s.ProjectId == prjId)).ImageAssetId == composedAssetId, "Ảnh nguồn của cảnh vẫn là ảnh ghép.");
+            }
+            var running = await workflow.GetWorkflowConfigWithStepsAsync(prjId);
+            Assert(running.RunState == WorkflowRunState.Running && StepOf(running, WorkflowStepKinds.Grid).Outcome == WorkflowStepOutcomes.Pending, "Sau retry: Chờ chạy, run Đang chạy.");
+
+            // Hết ngân sách thử: không retry, có lý do.
+            using (var db = new FrayloDbContext(dbOptions))
+            {
+                var job = await db.Jobs.SingleAsync(j => j.Id == gridJobId);
+                job.State = JobState.Failed;
+                job.Attempts = job.MaxAttempts;
+                await db.SaveChangesAsync();
+            }
+            var exhausted = StepOf(await workflow.GetWorkflowConfigWithStepsAsync(prjId), WorkflowStepKinds.Grid);
+            Assert(!exhausted.CanRetry && exhausted.BlockedReason!.Contains("ngân sách"), "Hết ngân sách: không retry, hiện lý do.");
+            try
+            {
+                await workflow.RetryWorkflowStepAsync(new RetryWorkflowStepRequest(prjId, gridJobId, exhausted.JobRevision));
+                Assert(false, "Hết ngân sách phải bị từ chối.");
+            }
+            catch (ProjectWorkflowValidationException) { }
+
+            // Lý do cần người dùng can thiệp (đăng nhập): không retry.
+            using (var db = new FrayloDbContext(dbOptions))
+            {
+                var job = await db.Jobs.SingleAsync(j => j.Id == gridJobId);
+                job.Attempts = 1;
+                job.ReasonCode = JobReasonCode.LoginRequired;
+                await db.SaveChangesAsync();
+            }
+            Assert(!StepOf(await workflow.GetWorkflowConfigWithStepsAsync(prjId), WorkflowStepKinds.Grid).CanRetry, "Cần đăng nhập thì không retry.");
+        }
+        finally { CleanupTestEnvironment(tempDir); }
+    }
+
+    /// <summary>Kịch bản 25: job ảnh 3×3 Succeeded nhưng không có ảnh → bị loại; không ghi đè ảnh cảnh, không sang bước sau; retry vẫn là bước 3×3.</summary>
+    private static async Task TestCase25_EmptyImageResultIsRejectedAndRetriedAsync()
+    {
+        var run = await StartReadyGridRunAtGridJobAsync();
+        try
+        {
+            var workflow = run.Workflow;
+            await SucceedJobAsync(run.DbOptions, run.GridJobId, null, null);
+            Assert(!await workflow.ApplyJobOutputAsync(run.GridJobId), "Ảnh rỗng không được apply thành công.");
+            using (var db = new FrayloDbContext(run.DbOptions))
+            {
+                Assert((await db.Scenes.AsNoTracking().SingleAsync(s => s.ProjectId == run.PrjId)).ImageAssetId == run.ReadyAssetId, "Ảnh nguồn của cảnh không bị ghi đè bằng giá trị rỗng.");
+                Assert(!await db.Jobs.AnyAsync(j => j.ProjectId == run.PrjId && j.TaskType == JobTaskType.VideoPrompt), "Không sinh VideoPrompt trên ảnh thiếu.");
+            }
+            var stopped = await workflow.GetWorkflowConfigWithStepsAsync(run.PrjId);
+            var gridStep = StepOf(stopped, WorkflowStepKinds.Grid);
+            Assert(stopped.RunState == WorkflowRunState.Failed && gridStep.Outcome == WorkflowStepOutcomes.Rejected
+                && gridStep.ReasonMessage!.Contains("không trả về ảnh") && gridStep.CanRetry, "Dừng tại mốc 3×3 với lý do rõ và retry được.");
+
+            var retried = await workflow.RetryWorkflowStepAsync(new RetryWorkflowStepRequest(run.PrjId, gridStep.JobId, gridStep.JobRevision));
+            using (var db = new FrayloDbContext(run.DbOptions))
+            {
+                var newJob = await db.Jobs.AsNoTracking().SingleAsync(j => j.Id == retried.JobId);
+                Assert(retried.JobId != run.GridJobId && newJob.TaskType == JobTaskType.Image, "Retry tạo job ảnh mới.");
+                Assert(newJob.ConfigSnapshotJson!.Contains("\"WorkflowStepKey\":\"grid.") && newJob.ConfigSnapshotJson.Contains("#retry."), "Vẫn là bước 3×3.");
+                using var snapshot = JsonDocument.Parse(newJob.ConfigSnapshotJson!);
+                Assert(snapshot.RootElement.GetProperty("MediaSnapshot").GetProperty("SourceImageAssetId").GetString() == run.ReadyAssetId, "Cùng ảnh nguồn.");
+            }
+
+            await SucceedJobAsync(run.DbOptions, retried.JobId, null, run.GridAssetId);
+            Assert(await workflow.ApplyJobOutputAsync(retried.JobId), "Lần thử lại có ảnh phải được apply.");
+            Assert((await workflow.ListSceneWorkflowDetailsAsync(run.PrjId)).Single().GridImageAssetId == run.GridAssetId, "Job retry vẫn được nhận là ảnh 3×3.");
+            using (var db = new FrayloDbContext(run.DbOptions))
+            {
+                Assert(await db.Jobs.CountAsync(j => j.ProjectId == run.PrjId && j.TaskType == JobTaskType.VideoPrompt) == 1, "Sau ảnh 3×3 hợp lệ mới đi tiếp sang đúng một VideoPrompt.");
+            }
+        }
+        finally { CleanupTestEnvironment(run.TempDir); }
+    }
+
+    /// <summary>Kịch bản 26: trạng thái bước suy từ queue — cảnh khác không bị chặn, lần thử mới thay lần cũ, giới hạn 3 lần, bước đã hủy không retry.</summary>
+    private static async Task TestCase26_LogicalStepStateAndDisplayRunStateAsync()
+    {
+        var (dbOptions, tempDir, prjId, workflow) = await CreateGridEnvironmentAsync(WorkflowModes.ReadyImage, withComposeTemplate: false);
+        try
+        {
+            var readyAssetId = SeedAsset(dbOptions, "Image", "ready/steps.jpg");
+            var sceneA = SeedScene(dbOptions, prjId, "Cảnh A", 1, readyAssetId, null);
+            var sceneB = SeedScene(dbOptions, prjId, "Cảnh B", 2, readyAssetId, null);
+            await workflow.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
+                prjId, WorkflowModes.ReadyImage, "Hai clip", null, null, readyAssetId, AudioOptions.None, null, 2, 15, VideoStrategy: VideoStrategies.MultiVideo));
+            const string runId = "run-steps-26";
+            using (var db = new FrayloDbContext(dbOptions))
+            {
+                var setting = await db.AppSettings.SingleAsync(s => s.Key == $"project.workflow.config.{prjId}");
+                var stored = JsonSerializer.Deserialize<ProjectWorkflowConfigDto>(setting.Value)!;
+                setting.Value = JsonSerializer.Serialize(stored with { CurrentRunId = runId, RunState = WorkflowRunState.Running });
+                await db.SaveChangesAsync();
+            }
+
+            var clock = 0;
+            async Task<string> AddJobAsync(string sceneId, string taskType, string stepKey, string state, bool applied = false, string? rejected = null)
+            {
+                using var db = new FrayloDbContext(dbOptions);
+                var now = DateTimeOffset.UtcNow.AddMinutes(++clock).ToString("o");
+                var id = Guid.NewGuid().ToString("D");
+                db.Jobs.Add(new Job
+                {
+                    Id = id, ProjectId = prjId, SceneId = sceneId, TaskType = taskType, State = state, ProviderKey = ProviderKeys.ChatGPTWeb,
+                    ConfigSnapshotJson = JsonSerializer.Serialize(new { WorkflowRunId = runId, WorkflowStepKey = stepKey }),
+                    CreatedAtUtc = now, UpdatedAtUtc = now
+                });
+                if (applied) db.AppSettings.Add(new AppSetting { Key = $"workflow.applied.{id}", Value = "{}", UpdatedAtUtc = now });
+                if (rejected != null) db.AppSettings.Add(new AppSetting { Key = $"workflow.rejected.{id}", Value = rejected, UpdatedAtUtc = now });
+                await db.SaveChangesAsync();
+                return id;
+            }
+
+            // Cảnh A: prompt bị loại. Cảnh B: ảnh Succeeded nhưng kết quả chưa được apply → bước sau chưa sinh ra.
+            var promptA1 = await AddJobAsync(sceneA, JobTaskType.VideoPrompt, $"prompt.{sceneA}.t0", JobState.Succeeded, applied: true, rejected: "Prompt sai định dạng.");
+            var imageB = await AddJobAsync(sceneB, JobTaskType.Image, $"image.{sceneB}.t0", JobState.Succeeded);
+            var config = await workflow.GetWorkflowConfigWithStepsAsync(prjId);
+            Assert(config.RunState == WorkflowRunState.Running, "Cảnh B còn việc chưa apply thì run chưa được coi là dừng vì lỗi cảnh A.");
+            Assert(StepOf(config, WorkflowStepKinds.Prompt, sceneA).Outcome == WorkflowStepOutcomes.Rejected
+                && StepOf(config, WorkflowStepKinds.Image, sceneB).Outcome == WorkflowStepOutcomes.Pending, "A bị loại, B đang chờ apply.");
+
+            using (var db = new FrayloDbContext(dbOptions))
+            {
+                db.AppSettings.Add(new AppSetting { Key = $"workflow.applied.{imageB}", Value = "{}", UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("o") });
+                await db.SaveChangesAsync();
+            }
+            Assert((await workflow.GetWorkflowConfigWithStepsAsync(prjId)).RunState == WorkflowRunState.Failed, "Không còn việc đang chờ, A bị loại → dừng ở lỗi.");
+
+            // Lần thử mới của A thay lần cũ: run chạy lại, lịch sử đếm 2.
+            var promptA2 = await AddJobAsync(sceneA, JobTaskType.VideoPrompt, $"prompt.{sceneA}.t0#retry.{promptA1}", JobState.Queued);
+            config = await workflow.GetWorkflowConfigWithStepsAsync(prjId);
+            var stepA = StepOf(config, WorkflowStepKinds.Prompt, sceneA);
+            Assert(config.RunState == WorkflowRunState.Running && stepA.JobId == promptA2 && stepA.AttemptCount == 2, "Lần thử mới thay lần bị loại.");
+
+            // Ba lần bị loại liên tiếp: hết lượt thử lại.
+            using (var db = new FrayloDbContext(dbOptions))
+            {
+                var job = await db.Jobs.SingleAsync(j => j.Id == promptA2);
+                job.State = JobState.Succeeded;
+                db.AppSettings.Add(new AppSetting { Key = $"workflow.applied.{promptA2}", Value = "{}", UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("o") });
+                db.AppSettings.Add(new AppSetting { Key = $"workflow.rejected.{promptA2}", Value = "Lại sai.", UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("o") });
+                await db.SaveChangesAsync();
+            }
+            await AddJobAsync(sceneA, JobTaskType.VideoPrompt, $"prompt.{sceneA}.t0#retry.{promptA2}", JobState.Succeeded, applied: true, rejected: "Vẫn sai.");
+            stepA = StepOf(await workflow.GetWorkflowConfigWithStepsAsync(prjId), WorkflowStepKinds.Prompt, sceneA);
+            Assert(stepA.AttemptCount == 3 && !stepA.CanRetry && stepA.BlockedReason!.Contains("Đã thử 3 lần"), "Quá 3 lần: không retry, có lý do.");
+            try
+            {
+                await workflow.RetryWorkflowStepAsync(new RetryWorkflowStepRequest(prjId, stepA.JobId, stepA.JobRevision));
+                Assert(false, "Quá giới hạn phải bị từ chối.");
+            }
+            catch (ProjectWorkflowValidationException) { }
+
+            // Bước đã hủy: hiển thị dừng, không retry.
+            await AddJobAsync(sceneB, JobTaskType.Image, $"image.{sceneB}.t0", JobState.Canceled);
+            var stepB = StepOf(await workflow.GetWorkflowConfigWithStepsAsync(prjId), WorkflowStepKinds.Image, sceneB);
+            Assert(stepB.Outcome == WorkflowStepOutcomes.Canceled && !stepB.CanRetry, "Bước đã hủy không có retry.");
+            try
+            {
+                await workflow.RetryWorkflowStepAsync(new RetryWorkflowStepRequest(prjId, stepB.JobId, stepB.JobRevision));
+                Assert(false, "Bước đã hủy không được retry.");
+            }
+            catch (ProjectWorkflowValidationException) { }
+
+            // Job của Project/run khác không thuộc lượt hiện tại.
+            try
+            {
+                await workflow.RetryWorkflowStepAsync(new RetryWorkflowStepRequest(prjId, Guid.NewGuid().ToString("D"), 1));
+                Assert(false, "Job không thuộc run hiện tại phải bị từ chối.");
+            }
+            catch (ProjectWorkflowValidationException) { }
+        }
+        finally { CleanupTestEnvironment(tempDir); }
+    }
+
+    /// <summary>Kịch bản 27: Script trả về không phải storyboard → run Failed đã lưu; retry tạo job Script mới (không cảnh) và run chạy lại.</summary>
+    private static async Task TestCase27_RejectedScriptRetryAsync()
+    {
+        var (dbOptions, tempDir, prjId, workflow) = await CreateGridEnvironmentAsync(WorkflowModes.ReadyImage, withComposeTemplate: false);
+        try
+        {
+            var readyAssetId = SeedAsset(dbOptions, "Image", "ready/script_retry.jpg");
+            await workflow.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
+                prjId, WorkflowModes.ReadyImage, "Áo khoác", null, null, readyAssetId, AudioOptions.None, null, 1, 15,
+                VideoStrategy: VideoStrategies.SingleVideo, ReferenceImageMode: ReferenceImageModes.StoryboardGrid9));
+            await workflow.StartWorkflowAsync(new StartProjectWorkflowRequest(prjId));
+            string badJobId;
+            using (var db = new FrayloDbContext(dbOptions)) { badJobId = (await db.Jobs.SingleAsync(j => j.ProjectId == prjId)).Id; }
+            await SucceedJobAsync(dbOptions, badJobId, "không phải json", null);
+            Assert(!await workflow.ApplyJobOutputAsync(badJobId), "Script sai contract không được apply.");
+            Assert(await StoredRunStateAsync(dbOptions, prjId) == WorkflowRunState.Failed, "Script sai contract lưu run Failed (hành vi sẵn có).");
+
+            var stopped = await workflow.GetWorkflowConfigWithStepsAsync(prjId);
+            var scriptStep = StepOf(stopped, WorkflowStepKinds.Script);
+            Assert(scriptStep.Outcome == WorkflowStepOutcomes.Rejected && scriptStep.SceneId == null && scriptStep.CanRetry, "Bước Script bị loại, không có cảnh, retry được.");
+
+            var retried = await workflow.RetryWorkflowStepAsync(new RetryWorkflowStepRequest(prjId, scriptStep.JobId, scriptStep.JobRevision));
+            Assert(retried.RunState == WorkflowRunState.Running && await StoredRunStateAsync(dbOptions, prjId) == WorkflowRunState.Running, "Retry được nhận thì run lưu lại Running.");
+            using (var db = new FrayloDbContext(dbOptions))
+            {
+                var newJob = await db.Jobs.AsNoTracking().SingleAsync(j => j.Id == retried.JobId);
+                Assert(newJob.TaskType == JobTaskType.Script && newJob.SceneId == null && newJob.ConfigSnapshotJson!.Contains($"#retry.{badJobId}"), "Job Script mới có step key retry.");
+                Assert(!await db.Scenes.AnyAsync(s => s.ProjectId == prjId), "Chưa có cảnh nào.");
+            }
+
+            await SucceedJobAsync(dbOptions, retried.JobId, GridScriptJson(), null);
+            Assert(await workflow.ApplyJobOutputAsync(retried.JobId), "Script hợp lệ của lần thử lại phải được apply.");
+            using (var db = new FrayloDbContext(dbOptions))
+            {
+                Assert(await db.Scenes.CountAsync(s => s.ProjectId == prjId) == 1, "Tạo đúng một cảnh storyboard.");
+                Assert(await db.Jobs.CountAsync(j => j.ProjectId == prjId && j.TaskType == JobTaskType.Image) == 1, "Đi tiếp sang job ảnh 3×3.");
+            }
+            Assert(StepOf(await workflow.GetWorkflowConfigWithStepsAsync(prjId), WorkflowStepKinds.Script).Outcome == WorkflowStepOutcomes.Succeeded, "Script đã phục hồi.");
+        }
+        finally { CleanupTestEnvironment(tempDir); }
+    }
+
+    /// <summary>Kịch bản 28: thiếu tệp đầu vào thì chặn retry; run Paused retry được nhưng bước sau chỉ chạy sau khi Tiếp tục.</summary>
+    private static async Task TestCase28_RetryMissingInputAndPausedRunAsync()
+    {
+        var run = await StartReadyGridRunAtGridJobAsync();
+        try
+        {
+            var workflow = run.Workflow;
+            await SucceedJobAsync(run.DbOptions, run.GridJobId, null, run.GridAssetId);
+            await workflow.ApplyJobOutputAsync(run.GridJobId);
+            string promptJobId;
+            using (var db = new FrayloDbContext(run.DbOptions)) { promptJobId = (await db.Jobs.SingleAsync(j => j.ProjectId == run.PrjId && j.TaskType == JobTaskType.VideoPrompt)).Id; }
+            await SucceedJobAsync(run.DbOptions, promptJobId, "Không thể tạo prompt.", null);
+            await workflow.ApplyJobOutputAsync(promptJobId);
+            var step = StepOf(await workflow.GetWorkflowConfigWithStepsAsync(run.PrjId), WorkflowStepKinds.Prompt);
+            Assert(step.Outcome == WorkflowStepOutcomes.Rejected, "Prompt bị loại.");
+
+            // Ảnh 3×3 là đầu vào của bước prompt: gỡ thì chặn, không tự tạo lại bước trước.
+            async Task SetGridAssetStatusAsync(string status)
+            {
+                using var db = new FrayloDbContext(run.DbOptions);
+                (await db.Assets.SingleAsync(a => a.Id == run.GridAssetId)).Status = status;
+                await db.SaveChangesAsync();
+            }
+            await SetGridAssetStatusAsync("Unlinked");
+            try
+            {
+                await workflow.RetryWorkflowStepAsync(new RetryWorkflowStepRequest(run.PrjId, step.JobId, step.JobRevision));
+                Assert(false, "Thiếu tệp đầu vào phải bị chặn.");
+            }
+            catch (ProjectWorkflowValidationException ex) { Assert(ex.Message.Contains("tệp đầu vào"), "Thông điệp nêu rõ thiếu tệp đầu vào."); }
+            using (var db = new FrayloDbContext(run.DbOptions))
+            {
+                Assert(await db.Jobs.CountAsync(j => j.ProjectId == run.PrjId && j.TaskType != JobTaskType.Script) == 2, "Không tạo job mới khi bị chặn (chỉ 1 ảnh + 1 prompt).");
+            }
+            await SetGridAssetStatusAsync("Linked");
+
+            await workflow.PauseWorkflowAsync(run.PrjId);
+            var retried = await workflow.RetryWorkflowStepAsync(new RetryWorkflowStepRequest(run.PrjId, step.JobId, step.JobRevision));
+            Assert(retried.RunState == WorkflowRunState.Paused, "Run Paused vẫn Paused sau khi nhận retry.");
+            await SucceedJobAsync(run.DbOptions, retried.JobId, "{\"video_prompt\": \"Camera lia chậm theo đường may áo.\"}", null);
+            Assert(await workflow.ApplyJobOutputAsync(retried.JobId), "Prompt hợp lệ được apply khi Paused.");
+            using (var db = new FrayloDbContext(run.DbOptions))
+            {
+                Assert(!await db.Jobs.AnyAsync(j => j.ProjectId == run.PrjId && j.TaskType == JobTaskType.VideoRender), "Paused: chưa sinh bước render.");
+            }
+            Assert(StepOf(await workflow.GetWorkflowConfigWithStepsAsync(run.PrjId), WorkflowStepKinds.Prompt).Outcome == WorkflowStepOutcomes.Succeeded, "Bước prompt đã phục hồi.");
+            await workflow.ResumeWorkflowAsync(run.PrjId);
+            Assert(await StoredRunStateAsync(run.DbOptions, run.PrjId) == WorkflowRunState.Running, "Tiếp tục đưa run về Running.");
+        }
+        finally { CleanupTestEnvironment(run.TempDir); }
     }
 
     /// <summary>

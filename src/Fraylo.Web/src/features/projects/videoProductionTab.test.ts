@@ -6,6 +6,8 @@ let lastBridgePayload: Record<string, unknown> | null = null;
 let lastWorkflowConfigPayload: Record<string, unknown> | null = null;
 const workflowReadPayloads = new Map<string, { payload: Record<string, unknown> }>();
 let executedCommands: string[] = [];
+const retryStepPayloads: Array<Record<string, unknown>> = [];
+let mockRetryFailure: { code: string; message: string } | null = null;
 
 let mockConfig: Record<string, any> = {
   projectId: "prj_test_01",
@@ -53,6 +55,7 @@ window.chrome = {
       setTimeout(() => {
         let responseData: unknown = null;
         let success = true;
+        let responseError: unknown = null;
 
         switch (req.command) {
           case "prompt.get_template":
@@ -70,6 +73,9 @@ window.chrome = {
                 createdAtUtc: "2026-10-27T00:00:00Z",
               },
             };
+            break;
+          case "project.get":
+            responseData = { project: { projectId: mockConfig.projectId, name: "Dự án timeout", status: "InProgress", description: null } };
             break;
           case "workflow.get_config":
             responseData = mockConfig;
@@ -140,6 +146,22 @@ window.chrome = {
               canceled: false,
             };
             break;
+          case "workflow.retry_step":
+            retryStepPayloads.push(req.payload);
+            if (mockRetryFailure) {
+              success = false;
+              responseError = { code: mockRetryFailure.code, message: mockRetryFailure.message, retryable: false };
+            } else {
+              // Backend nhận lệnh: bước chuyển Chờ chạy, run chạy lại.
+              mockConfig = {
+                ...mockConfig,
+                runState: "Running",
+                steps: (mockConfig.steps ?? []).map((step: Record<string, unknown>) =>
+                  step.jobId === req.payload.jobId ? { ...step, outcome: "Pending", canRetry: false, reasonMessage: null, attemptCount: 2 } : step),
+              };
+              responseData = { jobId: "job-retried", jobRevision: 1, runState: "Running" };
+            }
+            break;
           default:
             responseData = null;
         }
@@ -149,7 +171,7 @@ window.chrome = {
           type: "response",
           success,
           data: responseData,
-          error: null,
+          error: responseError,
           serverTimestampUtc: new Date().toISOString(),
           contractVersion: req.contractVersion || "1.1.0",
         };
@@ -173,7 +195,7 @@ const React = await import("react");
 const ReactDOMClient = await import("react-dom/client");
 const { VideoProductionTab } = await import("./VideoProductionTab");
 
-test("Prompt đã sẵn sàng hiển thị trạng thái chờ nhà cung cấp video", async () => {
+test("Prompt đã sẵn sàng hiển thị trạng thái chờ tác vụ video", async () => {
   mockConfig = { ...mockConfig, runState: "Running" };
   mockScenes = [{ sceneId: "s-ready", projectId: "prj_test_01", name: "Cảnh 1", workflowStatus: "ReadyForVideo", motionPromptText: "Camera pan", activeJobId: null, videoAssetId: null }];
   const container = document.createElement("div");
@@ -181,12 +203,59 @@ test("Prompt đã sẵn sàng hiển thị trạng thái chờ nhà cung cấp v
   const root = ReactDOMClient.createRoot(container);
   await React.act(async () => { root.render(React.createElement(VideoProductionTab, { projectId: "prj_test_01" })); });
   await React.act(async () => { await new Promise(resolve => setTimeout(resolve, 100)); });
-  assert.match(container.textContent ?? "", /Chức năng tạo video đang chờ nhà cung cấp được kiểm chứng/);
+  assert.match(container.textContent ?? "", /Ảnh và prompt đã sẵn sàng, đang chờ tác vụ tạo video/);
   assert.doesNotMatch(container.textContent ?? "", /Đang tạo video/);
   await React.act(async () => root.unmount());
   container.remove();
   mockConfig = { ...mockConfig, runState: "Idle" };
   mockScenes = [];
+});
+
+test("Job render đang chạy hiển thị đúng trạng thái tạo video", async () => {
+  const originalConfig = mockConfig;
+  const originalScenes = mockScenes;
+  mockConfig = { ...mockConfig, runState: "Running" };
+  mockScenes = [{ sceneId: "s-render", projectId: "prj_test_01", name: "Cảnh 1", workflowStatus: "ReadyForVideo", motionPromptText: "Camera pan", activeJobId: "render-job", activeJobType: "VideoRender", activeJobState: "Running", videoAssetId: null }];
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = ReactDOMClient.createRoot(container);
+  try {
+    await React.act(async () => { root.render(React.createElement(VideoProductionTab, { projectId: "prj_test_01" })); });
+    await React.act(async () => { await new Promise(resolve => setTimeout(resolve, 100)); });
+    assert.match(container.textContent ?? "", /Đang tạo video/);
+    assert.doesNotMatch(container.textContent ?? "", /Chờ tạo video|nhà cung cấp được kiểm chứng/);
+  } finally {
+    await React.act(async () => root.unmount());
+    container.remove();
+    mockConfig = originalConfig;
+    mockScenes = originalScenes;
+  }
+});
+
+test("Tiến độ tự đồng bộ khi video hoàn tất sau sự kiện job", async () => {
+  const originalConfig = mockConfig;
+  const originalScenes = mockScenes;
+  mockConfig = { ...mockConfig, runState: "Running", videoStrategy: "SingleVideo" };
+  mockScenes = [{ sceneId: "s-sync", projectId: "prj_test_01", name: "Cảnh 1", workflowStatus: "ReadyForVideo", motionPromptText: "Camera pan", activeJobId: null, videoAssetId: null }];
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = ReactDOMClient.createRoot(container);
+  try {
+    await React.act(async () => { root.render(React.createElement(VideoProductionTab, { projectId: "prj_test_01" })); });
+    await React.act(async () => { await new Promise(resolve => setTimeout(resolve, 100)); });
+    assert.match(container.textContent ?? "", /Chờ tạo video/);
+    // Host đã gửi sự kiện job trước khi kết quả được ghi vào workflow; không còn sự kiện tiếp theo.
+    mockConfig = { ...mockConfig, runState: "Completed", finalVideoAssetId: "video-sync" };
+    mockScenes = [{ ...mockScenes[0], workflowStatus: "VideoCompleted", videoAssetId: "video-sync" }];
+    await React.act(async () => { await new Promise(resolve => setTimeout(resolve, 3300)); });
+    assert.match(container.textContent ?? "", /Chuẩn bị đăng TikTok/);
+    assert.doesNotMatch(container.textContent ?? "", /Chờ tạo video/);
+  } finally {
+    await React.act(async () => root.unmount());
+    container.remove();
+    mockConfig = originalConfig;
+    mockScenes = originalScenes;
+  }
 });
 
 test("Hiển thị storyboard đã lưu theo thứ tự và trạng thái chưa có kịch bản", async () => {
@@ -306,7 +375,7 @@ test("VideoProductionTab: Một video đầu ra, duration theo capability & tóm
   const options = Array.from(durationSelect.querySelectorAll("option")).map((o) => o.value);
   assert(options.includes("15"), "Bộ chọn phải có option 15s.");
   assert(options.includes("10"), "Bộ chọn phải có option 10s.");
-  assert(!options.includes("30"), "CD05: Option 30s không được xuất hiện khi chưa verified direct.");
+  assert(options.includes("30"), "Bộ chọn phải có option 30s (người dùng yêu cầu cho phép tới 30 giây).");
 
   // Tóm tắt phải khớp với video duy nhất và thời lượng mục tiêu.
   assert(fullText.includes("Tóm tắt: Tạo 1 video, mục tiêu 15 giây"), "Phải tóm tắt video đầu ra và thời lượng mục tiêu.");
@@ -658,7 +727,7 @@ test("VideoProductionTab: prompt áp dụng theo thứ tự Dự án > Nhóm > m
   container.remove();
 });
 
-test("VideoProductionTab: bật ảnh storyboard 9 ô khóa thời lượng 15 giây và lưu referenceImageMode", async () => {
+test("VideoProductionTab: bật ảnh storyboard 9 ô giữ thời lượng đã chọn và lưu referenceImageMode", async () => {
   executedCommands = [];
   mockConfig = {
     projectId: "prj_test_01",
@@ -694,8 +763,8 @@ test("VideoProductionTab: bật ảnh storyboard 9 ô khóa thời lượng 15 g
   await React.act(async () => grid.click());
 
   const duration = container.querySelector("#target-duration") as HTMLSelectElement;
-  assert.equal(duration.value, "15", "Bật ảnh 9 ô phải đặt thời lượng 15 giây.");
-  assert.equal(duration.disabled, true, "Thời lượng bị khóa khi bật ảnh 9 ô.");
+  assert.equal(duration.value, "10", "Bật ảnh 9 ô giữ nguyên thời lượng đã chọn.");
+  assert.equal(duration.disabled, false, "Thời lượng vẫn chọn được khi bật ảnh 9 ô.");
 
   const saveButton = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("Lưu cấu hình"))!;
   await React.act(async () => saveButton.click());
@@ -703,7 +772,7 @@ test("VideoProductionTab: bật ảnh storyboard 9 ô khóa thời lượng 15 g
     await new Promise((resolve) => setTimeout(resolve, 80));
   });
   assert.equal(mockConfig.referenceImageMode, "StoryboardGrid9");
-  assert.equal(mockConfig.targetDurationPerSceneSeconds, 15);
+  assert.equal(mockConfig.targetDurationPerSceneSeconds, 10);
 
   // Đổi sang nhiều video thì tùy chọn biến mất và cấu hình trở về Direct.
   const strategySelect = container.querySelector("#video-strategy") as HTMLSelectElement;
@@ -731,6 +800,13 @@ test("Ảnh 9 ô: mốc tiến trình suy ra từ cảnh thật và màn đang c
   const grid = { ...composed, gridImageAssetId: "ast_grid" };
   assert.equal(keys(gridMilestones(config, grid)), "script:done,compose:done,grid:done,prompt:active,video:pending");
   assert.equal(keys(gridMilestones({ ...config, runState: "Failed" }, composed)), "script:done,compose:done,grid:failed,prompt:pending,video:pending");
+  const ready = { ...grid, motionPromptText: "Camera pan" };
+  assert.equal(gridMilestones(config, ready).at(-1)?.status, "pending", "Chưa có job render thì không báo đang xử lý.");
+  const rendering = { ...ready, activeJobId: "render", activeJobType: "VideoRender", activeJobState: "Running" };
+  assert.equal(gridMilestones(config, rendering).at(-1)?.status, "active");
+  assert.equal(gridMilestones(config, { ...rendering, activeJobState: "Queued" }).at(-1)?.status, "pending");
+  assert.equal(gridMilestones({ ...config, runState: "Paused" }, rendering).at(-1)?.status, "pending");
+  assert.equal(gridMilestones(config, { ...rendering, videoAssetId: "video" }).at(-1)?.status, "done");
   // Ảnh sẵn sàng không có bước ghép.
   assert.equal(keys(gridMilestones({ ...config, workflowMode: "ReadyImage" }, afterScript)), "script:done,grid:active,prompt:pending,video:pending");
 
@@ -748,4 +824,174 @@ test("Ảnh 9 ô: mốc tiến trình suy ra từ cảnh thật và màn đang c
   assert(!container.querySelector('img[alt="Ảnh storyboard 3×3 (gửi render)"]'), "Chưa có ảnh 3×3 thì không hiện ảnh giả.");
   await React.act(async () => root.unmount()); container.remove();
   mockScenes = [];
+});
+
+test("Script timeout: polling dừng spinner và đồng bộ badge dự án mà không cần sự kiện", async () => {
+  const { ProjectPage } = await import("./ProjectPage");
+  mockConfig = { ...mockConfig, projectId: "prj_timeout", workflowMode: "ReadyImage", readyImageAssetId: "ready",
+    videoStrategy: "SingleVideo", referenceImageMode: "StoryboardGrid9", runState: "Running", currentRunId: "run_timeout" };
+  mockScenes = [];
+  const originalInterval = window.setInterval;
+  let poll: (() => Promise<void>) | undefined;
+  window.setInterval = ((callback: () => Promise<void>, delay: number) => {
+    if (delay === 3000) { poll = callback; return 0; }
+    return originalInterval(callback, delay);
+  }) as typeof window.setInterval;
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = ReactDOMClient.createRoot(container);
+  try {
+    await React.act(async () => {
+      root.render(React.createElement(ProjectPage, { projectId: "prj_timeout", onBack: () => {} }));
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+    await React.act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)); });
+    for (let attempt = 0; attempt < 10 && !container.textContent?.includes("Viết 9 cảnh"); attempt++) {
+      await React.act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+    }
+    assert.match(container.textContent ?? "", /Viết 9 cảnh/);
+    assert(poll, "Workflow đang chạy phải có polling.");
+    mockConfig = { ...mockConfig, runState: "Failed" };
+    await React.act(async () => { await poll!(); });
+    await React.act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+    assert.match(container.textContent ?? "", /Lượt chạy trước đã dừng vì lỗi/);
+    assert.doesNotMatch(container.textContent ?? "", /Viết 9 cảnh.*Đang xử lý/);
+    assert.match(container.querySelector("header")?.textContent ?? "", /Thất bại/);
+    assert.doesNotMatch(container.querySelector("header")?.textContent ?? "", /Đang sản xuất/);
+    assert(!container.querySelector(".animate-spin"), "Không còn spinner khi Script đã thất bại.");
+  } finally {
+    await React.act(async () => root.unmount());
+    container.remove();
+    window.setInterval = originalInterval;
+  }
+});
+// --- Thử lại đúng bước lỗi (docs/plans/20261102-retry-failed-video-step.md) ---
+
+const gridStoppedConfig = () => ({
+  ...mockConfig,
+  workflowMode: "ReadyImage",
+  readyImageAssetId: "ast_ready",
+  videoStrategy: "SingleVideo",
+  referenceImageMode: "StoryboardGrid9",
+  runState: "Failed",
+  currentRunId: "run_01",
+  steps: [
+    { kind: "script", sceneId: null, jobId: "job-script", jobRevision: 2, outcome: "Succeeded", reasonCode: null, reasonMessage: null, canRetry: false, blockedReason: null, attemptCount: 1 },
+    { kind: "grid", sceneId: "scn_01", jobId: "job-grid", jobRevision: 2, outcome: "Succeeded", reasonCode: null, reasonMessage: null, canRetry: false, blockedReason: null, attemptCount: 1 },
+    { kind: "prompt", sceneId: "scn_01", jobId: "job-prompt", jobRevision: 3, outcome: "Rejected", reasonCode: null, reasonMessage: "Phản hồi chưa có prompt video hợp lệ.", canRetry: true, blockedReason: null, attemptCount: 1 },
+  ],
+});
+
+const gridStoppedScene = {
+  sceneId: "scn_01", projectId: "prj_test_01", name: "Clip 1", workflowStatus: "NeedsReview",
+  gridImageAssetId: "ast_grid", composedImageAssetId: null, motionPromptText: "Prompt cũ còn trong bảng",
+  isStale: true, activeJobId: null, videoAssetId: null,
+};
+
+async function renderTab(): Promise<{ container: HTMLElement; unmount: () => Promise<void> }> {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = ReactDOMClient.createRoot(container);
+  await React.act(async () => { root.render(React.createElement(VideoProductionTab, { projectId: "prj_test_01" })); });
+  await React.act(async () => { await new Promise((resolve) => setTimeout(resolve, 100)); });
+  return { container, unmount: async () => { await React.act(async () => root.unmount()); container.remove(); } };
+}
+
+const retryButtons = (container: HTMLElement) =>
+  Array.from(container.querySelectorAll("button")).filter((button) => button.textContent === "Thử lại bước này");
+
+test("Prompt bị loại: giữ tiến trình, mốc lỗi đúng bước, retry một bước rồi chạy lại", async () => {
+  const originalConfig = mockConfig;
+  const originalScenes = mockScenes;
+  mockConfig = gridStoppedConfig();
+  mockScenes = [gridStoppedScene];
+  mockRetryFailure = null;
+  retryStepPayloads.length = 0;
+  const { container, unmount } = await renderTab();
+  try {
+    const text = container.textContent ?? "";
+    assert.match(text, /Đã dừng vì lỗi/);
+    assert.doesNotMatch(text, /Lượt chạy trước đã dừng vì lỗi/, "Không đưa người dùng về form chuẩn bị.");
+    assert.match(text, /Tạo ảnh storyboard 3×3\s*· Hoàn tất/);
+    assert.match(text, /Viết prompt chuyển động\s*· Lỗi, xem nhật ký/, "Prompt cũ còn trong bảng không làm mốc hiện Hoàn tất.");
+    assert.match(text, /Phản hồi chưa có prompt video hợp lệ\./);
+    assert(!container.querySelector(".animate-spin"), "Run đã dừng thì không còn spinner.");
+    assert.equal(retryButtons(container).length, 1, "Chỉ có nút thử lại ở đúng bước lỗi.");
+
+    await React.act(async () => { retryButtons(container)[0].click(); });
+    await React.act(async () => { await new Promise((resolve) => setTimeout(resolve, 100)); });
+    assert.deepEqual(retryStepPayloads, [{ projectId: "prj_test_01", jobId: "job-prompt", expectedJobRevision: 3 }]);
+    assert.equal(retryButtons(container).length, 0, "Sau khi backend nhận, bước chuyển Chờ chạy và không còn nút.");
+    assert.doesNotMatch(container.textContent ?? "", /Đã dừng vì lỗi/);
+    assert.match(container.textContent ?? "", /Viết prompt chuyển động\s*· Đang xử lý/, "Prompt cũ còn trong bảng không làm mốc hiện Hoàn tất khi đang thử lại.");
+  } finally {
+    await unmount();
+    mockConfig = originalConfig;
+    mockScenes = originalScenes;
+  }
+});
+
+test("Retry lỗi: xung đột phiên bản chỉ tải lại, lỗi khác hiện lý do và mở lại nút", async () => {
+  const originalConfig = mockConfig;
+  const originalScenes = mockScenes;
+  mockConfig = gridStoppedConfig();
+  mockScenes = [gridStoppedScene];
+  const { container, unmount } = await renderTab();
+  try {
+    mockRetryFailure = { code: "CONCURRENCY_CONFLICT", message: "Bước này đã có lần thử mới hơn." };
+    await React.act(async () => { retryButtons(container)[0].click(); });
+    await React.act(async () => { await new Promise((resolve) => setTimeout(resolve, 100)); });
+    assert.doesNotMatch(container.textContent ?? "", /Bước này đã có lần thử mới hơn/, "Bấm lặp không hiện lỗi giả.");
+    assert.equal(retryButtons(container).length, 1);
+
+    mockRetryFailure = { code: "VALIDATION_FAILED", message: "Đã thử 3 lần, kết quả vẫn không hợp lệ." };
+    await React.act(async () => { retryButtons(container)[0].click(); });
+    await React.act(async () => { await new Promise((resolve) => setTimeout(resolve, 100)); });
+    assert.match(container.textContent ?? "", /Đã thử 3 lần, kết quả vẫn không hợp lệ\./);
+    assert.equal(retryButtons(container).length, 1, "Nút mở lại sau lỗi.");
+  } finally {
+    mockRetryFailure = null;
+    await unmount();
+    mockConfig = originalConfig;
+    mockScenes = originalScenes;
+  }
+});
+
+test("Nhiều video: bước không retry được hiện lý do, bước đã hủy không có nút", async () => {
+  const originalConfig = mockConfig;
+  const originalScenes = mockScenes;
+  mockConfig = {
+    ...mockConfig,
+    workflowMode: "ReadyImage",
+    readyImageAssetId: "ast_ready",
+    videoStrategy: "MultiVideo",
+    referenceImageMode: "Direct",
+    runState: "Failed",
+    currentRunId: "run_02",
+    steps: [
+      { kind: "prompt", sceneId: "s-a", jobId: "job-a", jobRevision: 4, outcome: "Failed", reasonCode: "login_required", reasonMessage: null, canRetry: false, blockedReason: "Cần đăng nhập lại tài khoản provider.", attemptCount: 1 },
+      { kind: "image", sceneId: "s-b", jobId: "job-b", jobRevision: 2, outcome: "Canceled", reasonCode: "user_canceled", reasonMessage: null, canRetry: false, blockedReason: null, attemptCount: 1 },
+      { kind: "render", sceneId: "s-c", jobId: "job-c", jobRevision: 5, outcome: "Failed", reasonCode: "execution_failed", reasonMessage: null, canRetry: true, blockedReason: null, attemptCount: 1 },
+    ],
+  };
+  mockScenes = [
+    { sceneId: "s-a", projectId: "prj_test_01", name: "Cảnh A", workflowStatus: "PreparingPrompt", activeJobId: null, videoAssetId: null },
+    { sceneId: "s-b", projectId: "prj_test_01", name: "Cảnh B", workflowStatus: "PreparingImage", activeJobId: null, videoAssetId: null },
+    { sceneId: "s-c", projectId: "prj_test_01", name: "Cảnh C", workflowStatus: "ReadyForVideo", activeJobId: null, videoAssetId: null },
+  ];
+  const { container, unmount } = await renderTab();
+  try {
+    const text = container.textContent ?? "";
+    assert.match(text, /Viết prompt chuyển động · Cảnh A/);
+    assert.match(text, /Cần đăng nhập lại tài khoản provider\./);
+    assert.match(text, /Tạo ảnh cảnh · Cảnh B/);
+    assert.match(text, /Tác vụ đã bị hủy\./);
+    assert.match(text, /Tạo video · Cảnh C/);
+    assert.equal(retryButtons(container).length, 1, "Chỉ bước render của cảnh C retry được.");
+    assert(container.querySelector('button[aria-label="Thử lại bước: Tạo video · Cảnh C"]'), "Nút có nhãn truy cập theo bước và cảnh.");
+  } finally {
+    await unmount();
+    mockConfig = originalConfig;
+    mockScenes = originalScenes;
+  }
 });

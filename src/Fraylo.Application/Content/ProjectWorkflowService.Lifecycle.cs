@@ -175,11 +175,10 @@ public sealed partial class ProjectWorkflowService
         // Mẫu + sản phẩm (một video) không viết kịch bản: ảnh ghép là bước đầu, video chỉ dùng đúng ảnh đó.
         // Chế độ ảnh 9 ô vẫn cần Script (9 shot) trước nên không đi đường này; ghép ảnh chạy sau Script rồi mới tạo ảnh 3×3.
         bool gridMode = VideoWorkflowPromptComposer.IsGridMode(config);
-        if (config.ReferenceImageMode == ReferenceImageModes.StoryboardGrid9 &&
-            (!singleVideo || config.TargetDurationPerSceneSeconds != ReferenceImageModes.GridDurationSeconds))
+        if (config.ReferenceImageMode == ReferenceImageModes.StoryboardGrid9 && !singleVideo)
         {
             throw new ProjectWorkflowValidationException(
-                $"Ảnh storyboard {ReferenceImageModes.GridShotCount} ô chỉ dùng cho chế độ một video, thời lượng {ReferenceImageModes.GridDurationSeconds} giây.");
+                $"Ảnh storyboard {ReferenceImageModes.GridShotCount} ô chỉ dùng cho chế độ một video.");
         }
         bool composeFirst = !gridMode && singleVideo && config.WorkflowMode == WorkflowModes.ModelAndProduct && existingScenes.Count == 0 && _jobService != null;
 
@@ -349,7 +348,7 @@ public sealed partial class ProjectWorkflowService
         string projectId,
         CancellationToken cancellationToken = default)
     {
-        var config = await GetWorkflowConfigAsync(projectId, cancellationToken);
+        var config = await GetStoredWorkflowConfigAsync(projectId, cancellationToken);
         var updated = config with
         {
             RunState = WorkflowRunState.Paused,
@@ -385,7 +384,7 @@ public sealed partial class ProjectWorkflowService
         string normalizedProjectId,
         CancellationToken cancellationToken)
     {
-        var config = await GetWorkflowConfigAsync(normalizedProjectId, cancellationToken).ConfigureAwait(false);
+        var config = await GetStoredWorkflowConfigAsync(normalizedProjectId, cancellationToken).ConfigureAwait(false);
         var nowIso = DateTimeOffset.UtcNow.ToString("o");
         var updated = config with
         {
@@ -452,7 +451,7 @@ public sealed partial class ProjectWorkflowService
         string normalizedProjectId,
         CancellationToken cancellationToken)
     {
-        var config = await GetWorkflowConfigAsync(normalizedProjectId, cancellationToken).ConfigureAwait(false);
+        var config = await GetStoredWorkflowConfigAsync(normalizedProjectId, cancellationToken).ConfigureAwait(false);
         var nowIso = DateTimeOffset.UtcNow.ToString("o");
 
         // Hủy job trước khi báo Idle: job không hủy được thì run dừng ở Paused để đối soát, không báo hủy giả.

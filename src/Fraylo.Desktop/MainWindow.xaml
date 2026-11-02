@@ -6,7 +6,7 @@
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         xmlns:local="clr-namespace:Fraylo.Desktop"
         mc:Ignorable="d"
-        Title="Fraylo" Height="960" Width="1360" MinHeight="700" MinWidth="1100"
+        Title="Fraylo" Height="960" Width="1440" MinHeight="700" MinWidth="1100"
         WindowStartupLocation="CenterScreen"
         Background="#0B1220">
     <Grid x:Name="RootGrid">

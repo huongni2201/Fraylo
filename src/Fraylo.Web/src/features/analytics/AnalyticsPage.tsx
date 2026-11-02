@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Download,
   Upload,
@@ -74,6 +74,10 @@ export function AnalyticsPage({ active }: { active: boolean }) {
   const [accountsError, setAccountsError] = useState<string | null>(null);
   const [selectedAccount, setSelectedAccount] = useState<TikTokAnalyticsAccount | null>(null);
   const accountId = selectedAccount?.accountId ?? null;
+  // Số thứ tự yêu cầu mới nhất của từng loader: phản hồi của yêu cầu cũ (đổi tài khoản/kỳ) bị bỏ qua.
+  const summarySeq = useRef(0);
+  const timeseriesSeq = useRef(0);
+  const videosSeq = useRef(0);
 
   const handleSelectAccount = (account: TikTokAnalyticsAccount) => {
     setSummary(null);
@@ -105,6 +109,7 @@ export function AnalyticsPage({ active }: { active: boolean }) {
 
   // Load Main Summary Data
   const loadSummaryData = useCallback(async () => {
+    const seq = ++summarySeq.current;
     if (!accountId) return;
     setLoading(true);
     setError(null);
@@ -113,17 +118,20 @@ export function AnalyticsPage({ active }: { active: boolean }) {
         accountId,
         periodDays: periodDays > 0 ? periodDays : undefined,
       });
+      if (seq !== summarySeq.current) return;
       setSummary(summaryRes);
     } catch (err: unknown) {
+      if (seq !== summarySeq.current) return;
       const msg = err instanceof Error ? err.message : "Không thể tải báo cáo tổng hợp.";
       setError(msg);
     } finally {
-      setLoading(false);
+      if (seq === summarySeq.current) setLoading(false);
     }
   }, [accountId, periodDays]);
 
   // Load Timeseries Data
   const loadTimeseriesData = useCallback(async () => {
+    const seq = ++timeseriesSeq.current;
     if (!accountId) return;
     setTimeseriesLoading(true);
     try {
@@ -133,16 +141,19 @@ export function AnalyticsPage({ active }: { active: boolean }) {
         dataType: selectedDataset,
         periodDays: periodDays > 0 ? periodDays : undefined,
       });
+      if (seq !== timeseriesSeq.current) return;
       setTimeseries(tsRes || []);
     } catch {
+      if (seq !== timeseriesSeq.current) return;
       setTimeseries([]);
     } finally {
-      setTimeseriesLoading(false);
+      if (seq === timeseriesSeq.current) setTimeseriesLoading(false);
     }
   }, [accountId, periodDays, selectedMetric, selectedDataset]);
 
   // Load Top Videos Data
   const loadVideosData = useCallback(async () => {
+    const seq = ++videosSeq.current;
     if (!accountId) return;
     setVideosLoading(true);
     try {
@@ -151,11 +162,13 @@ export function AnalyticsPage({ active }: { active: boolean }) {
         sortBy,
         limit: 15,
       });
+      if (seq !== videosSeq.current) return;
       setTopVideos(vidsRes || []);
     } catch {
+      if (seq !== videosSeq.current) return;
       setTopVideos([]);
     } finally {
-      setVideosLoading(false);
+      if (seq === videosSeq.current) setVideosLoading(false);
     }
   }, [accountId, sortBy]);
 

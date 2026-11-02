@@ -202,17 +202,7 @@ public sealed class ProjectService
         await dbContext.Database.OpenConnectionAsync(cancellationToken);
         var dbConn = dbContext.Database.GetDbConnection();
 
-        IDbContextTransaction transaction;
-        if (dbConn is SqliteConnection sqliteConn)
-        {
-            var sqliteTx = sqliteConn.BeginTransaction(deferred: false);
-            transaction = await dbContext.Database.UseTransactionAsync(sqliteTx, cancellationToken)
-                ?? throw new InvalidOperationException("Không thể khởi tạo DbContextTransaction từ SqliteTransaction.");
-        }
-        else
-        {
-            transaction = await dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-        }
+        var transaction = await dbContext.Database.BeginImmediateAsync(cancellationToken).ConfigureAwait(false);
 
         await using (transaction)
         {

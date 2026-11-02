@@ -24,8 +24,6 @@ export const ReferenceImageModes = {
 
 export type ReferenceImageMode = (typeof ReferenceImageModes)[keyof typeof ReferenceImageModes];
 
-/** Chế độ 9 ô cố định 15 giây. */
-export const GRID_DURATION_SECONDS = 15;
 
 export const AudioOptions = {
   None: "None",
@@ -80,6 +78,50 @@ export interface ProjectWorkflowConfigDto {
   inheritedAssetSlots?: string[] | null;
   videoStrategy?: VideoStrategy | null;
   referenceImageMode?: ReferenceImageMode | null;
+  /** Lần thử hiện hành của từng bước logic trong run; chỉ có khi đọc qua workflow.get_config. */
+  steps?: WorkflowStepState[] | null;
+}
+
+/** Loại bước logic của một run: compose/grid chỉ có ở chế độ ảnh 9 ô, image ở chế độ thường. */
+export const WorkflowStepKinds = {
+  Script: "script",
+  Compose: "compose",
+  Grid: "grid",
+  Image: "image",
+  Prompt: "prompt",
+  Render: "render",
+} as const;
+
+export type WorkflowStepKind = (typeof WorkflowStepKinds)[keyof typeof WorkflowStepKinds];
+
+export const WorkflowStepOutcomes = {
+  Pending: "Pending",
+  Succeeded: "Succeeded",
+  /** Job báo xong nhưng kết quả bị loại (prompt/storyboard không hợp lệ, ảnh rỗng). */
+  Rejected: "Rejected",
+  Failed: "Failed",
+  Canceled: "Canceled",
+} as const;
+
+export type WorkflowStepOutcome = (typeof WorkflowStepOutcomes)[keyof typeof WorkflowStepOutcomes];
+
+export interface WorkflowStepState {
+  kind: WorkflowStepKind;
+  sceneId: string | null;
+  jobId: string;
+  jobRevision: number;
+  outcome: WorkflowStepOutcome;
+  reasonCode: string | null;
+  reasonMessage: string | null;
+  canRetry: boolean;
+  blockedReason: string | null;
+  attemptCount: number;
+}
+
+export interface RetryWorkflowStepResponseData {
+  jobId: string;
+  jobRevision: number;
+  runState: WorkflowRunState;
 }
 
 export interface SaveProjectWorkflowConfigRequest {
@@ -208,7 +250,7 @@ function fromWireContentItem({ video_script, video_prompt, tiktok_content, ...it
   return { ...item, videoScript: video_script ?? "", videoPrompt: video_prompt ?? "", tiktokContent: tiktok_content ?? "" };
 }
 
-export const DEFAULT_SUPPORTED_DURATIONS = [10, 15] as const;
+export const DEFAULT_SUPPORTED_DURATIONS = [10, 15, 30] as const;
 
 export const videoWorkflowApi = {
   async getStoryboard(projectId: string): Promise<StoryboardContent | null> {
@@ -269,6 +311,15 @@ export const videoWorkflowApi = {
     const data = await bridgeClient.invoke<ProjectWorkflowConfigDto>(
       "workflow.resume",
       { projectId },
+    );
+    return data!;
+  },
+
+  /** Thử lại đúng bước lỗi (job nguồn phải là lần thử hiện hành của bước). */
+  async retryStep(projectId: string, step: Pick<WorkflowStepState, "jobId" | "jobRevision">): Promise<RetryWorkflowStepResponseData> {
+    const data = await bridgeClient.invoke<RetryWorkflowStepResponseData>(
+      "workflow.retry_step",
+      { projectId, jobId: step.jobId, expectedJobRevision: step.jobRevision },
     );
     return data!;
   },

@@ -42,6 +42,7 @@ public sealed class VideoWorkflowHandlers
         dispatcher.AllowCommand("workflow.update_content_item");
         dispatcher.AllowCommand("workflow.create_scene_video");
         dispatcher.AllowCommand("workflow.get_storyboard");
+        dispatcher.AllowCommand("workflow.retry_step");
 
         dispatcher.RegisterHandler("workflow.get_config", HandleGetConfigAsync);
         dispatcher.RegisterHandler("workflow.save_config", HandleSaveConfigAsync);
@@ -55,6 +56,7 @@ public sealed class VideoWorkflowHandlers
         dispatcher.RegisterHandler("workflow.update_content_item", HandleUpdateContentItemAsync);
         dispatcher.RegisterHandler("workflow.create_scene_video", HandleCreateSceneVideoAsync);
         dispatcher.RegisterHandler("workflow.get_storyboard", HandleGetStoryboardAsync);
+        dispatcher.RegisterHandler("workflow.retry_step", HandleRetryStepAsync);
     }
 
     public async Task<ResponseEnvelope> HandleGetStoryboardAsync(RequestEnvelope request, CancellationToken cancellationToken)
@@ -89,7 +91,7 @@ public sealed class VideoWorkflowHandlers
                     retryable: false);
             }
 
-            var config = await _workflowService.GetWorkflowConfigAsync(payload.ProjectId, cancellationToken);
+            var config = await _workflowService.GetWorkflowConfigWithStepsAsync(payload.ProjectId, cancellationToken);
             return ResponseEnvelopeHelper.CreateSuccess(request.Id, config);
         }
         catch (Exception ex)
@@ -345,6 +347,31 @@ public sealed class VideoWorkflowHandlers
         }
     }
 
+    public async Task<ResponseEnvelope> HandleRetryStepAsync(RequestEnvelope request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        try
+        {
+            var payload = ParsePayload<RetryWorkflowStepRequest>(request);
+            if (payload == null || string.IsNullOrWhiteSpace(payload.ProjectId) || string.IsNullOrWhiteSpace(payload.JobId))
+            {
+                return ResponseEnvelopeHelper.CreateError(
+                    request.Id,
+                    "INVALID_ARGUMENT",
+                    "Thiếu tham số bắt buộc 'projectId' hoặc 'jobId'.",
+                    retryable: false);
+            }
+
+            var result = await _workflowService.RetryWorkflowStepAsync(payload, cancellationToken);
+            return ResponseEnvelopeHelper.CreateSuccess(request.Id, result);
+        }
+        catch (Exception ex)
+        {
+            return MapExceptionToError(request.Id, ex);
+        }
+    }
+
     private static T? ParsePayload<T>(RequestEnvelope request)
     {
         if (request.Payload is JsonElement jsonElement)
@@ -377,6 +404,9 @@ public sealed class VideoWorkflowHandlers
 
             SceneConcurrencyConflictException cex => ResponseEnvelopeHelper.CreateError(
                 requestId, "CONCURRENCY_CONFLICT", cex.Message, retryable: false),
+
+            JobConcurrencyConflictException jex => ResponseEnvelopeHelper.CreateError(
+                requestId, jex.ErrorCode, jex.Message, retryable: false),
 
             _ => ResponseEnvelopeHelper.CreateError(
                 requestId, "INTERNAL_ERROR", "Đã xảy ra lỗi nội bộ khi xử lý quy trình sản xuất video.", retryable: false)

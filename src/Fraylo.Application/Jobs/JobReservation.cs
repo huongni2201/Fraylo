@@ -90,18 +90,7 @@ public sealed class JobReservation
             await dbConn.OpenAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        IDbContextTransaction transaction;
-        if (dbConn is SqliteConnection sqliteConn)
-        {
-            // BEGIN IMMEDIATE: Chiếm Exclusive Write Lock trên SQLite ngay lập tức
-            var sqliteTx = sqliteConn.BeginTransaction(deferred: false);
-            transaction = await dbContext.Database.UseTransactionAsync(sqliteTx, cancellationToken).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("Không thể liên kết DbContextTransaction từ SqliteTransaction.");
-        }
-        else
-        {
-            transaction = await dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken).ConfigureAwait(false);
-        }
+        var transaction = await dbContext.Database.BeginImmediateAsync(cancellationToken).ConfigureAwait(false);
 
         await using (transaction)
         {

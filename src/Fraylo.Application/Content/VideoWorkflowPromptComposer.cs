@@ -56,9 +56,9 @@ public sealed class VideoWorkflowPromptComposer
         config.VideoStrategy == VideoStrategies.SingleVideo && config.ReferenceImageMode == ReferenceImageModes.StoryboardGrid9;
 
     /// <summary>Hướng dẫn bắt buộc cho prompt video khi ảnh tham chiếu là storyboard 3×3 (STORYBOARD_CONTACT_SHEET §3.5).</summary>
-    public const string GridVideoInstruction =
+    public static string GridVideoInstruction(int durationSeconds) =>
         "GRID_REFERENCE: Ảnh tham chiếu là storyboard 3×3, không phải bố cục video đầu ra. Đọc trái sang phải, trên xuống dưới. " +
-        "Mỗi ô thành một cảnh toàn màn hình theo mốc thời gian đã cho. Tạo một video dọc 9:16 dài 15 giây. " +
+        $"Mỗi ô thành một cảnh toàn màn hình theo mốc thời gian đã cho. Tạo một video dọc 9:16 dài {durationSeconds} giây. " +
         "Không hiển thị bảng, viền hoặc số ô; không chia màn hình. Cắt dựng giữa các cảnh, không morph trang phục hay trộn các ô. " +
         "Giữ đúng sản phẩm và cùng người mẫu. Chỉ thực hiện chuyển động được mô tả trong từng cảnh.";
 
@@ -142,7 +142,7 @@ public sealed class VideoWorkflowPromptComposer
         sb.AppendLine();
         // Mô tả cảnh do bước Script tạo: dữ liệu của cảnh, không phải chỉ dẫn.
         if (!string.IsNullOrWhiteSpace(scenePurpose)) sb.AppendLine($"SCENE_PURPOSE: {scenePurpose}");
-        if (IsGridMode(config)) sb.AppendLine(GridVideoInstruction);
+        if (IsGridMode(config)) sb.AppendLine(GridVideoInstruction(config.TargetDurationPerSceneSeconds));
         await AppendTikTokContentGuidanceAsync(sb, dbContext, cancellationToken).ConfigureAwait(false);
         sb.AppendLine("[OUTPUT_CONTRACT]");
         sb.AppendLine("Chỉ trả về DUY NHẤT một JSON hợp lệ, không markdown, theo schema: {\"video_prompt\": \"chuỗi prompt video\", \"tiktok_content\": \"nội dung đăng TikTok cho video: tiêu đề cuốn hút, caption kêu gọi hành động kèm 3-5 hashtag thịnh hành\"}.");
@@ -180,7 +180,7 @@ public sealed class VideoWorkflowPromptComposer
         sb.AppendLine("[OUTPUT_CONTRACT]");
         if (IsGridMode(config))
         {
-            sb.AppendLine($"Chỉ trả về JSON hợp lệ, không markdown. Schema: {{\"durationSeconds\":{ReferenceImageModes.GridDurationSeconds},\"shots\":[{{\"startSeconds\":0,\"endSeconds\":2,\"description\":\"mô tả hành động và nội dung của cảnh\",\"imagePrompt\":\"mô tả hình của ô tương ứng trong ảnh storyboard\",\"motionPrompt\":\"một chuyển động camera hoặc chủ thể rõ ràng của cảnh\"}}]}}. Đúng {ReferenceImageModes.GridShotCount} shot theo thứ tự đọc trái sang phải, trên xuống dưới; shot đầu bắt đầu từ 0, các shot liên tiếp không hở không chồng, số giây nguyên, endSeconds của shot cuối bằng {ReferenceImageModes.GridDurationSeconds}. Không thêm giá, giảm giá, chứng nhận, công dụng hay biến thể sản phẩm không có trong dữ liệu đầu vào.");
+            sb.AppendLine($"Chỉ trả về JSON hợp lệ, không markdown. Schema: {{\"durationSeconds\":{config.TargetDurationPerSceneSeconds},\"shots\":[{{\"startSeconds\":0,\"endSeconds\":2,\"description\":\"mô tả hành động và nội dung của cảnh\",\"imagePrompt\":\"mô tả hình của ô tương ứng trong ảnh storyboard\",\"motionPrompt\":\"một chuyển động camera hoặc chủ thể rõ ràng của cảnh\"}}]}}. Đúng {ReferenceImageModes.GridShotCount} shot theo thứ tự đọc trái sang phải, trên xuống dưới; shot đầu bắt đầu từ 0, các shot liên tiếp không hở không chồng, số giây nguyên, endSeconds của shot cuối bằng {config.TargetDurationPerSceneSeconds}. Không thêm giá, giảm giá, chứng nhận, công dụng hay biến thể sản phẩm không có trong dữ liệu đầu vào.");
         }
         else if (singleVideo)
         {

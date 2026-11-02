@@ -186,7 +186,7 @@ public sealed class ChatGptPlaywrightAutomation
         }
         catch (Exception ex)
         {
-            await RecordFailureAsync(job.JobId, submitted ? $"Tác vụ lỗi sau khi gửi: {ex.Message.Split((char)10)[0]}" : "Tác vụ lỗi trước khi gửi.").ConfigureAwait(false);
+            await RecordFailureAsync(job.JobId, submitted ? $"Tác vụ lỗi sau khi gửi: {ex.Message.Split((char)10)[0]}" : $"Tác vụ lỗi trước khi gửi: {ex.Message.Split((char)10)[0]}").ConfigureAwait(false);
             return new(false, ReasonCode: submitted ? "execution_failed" : "automation_blocked",
                 ErrorMessage: $"Không hoàn tất được tác vụ ChatGPT Web: {ex.Message}", SideEffectSubmitted: submitted);
         }

@@ -107,9 +107,9 @@ public sealed class GeminiPlaywrightAutomation
             if (progress is not null) await progress(50, "Đang chờ Gemini trả lời").ConfigureAwait(false);
 
             await page.WaitForFunctionAsync("previous => document.querySelectorAll('message-content, .model-response-text').length > previous",
-                initialAssistantCount, new() { Timeout = 300000 }).WaitAsync(ct).ConfigureAwait(false);
+                initialAssistantCount, new() { Timeout = 900000 }).WaitAsync(ct).ConfigureAwait(false);
             var response = assistantMessages.Last;
-            await response.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 300000 }).WaitAsync(ct).ConfigureAwait(false);
+            await response.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 900000 }).WaitAsync(ct).ConfigureAwait(false);
             // The prompt's own "Sao chép câu lệnh" button sits before the reply, so the copy gate is scoped to the reply container.
             await page.Locator("response-container").Last.Locator("button[aria-label*='Copy' i], button[aria-label*='Sao chép' i]").First
                 .WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 600000 }).WaitAsync(ct).ConfigureAwait(false);
@@ -176,9 +176,21 @@ public sealed class GeminiPlaywrightAutomation
                 await _activity.WriteAsync(job.JobId, "result", "Đã lưu ảnh kết quả thành Asset.", ct).ConfigureAwait(false);
                 return new(true, ResultReference: uploaded.Asset.AssetId, SideEffectSubmitted: true);
             }
-            var result = (await response.InnerTextAsync().WaitAsync(ct).ConfigureAwait(false)).Trim();
+            // Read from the same container as the copy gate and poll: Gemini can render the text after the copy button appears.
+            var replyBox = page.Locator("response-container").Last;
+            const string readReply = "box => [...box.querySelectorAll('message-content, .model-response-text')].map(e => e.innerText.trim()).sort((a, b) => b.length - a.length)[0] ?? ''";
+            var result = "";
+            for (var i = 0; i < 30 && string.IsNullOrWhiteSpace(result); i++)
+            {
+                if (i > 0) await Task.Delay(500, ct).ConfigureAwait(false);
+                result = (await replyBox.EvaluateAsync<string>(readReply).WaitAsync(ct).ConfigureAwait(false)).Trim();
+            }
             if (string.IsNullOrWhiteSpace(result))
+            {
+                var diag = await replyBox.EvaluateAsync<string>("box => `containers=${document.querySelectorAll('response-container').length}, message-content=${box.querySelectorAll('message-content').length}, model-response-text=${box.querySelectorAll('.model-response-text').length}, text=${box.innerText.trim().slice(0, 200)}`").WaitAsync(ct).ConfigureAwait(false);
+                await _activity.WriteAsync(job.JobId, "error", $"Reply rỗng sau 15s. DOM: {diag}", ct).ConfigureAwait(false);
                 return new(false, ReasonCode: "empty_response", ErrorMessage: "Gemini trả về nội dung rỗng.", SideEffectSubmitted: true);
+            }
 
             await _activity.WriteAsync(job.JobId, "result", "Đã nhận nội dung phản hồi.", ct).ConfigureAwait(false);
             return new(true, ResultReference: page.Url, ResultText: result, SideEffectSubmitted: true);
@@ -201,7 +213,7 @@ public sealed class GeminiPlaywrightAutomation
         }
         catch (Exception ex)
         {
-            await RecordFailureAsync(job.JobId, submitted ? $"Tác vụ lỗi sau khi gửi: {ex.Message.Split((char)10)[0]}" : "Tác vụ lỗi trước khi gửi.").ConfigureAwait(false);
+            await RecordFailureAsync(job.JobId, submitted ? $"Tác vụ lỗi sau khi gửi: {ex.Message.Split((char)10)[0]}" : $"Tác vụ lỗi trước khi gửi: {ex.Message.Split((char)10)[0]}").ConfigureAwait(false);
             return new(false, ReasonCode: submitted ? "execution_failed" : "automation_blocked",
                 ErrorMessage: $"Không hoàn tất được tác vụ Gemini Web: {ex.Message}", SideEffectSubmitted: submitted);
         }

@@ -124,7 +124,7 @@ public partial class MainWindow : Window
         {
             // Tối ưu kích thước ban đầu: chiếm khoảng 85% diện tích màn hình làm việc
             // Giúp ứng dụng rộng rãi, thoáng đãng trên cả màn hình 2K, 3K lẫn Full HD
-            double targetWidth = Math.Min(1360, Math.Max(1200, workArea.Width * 0.7));
+            double targetWidth = Math.Min(1440, Math.Max(1280, workArea.Width * 0.75));
             double targetHeight = Math.Min(1020, Math.Max(880, workArea.Height * 0.85));
 
             // Bảo đảm không vượt quá diện tích làm việc của màn hình nhỏ
@@ -391,16 +391,7 @@ public partial class MainWindow : Window
             _jobScheduler = scheduler;
             _jobStateChangedHandler = payload =>
             {
-                if (BridgeRouter != null)
-                {
-                    _ = BridgeRouter.PostEventAsync("job.state_changed", payload);
-                }
-
-                // Khi một tác vụ thuộc workflow thành công: Tự động áp dụng kết quả vào Scene và kích hoạt bước tiếp theo (§3.3)
-                if (string.Equals(payload.NewState, JobState.Succeeded, StringComparison.OrdinalIgnoreCase))
-                {
-                    _ = ApplyWorkflowOutputSafelyAsync(workflowService, payload.JobId);
-                }
+                _ = PublishJobStateAfterWorkflowAsync(workflowService, payload);
             };
             scheduler.OnJobStateChanged += _jobStateChangedHandler;
 
@@ -491,15 +482,23 @@ public partial class MainWindow : Window
         }
     }
 
-    private static async Task ApplyWorkflowOutputSafelyAsync(ProjectWorkflowService workflowService, string jobId)
+    private async Task PublishJobStateAfterWorkflowAsync(ProjectWorkflowService workflowService, JobStateChangedPayload payload)
     {
         try
         {
-            await workflowService.ApplyJobOutputAsync(jobId).ConfigureAwait(false);
+            if (string.Equals(payload.NewState, JobState.Succeeded, StringComparison.OrdinalIgnoreCase))
+            {
+                await workflowService.ApplyJobOutputAsync(payload.JobId).ConfigureAwait(false);
+            }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[Workflow] Output apply failed for job {jobId}: {ex}");
+            System.Diagnostics.Debug.WriteLine($"[Workflow] Output apply failed for job {payload.JobId}: {ex}");
+        }
+        // UI chỉ đọc lại Project sau khi kết quả đã được lưu vào workflow.
+        if (BridgeRouter != null)
+        {
+            await BridgeRouter.PostEventAsync("job.state_changed", payload).ConfigureAwait(false);
         }
     }
 

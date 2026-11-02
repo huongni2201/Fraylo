@@ -1,8 +1,10 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Fraylo.Application.Jobs;
+using Fraylo.Application.Prompts;
 using Fraylo.Contracts.Content;
 using Fraylo.Contracts.Jobs;
+using Fraylo.Contracts.Prompts;
 using Fraylo.Infrastructure.Persistence;
 using Fraylo.Infrastructure.Persistence.Entities;
 
@@ -191,6 +193,25 @@ public sealed partial class ProjectWorkflowService
         var plans = await dbContext.AppSettings.AsNoTracking()
             .Where(s => planKeys.Contains(s.Key))
             .ToDictionaryAsync(s => s.Key, s => s.Value, cancellationToken).ConfigureAwait(false);
+        // Chế độ 9 ô: prompt ảnh thật là mô tả hình của từng ô gửi kèm mẫu Image; scene.plan chỉ là mô tả + chuyển động cho prompt video.
+        var storyboard = await new StoryboardContentService(_dbOptions).GetAsync(normalizedProjectId, cancellationToken).ConfigureAwait(false);
+        string? gridImagePrompt = null;
+        if (storyboard is { } sb
+            && sb.Shots.Count == ReferenceImageModes.GridShotCount
+            && sb.Shots.All(shot => !string.IsNullOrWhiteSpace(shot.ImagePrompt)))
+        {
+            try
+            {
+                var template = await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(dbContext, JobTaskType.Image, cancellationToken).ConfigureAwait(false);
+                var rendered = (await new PromptTemplateService(dbContext).PreviewAsync(
+                    new PromptPreviewRequest(template.Id, null, null, null), cancellationToken).ConfigureAwait(false)).RenderedText;
+                gridImagePrompt = VideoWorkflowPromptComposer.ComposeGridImagePrompt(rendered, sb);
+            }
+            catch (ProjectWorkflowValidationException)
+            {
+                // Chưa chọn mẫu Image: giữ nội dung scene.plan.
+            }
+        }
         for (int i = 0; i < list.Count; i++)
         {
             var sc = scenes.FirstOrDefault(s => s.Id == list[i].SceneId || s.Id == list[i].Id);
@@ -198,7 +219,7 @@ public sealed partial class ProjectWorkflowService
             list[i] = list[i] with
             {
                 ContentText = sc.Name,
-                ImagePrompt = plans.GetValueOrDefault($"scene.plan.{sc.Id}")
+                ImagePrompt = gridImagePrompt ?? plans.GetValueOrDefault($"scene.plan.{sc.Id}")
             };
         }
 

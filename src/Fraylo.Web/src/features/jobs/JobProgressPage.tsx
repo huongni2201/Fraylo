@@ -230,7 +230,7 @@ export function JobProgressPage({ active }: JobProgressPageProps) {
                   </p>
                 </div>
                 <Badge variant={stateInfo.variant} className={cn("flex w-fit items-center gap-1 px-2 py-0.5", stateInfo.badgeClass)}>
-                  <StateIcon className={cn("size-3", stateInfo.animate && "animate-spin motion-reduce:animate-none")} aria-hidden="true" />
+                  <StateIcon className={cn("size-3", stateInfo.animate && "animate-spin")} aria-hidden="true" />
                   {stateInfo.label}
                 </Badge>
                 <div className="flex items-center gap-1.5">

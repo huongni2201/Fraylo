@@ -172,6 +172,7 @@ export function BulkVideoCreateDialog({ isOpen, groups, defaultGroupId, onClose,
               >
                 <option value={10}>10 giây</option>
                 <option value={15}>15 giây</option>
+                <option value={30}>30 giây</option>
               </select>
             </div>
             <label className="flex items-center gap-2 h-9 text-sm cursor-pointer">

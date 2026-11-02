@@ -331,12 +331,17 @@ public sealed class AnalyticsService : IAnalyticsService
         bool hasMultipleCaptureDays = records.Select(r => r.CapturedAtUtc.Date).Distinct().Count() > 1;
 
         // Nếu chỉ có 1 ngày captured nhưng các video có ngày đăng (PublishedAtUtc) trải dài, nhóm theo ngày đăng
+        // Trục theo ngày đăng vẫn phải nằm trong kỳ đã chọn, nếu không biểu đồ "7 ngày" chứa ngày ngoài kỳ.
+        var minKey = request.PeriodDays is > 0
+            ? DateTime.UtcNow.AddDays(-request.PeriodDays.Value).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+            : null;
         var groups = records
             .GroupBy(r =>
             {
                 var dt = hasMultipleCaptureDays ? r.CapturedAtUtc : (r.PublishedAtUtc ?? r.CapturedAtUtc);
                 return dt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             })
+            .Where(g => minKey == null || string.CompareOrdinal(g.Key, minKey) >= 0)
             .OrderBy(g => g.Key);
 
         var points = new List<AnalyticsTimeseriesPointDto>();

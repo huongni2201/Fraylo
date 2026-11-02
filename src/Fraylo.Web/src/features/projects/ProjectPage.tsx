@@ -6,6 +6,7 @@ import {
 } from "./projectApi";
 import { ProjectForm } from "./ProjectForm";
 import { VideoProductionTab } from "./VideoProductionTab";
+import { videoWorkflowApi, WorkflowRunState } from "./videoWorkflowApi";
 import type { ErrorDto } from "../../contracts/bridge";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ export interface ProjectPageProps {
 
 export function ProjectPage({ projectId, onBack, onOpenPublishing }: ProjectPageProps) {
   const [project, setProject] = useState<ProjectDetailDto | null>(null);
+  const [runState, setRunState] = useState<string | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -48,11 +50,15 @@ export function ProjectPage({ projectId, onBack, onOpenPublishing }: ProjectPage
     setErrorMessage(null);
 
     try {
-      const prj = await projectApi.getProject(projectId);
+      const [prj, config] = await Promise.all([
+        projectApi.getProject(projectId),
+        videoWorkflowApi.getConfig(projectId),
+      ]);
 
       if (controller.signal.aborted) return;
 
       setProject(prj);
+      setRunState(config.runState);
     } catch (err: unknown) {
       if (controller.signal.aborted) return;
       const errorDto = err as ErrorDto;
@@ -124,10 +130,11 @@ export function ProjectPage({ projectId, onBack, onOpenPublishing }: ProjectPage
             <h2 className="text-xl font-bold tracking-tight text-foreground">{project.name}</h2>
             <Badge
               variant={
-                project.status === "Completed" ? "success" : project.status === "InProgress" ? "info" : "secondary"
+                runState === WorkflowRunState.Failed ? "destructive" : runState === WorkflowRunState.Paused ? "warning"
+                  : project.status === "Completed" ? "success" : project.status === "InProgress" ? "info" : "secondary"
               }
             >
-              {STATUS_LABEL[project.status] ?? project.status}
+              {runState === WorkflowRunState.Failed ? "Thất bại" : runState === WorkflowRunState.Paused ? "Đang tạm dừng" : STATUS_LABEL[project.status] ?? project.status}
             </Badge>
           </div>
           {project.description && <p className="text-xs text-muted-foreground">{project.description}</p>}

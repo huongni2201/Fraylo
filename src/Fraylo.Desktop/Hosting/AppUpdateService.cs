@@ -16,12 +16,17 @@ public sealed record UpdateInfo(
     string? Sha256);
 
 /// <summary>
-/// Kiểm tra bản mới trên GitHub Releases, tải gói zip (xác minh SHA-256) rồi giao cho FrayloLauncher.exe cài đặt.
+/// Kiểm tra bản mới trên Cloudflare R2 (manifest.json ở gốc bucket), tải gói zip (xác minh SHA-256) rồi giao cho FrayloLauncher.exe cài đặt.
 /// Gói phát hành gồm Fraylo-{ver}-win-x64.zip và manifest.json (do scripts/package-release.ps1 tạo).
 /// </summary>
 public sealed class AppUpdateService(Action requestExit)
 {
-    private const string Repo = "huongni2201/TitoAI";
+    // Gốc URL công khai của bucket Cloudflare R2 chứa manifest.json + zip, nhúng lúc build từ UPDATE_BASE_URL.
+    private static readonly string UpdateBaseUrl =
+        (Assembly.GetExecutingAssembly().GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(a => a.Key == "UpdateBaseUrl")?.Value ?? "").TrimEnd('/');
+    // Khóa công khai ECDSA P-256 (SPKI, base64) của nhà phát hành; khóa riêng ký ở scripts/package-release.ps1.
+    private const string PublicKey = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEzDap6qk89CfTAbawX5Z8pXCCHZYC9XiyovvFfBeIn8ov0nCa5r3bPAOB516IC0EmtQIrY6nzRalN1blY+tjFIw==";
     private static readonly HttpClient Http = CreateClient();
 
     public static string CurrentVersion { get; } =
@@ -30,32 +35,23 @@ public sealed class AppUpdateService(Action requestExit)
 
     public async Task<UpdateInfo> CheckAsync(CancellationToken ct)
     {
-        using var release = JsonDocument.Parse(await Http.GetStringAsync($"https://api.github.com/repos/{Repo}/releases/latest", ct));
-        var root = release.RootElement;
-        var latest = (root.GetProperty("tag_name").GetString() ?? "").TrimStart('v', 'V');
-        var notes = (root.GetProperty("body").GetString() ?? "")
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(line => line.TrimStart('-', '*', ' ')).Where(line => line.Length > 0).ToArray();
+        if (UpdateBaseUrl.Length == 0) throw new InvalidOperationException("Bản build này chưa cấu hình UPDATE_BASE_URL.");
+        using var manifest = JsonDocument.Parse(await Http.GetStringAsync($"{UpdateBaseUrl}/manifest.json", ct));
+        var m = manifest.RootElement;
+        var latest = m.TryGetProperty("version", out var v) ? v.GetString() ?? "" : "";
+        var asset = m.GetProperty("asset");
+        var sha256 = asset.GetProperty("sha256").GetString();
+        var signature = m.TryGetProperty("signature", out var s) ? s.GetString() : null;
+        var notes = m.TryGetProperty("notes", out var n) && n.ValueKind == JsonValueKind.Array
+            ? n.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0).ToArray()
+            : [];
 
-        string? zipUrl = null, manifestUrl = null;
-        foreach (var asset in root.GetProperty("assets").EnumerateArray())
-        {
-            var name = asset.GetProperty("name").GetString() ?? "";
-            var url = asset.GetProperty("browser_download_url").GetString();
-            if (name.EndsWith("-win-x64.zip", StringComparison.OrdinalIgnoreCase)) zipUrl = url;
-            else if (name == "manifest.json") manifestUrl = url;
-        }
-
-        string? sha256 = null;
-        if (manifestUrl is not null)
-        {
-            using var manifest = JsonDocument.Parse(await Http.GetStringAsync(manifestUrl, ct));
-            sha256 = manifest.RootElement.GetProperty("asset").GetProperty("sha256").GetString();
-        }
-
-        var hasUpdate = zipUrl is not null && sha256 is not null && Version.TryParse(latest, out var l)
+        // Manifest không ký đúng khóa của nhà phát hành thì coi như không có bản cập nhật.
+        var signed = VerifyManifest(latest, sha256, signature, PublicKey);
+        var zipUrl = signed ? $"{UpdateBaseUrl}/{Uri.EscapeDataString(asset.GetProperty("name").GetString() ?? "")}" : null;
+        var hasUpdate = signed && Version.TryParse(latest, out var l)
             && Version.TryParse(CurrentVersion, out var c) && l > c;
-        return new UpdateInfo(CurrentVersion, latest, hasUpdate, notes, zipUrl, sha256);
+        return new UpdateInfo(CurrentVersion, latest, hasUpdate, notes, zipUrl, signed ? sha256 : null);
     }
 
     public async Task ApplyAsync(CancellationToken ct)
@@ -95,6 +91,23 @@ public sealed class AppUpdateService(Action requestExit)
             start.ArgumentList.Add(arg);
         Process.Start(start);
         requestExit();
+    }
+
+    /// <summary>Kiểm chữ ký ECDSA P-256 trên "{version}|{sha256}"; mọi dữ liệu thiếu hoặc sai định dạng đều trả false.</summary>
+    public static bool VerifyManifest(string? version, string? sha256, string? signature, string publicKey)
+    {
+        if (string.IsNullOrEmpty(version) || string.IsNullOrEmpty(sha256) || string.IsNullOrEmpty(signature)) return false;
+        try
+        {
+            using var key = ECDsa.Create();
+            key.ImportSubjectPublicKeyInfo(Convert.FromBase64String(publicKey), out _);
+            var data = System.Text.Encoding.UTF8.GetBytes($"{version}|{sha256.ToUpperInvariant()}");
+            return key.VerifyData(data, Convert.FromBase64String(signature), HashAlgorithmName.SHA256);
+        }
+        catch (Exception ex) when (ex is FormatException or CryptographicException)
+        {
+            return false;
+        }
     }
 
     private static HttpClient CreateClient()

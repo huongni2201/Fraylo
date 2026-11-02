@@ -42,7 +42,13 @@ int Update(string[] updateArgs)
     try
     {
         Log($"Cập nhật lên {version}");
-        try { Process.GetProcessById(pid).WaitForExit(20_000); } catch (ArgumentException) { }
+        try
+        {
+            // App còn chạy thì file DB/WAL chưa nhất quán: không sao lưu, không cài; mở lại bản cũ.
+            if (!Process.GetProcessById(pid).WaitForExit(20_000))
+                throw new TimeoutException("Fraylo chưa thoát sau 20 giây; hủy cập nhật.");
+        }
+        catch (ArgumentException) { }
 
         // Sao lưu database trước khi bản mới chạy migration; app đã thoát nên file không bị khóa.
         var backupDir = Path.Combine(dataDir, "backups");

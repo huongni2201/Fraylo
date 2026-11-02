@@ -3,12 +3,12 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { StoryboardPanel } from "./StoryboardPanel";
 import { ProjectActivityLog } from "./ProjectActivityLog";
 import { StoryboardGridProgress } from "./StoryboardGridProgress";
+import { WorkflowStepIssues } from "./WorkflowStepRetry";
 import {
   videoWorkflowApi,
   WorkflowModes,
   VideoStrategies,
   ReferenceImageModes,
-  GRID_DURATION_SECONDS,
   AudioOptions,
   WorkflowRunState,
   SceneWorkflowStatus,
@@ -19,6 +19,7 @@ import {
   type SceneWorkflowDetailDto,
   type PreviewAiPromptResponseData,
   type VideoContentItemDto,
+  type WorkflowStepState,
   DEFAULT_SUPPORTED_DURATIONS,
 } from "./videoWorkflowApi";
 import {
@@ -184,6 +185,8 @@ export function VideoProductionTab({
   const [isLoading, setIsLoading] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
   const [rerunRequested, setRerunRequested] = useState(false);
+  // Job của bước đang gửi lệnh thử lại: khóa nút cho tới khi backend trả lời và đã tải lại trạng thái.
+  const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -236,11 +239,11 @@ export function VideoProductionTab({
       audioOption: config.audioOption,
       audioAssetId: config.audioAssetId,
       videoStrategy: strategy,
-      // Ảnh 9 ô chỉ hợp lệ với một video 15 giây; các trường hợp khác luôn gửi Direct.
+      // Ảnh 9 ô chỉ hợp lệ với một video; các trường hợp khác luôn gửi Direct.
       referenceImageMode: isGridMode ? ReferenceImageModes.StoryboardGrid9 : ReferenceImageModes.Direct,
       // Một video nhiều phân cảnh luôn có một cảnh trong bảng; nhiều video dùng số cảnh người dùng chọn.
       targetSceneCount: strategy === VideoStrategies.SingleVideo ? 1 : config.targetSceneCount,
-      targetDurationPerSceneSeconds: isGridMode ? GRID_DURATION_SECONDS : config.targetDurationPerSceneSeconds,
+      targetDurationPerSceneSeconds: config.targetDurationPerSceneSeconds,
       scriptGuidance: config.scriptGuidance ?? "",
       videoGuidance: config.videoGuidance ?? "",
     };
@@ -395,26 +398,47 @@ export function VideoProductionTab({
   // Job đổi trạng thái (xong Script/ảnh/render...) thì tải lại cấu hình và cảnh; bỏ qua khi người dùng đang sửa dở để không mất nháp.
   useEffect(() => {
     if (isDirty) return;
-    return jobApi.onStateChanged(() => { void loadData(); });
-  }, [isDirty, loadData]);
+    return jobApi.onStateChanged((event) => {
+      if (event.payload.projectId === projectId) {
+        void loadData();
+        onRefreshProject?.();
+      }
+    });
+  }, [isDirty, loadData, projectId, onRefreshProject]);
 
-  // Chỉ đọc lại danh sách cảnh khi có video đang chạy; không tải lại cấu hình để tránh ghi đè chỉnh sửa đang dở.
+  // Đồng bộ cả workflow lẫn cảnh: sự kiện job có thể đến trước apply hoặc bị bỏ lỡ.
   const hasRunningContentItem = submittingVideoItemId !== null
     || contentItems.some((item) => item.status === "Queued" || item.status === "InProgress");
+  const runState = config?.runState;
   useEffect(() => {
-    if (!projectId || !hasRunningContentItem) return;
+    if (!projectId || (!hasRunningContentItem && runState !== WorkflowRunState.Running && runState !== WorkflowRunState.Paused)) return;
     let active = true;
-    const timer = window.setInterval(() => {
-      videoWorkflowApi.listContentItems(projectId).then(
-        (items) => { if (active) setContentItems(items); },
-        () => { /* Lỗi tạm thời: giữ dữ liệu cũ, lần sau thử lại. */ },
-      );
+    let refreshing = false;
+    const timer = window.setInterval(async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const [cfg, scns, items] = await Promise.all([
+          videoWorkflowApi.getConfig(projectId),
+          videoWorkflowApi.listScenes(projectId),
+          videoWorkflowApi.listContentItems(projectId),
+        ]);
+        if (!active) return;
+        if (!isDirty) setConfig({ ...cfg, goalPrompt: "" });
+        setScenes(scns);
+        setContentItems(items);
+        if (cfg.runState !== runState) onRefreshProject?.();
+      } catch {
+        // Lỗi tạm thời: giữ dữ liệu cũ, lần sau thử lại.
+      } finally {
+        refreshing = false;
+      }
     }, 3000);
     return () => {
       active = false;
       window.clearInterval(timer);
     };
-  }, [projectId, hasRunningContentItem]);
+  }, [projectId, hasRunningContentItem, runState, isDirty, onRefreshProject]);
 
   // Handle Mode Change
   const handleModeChange = (mode: WorkflowMode) => {
@@ -447,7 +471,7 @@ export function VideoProductionTab({
         ? {
             ...prev,
             referenceImageMode: enabled ? ReferenceImageModes.StoryboardGrid9 : ReferenceImageModes.Direct,
-            targetDurationPerSceneSeconds: enabled ? GRID_DURATION_SECONDS : prev.targetDurationPerSceneSeconds,
+            targetDurationPerSceneSeconds: prev.targetDurationPerSceneSeconds,
           }
         : prev,
     );
@@ -593,7 +617,7 @@ export function VideoProductionTab({
       setIsStarting(true);
       setErrorMessage(null);
 
-      const isSupportedDuration = DEFAULT_SUPPORTED_DURATIONS.includes(config.targetDurationPerSceneSeconds as 10 | 15);
+      const isSupportedDuration = DEFAULT_SUPPORTED_DURATIONS.includes(config.targetDurationPerSceneSeconds as (typeof DEFAULT_SUPPORTED_DURATIONS)[number]);
       if (!isSupportedDuration) {
         setErrorMessage(`Thời lượng ${config.targetDurationPerSceneSeconds}s không được nhà cung cấp video hỗ trợ. Vui lòng chọn lại thời lượng hợp lệ (${DEFAULT_SUPPORTED_DURATIONS.join("s hoặc ")}s) trước khi bắt đầu.`);
         setIsStarting(false);
@@ -637,6 +661,31 @@ export function VideoProductionTab({
     }
   };
 
+  // Thử lại đúng một bước lỗi; tải lại config/cảnh để bước chuyển sang Chờ chạy và run quay lại Đang chạy.
+  const handleRetryStep = async (step: WorkflowStepState) => {
+    if (!projectId || retryingJobId) return;
+    setRetryingJobId(step.jobId);
+    setErrorMessage(null);
+    try {
+      await videoWorkflowApi.retryStep(projectId, step);
+    } catch (err: unknown) {
+      // Bước đã có lần thử mới hơn (bấm lặp): lệnh đã được nhận, chỉ cần tải lại trạng thái.
+      if ((err as { code?: string })?.code !== "CONCURRENCY_CONFLICT") {
+        setErrorMessage((err as Error)?.message || "Không thể thử lại bước này.");
+      }
+    }
+    try {
+      const [cfg, scns] = await Promise.all([videoWorkflowApi.getConfig(projectId), videoWorkflowApi.listScenes(projectId)]);
+      setConfig({ ...cfg, goalPrompt: "" });
+      setScenes(scns);
+      onRefreshProject?.();
+    } catch {
+      // Lỗi tạm thời: lần làm mới sau sẽ đồng bộ lại.
+    } finally {
+      setRetryingJobId(null);
+    }
+  };
+
   // Open Edit Scene Prompt
   const handleOpenEditScene = (scene: SceneWorkflowDetailDto) => {
     setEditingScene(scene);
@@ -670,6 +719,10 @@ export function VideoProductionTab({
   const completedVideoCount = useMemo(() => {
     return scenes.filter((s) => !!s.videoAssetId).length;
   }, [scenes]);
+  const videoJobState = scenes.find((scene) => scene.activeJobType === "VideoRender")?.activeJobState;
+  const videoJobLabel = videoJobState === "AwaitingUser" ? "Cần xử lý"
+    : videoJobState === "Running" ? "Đang tạo video"
+    : videoJobState ? "Chờ lượt tạo video" : null;
   const awaitingVideoProvider = scenes.length > 0 && scenes.every(
     (scene) => scene.workflowStatus === SceneWorkflowStatus.ReadyForVideo && !scene.activeJobId,
   );
@@ -705,7 +758,8 @@ export function VideoProductionTab({
     if (finalVideoAssetId || multiVideoDone || (scenes.length === 1 && (config.runState === WorkflowRunState.Completed || completedVideoCount === 1))) {
       return "completed";
     }
-    if (config.runState === WorkflowRunState.Running || config.runState === WorkflowRunState.Paused) {
+    // Run dừng ở bước lỗi vẫn ở màn tiến trình để thử lại đúng bước; Failed không có bước nào thì về form như trước.
+    if (runActive || (config.runState === WorkflowRunState.Failed && (config.steps?.length ?? 0) > 0)) {
       return "running";
     }
     return "preparing";
@@ -762,6 +816,10 @@ export function VideoProductionTab({
               {config.runState === WorkflowRunState.Running ? (
                 <Button variant="outline" size="sm" onClick={handlePause} className="gap-1.5">
                   <Pause className="h-3.5 w-3.5" /> Tạm dừng
+                </Button>
+              ) : config.runState === WorkflowRunState.Failed ? (
+                <Button variant="outline" size="sm" onClick={() => setRerunRequested(true)} className="gap-1.5">
+                  <RotateCcw className="h-3.5 w-3.5" /> Sửa cấu hình & Bắt đầu lại
                 </Button>
               ) : (
                 <Button variant="outline" size="sm" onClick={handleResume} className="gap-1.5">
@@ -1306,8 +1364,8 @@ export function VideoProductionTab({
                       </label>
                       <p className="text-[11px] text-muted-foreground">
                         {isGridMode
-                          ? "AI viết 9 cảnh, tạo một ảnh 3×3 từ ảnh nguồn rồi gửi nguyên ảnh đó để tạo một video 15 giây. Chưa kiểm chứng với provider thật."
-                          : "Tạo một ảnh 9 ô rồi gửi nguyên ảnh để tạo một video 15 giây."}
+                          ? "AI viết 9 cảnh, tạo một ảnh 3×3 từ ảnh nguồn rồi gửi nguyên ảnh đó để tạo một video theo thời lượng đã chọn. Chưa kiểm chứng với provider thật."
+                          : "Tạo một ảnh 9 ô rồi gửi nguyên ảnh để tạo một video theo thời lượng đã chọn."}
                       </p>
                     </div>
                   )}
@@ -1339,7 +1397,6 @@ export function VideoProductionTab({
                     id="target-duration"
                     className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     value={config.targetDurationPerSceneSeconds}
-                    disabled={isGridMode}
                     onChange={(e) => handleTargetDurationChange(parseInt(e.target.value) || 15)}
                   >
                     {DEFAULT_SUPPORTED_DURATIONS.map((dur) => (
@@ -1347,7 +1404,7 @@ export function VideoProductionTab({
                         {dur} giây{dur === 15 ? " (Ưu tiên)" : ""}
                       </option>
                     ))}
-                    {!DEFAULT_SUPPORTED_DURATIONS.includes(config.targetDurationPerSceneSeconds as 10 | 15) && (
+                    {!DEFAULT_SUPPORTED_DURATIONS.includes(config.targetDurationPerSceneSeconds as (typeof DEFAULT_SUPPORTED_DURATIONS)[number]) && (
                       <option value={config.targetDurationPerSceneSeconds}>
                         {config.targetDurationPerSceneSeconds} giây (Cần chọn lại thời lượng được hỗ trợ)
                       </option>
@@ -1355,7 +1412,7 @@ export function VideoProductionTab({
                   </select>
                   <p className="text-[11px] text-muted-foreground">
                     {isGridMode
-                      ? "Ảnh storyboard 9 ô cố định 9 cảnh và đúng 15 giây."
+                      ? "Ảnh storyboard 9 ô cố định 9 cảnh, chia đều trong thời lượng đã chọn."
                       : (config.videoStrategy ?? VideoStrategies.MultiVideo) === VideoStrategies.SingleVideo
                       ? "AI chia các đoạn của video theo nội dung; mốc thời gian có thể lệch tối đa 2 giây."
                       : "Mỗi cảnh là một clip có thời lượng này. Các clip được xuất riêng."}
@@ -1363,11 +1420,11 @@ export function VideoProductionTab({
                 </div>
 
                 {/* Cảnh báo nếu dữ liệu cũ chưa hợp lệ theo capability */}
-                {!DEFAULT_SUPPORTED_DURATIONS.includes(config.targetDurationPerSceneSeconds as 10 | 15) && (
+                {!DEFAULT_SUPPORTED_DURATIONS.includes(config.targetDurationPerSceneSeconds as (typeof DEFAULT_SUPPORTED_DURATIONS)[number]) && (
                   <div className="flex items-center gap-2 p-2.5 rounded text-xs bg-warning/10 text-warning border border-warning/20 col-span-1 sm:col-span-2">
                     <AlertCircle className="h-4 w-4 shrink-0" />
                     <span>
-                      Thời lượng {config.targetDurationPerSceneSeconds}s hiện tại chưa được nhà cung cấp hỗ trợ. Vui lòng chọn lại 10s hoặc 15s trước khi bắt đầu.
+                      Thời lượng {config.targetDurationPerSceneSeconds}s hiện tại chưa được nhà cung cấp hỗ trợ. Vui lòng chọn lại 10s, 15s hoặc 30s trước khi bắt đầu.
                     </span>
                   </div>
                 )}
@@ -1436,17 +1493,24 @@ export function VideoProductionTab({
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-lg flex items-center gap-2">
-                    {!awaitingVideoProvider && <Loader2 className="h-5 w-5 text-primary animate-spin" />}
+                    {config.runState === WorkflowRunState.Failed
+                      ? <AlertCircle className="h-5 w-5 text-destructive" />
+                      : !awaitingVideoProvider && <Loader2 className="h-5 w-5 text-primary animate-spin" />}
                     Tiến độ sản xuất video tự động
                   </CardTitle>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {awaitingVideoProvider
-                      ? "Ảnh và prompt đã sẵn sàng. Chức năng tạo video đang chờ nhà cung cấp được kiểm chứng."
-                      : "Ứng dụng đang chuẩn bị ảnh và prompt chuyển động cho video."}
+                    {config.runState === WorkflowRunState.Failed
+                      ? "Quy trình đã dừng ở bước lỗi. Thử lại đúng bước đó, các bước đã xong được giữ nguyên."
+                      : awaitingVideoProvider
+                      ? "Ảnh và prompt đã sẵn sàng, đang chờ tác vụ tạo video."
+                      : videoJobLabel ? "Tiến độ tạo video được đồng bộ với tác vụ trong Tiến trình."
+                        : "Ứng dụng đang chuẩn bị ảnh và prompt chuyển động cho video."}
                   </p>
                 </div>
-                <Badge variant={config.runState === WorkflowRunState.Paused ? "warning" : "info"}>
-                  {config.runState === WorkflowRunState.Paused ? "Đang tạm dừng" : awaitingVideoProvider ? "Chờ tạo video" : "Đang xử lý"}
+                <Badge variant={config.runState === WorkflowRunState.Failed ? "destructive" : config.runState === WorkflowRunState.Paused ? "warning" : "info"}>
+                  {config.runState === WorkflowRunState.Failed ? "Đã dừng vì lỗi"
+                    : config.runState === WorkflowRunState.Paused ? "Đang tạm dừng"
+                    : videoJobLabel ?? (awaitingVideoProvider ? "Chờ tạo video" : "Đang xử lý")}
                 </Badge>
               </div>
             </CardHeader>
@@ -1463,7 +1527,11 @@ export function VideoProductionTab({
                 />
               </div>
 
-              {isGridMode && <StoryboardGridProgress config={config} scene={scenes[0]} />}
+              {isGridMode ? (
+                <StoryboardGridProgress config={config} scene={scenes[0]} retryingJobId={retryingJobId} onRetryStep={handleRetryStep} />
+              ) : (
+                <WorkflowStepIssues steps={config.steps} scenes={scenes} retryingJobId={retryingJobId} onRetry={handleRetryStep} />
+              )}
 
               <ProjectActivityLog projectId={projectId} />
             </CardContent>

@@ -74,7 +74,7 @@ public sealed partial class ProjectWorkflowService
         }
 
         var nowIso = DateTimeOffset.UtcNow.ToString("o");
-        var config = await GetWorkflowConfigAsync(job.ProjectId, cancellationToken).ConfigureAwait(false);
+        var config = await GetStoredWorkflowConfigAsync(job.ProjectId, cancellationToken).ConfigureAwait(false);
         var jobRunId = GetWorkflowRunId(job.ConfigSnapshotJson);
         if (jobRunId != null && !string.Equals(jobRunId, config.CurrentRunId, StringComparison.Ordinal))
         {
@@ -98,6 +98,7 @@ public sealed partial class ProjectWorkflowService
 
         bool isPaused = config.RunState == WorkflowRunState.Paused;
         bool promptRejected = false;
+        string promptRejectReason = string.Empty;
         WorkflowContinuationIntent? continuationIntent = null;
         var composer = new VideoWorkflowPromptComposer(_dbOptions);
 
@@ -106,6 +107,7 @@ public sealed partial class ProjectWorkflowService
         {
             if (string.IsNullOrWhiteSpace(job.ResultText))
             {
+                AddRejectedMarker(dbContext, job.Id, "Provider báo xong nhưng không trả về nội dung Script.", nowIso);
                 await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 return false;
             }
@@ -123,10 +125,11 @@ public sealed partial class ProjectWorkflowService
             }
 
             IReadOnlyList<ScenePlanItemDto> sceneItems;
+            string? parseReason = null;
             if (config.VideoStrategy == VideoStrategies.SingleVideo)
             {
                 var grid = VideoWorkflowPromptComposer.IsGridMode(config);
-                var storyboard = TryParseStoryboard(job.ResultText, config.TargetDurationPerSceneSeconds, grid);
+                var storyboard = TryParseStoryboard(job.ResultText, config.TargetDurationPerSceneSeconds, grid, out parseReason);
                 if (storyboard != null)
                 {
                     await new StoryboardContentService(_dbOptions).SaveAsync(job.ProjectId, job.ResultText, config.TargetDurationPerSceneSeconds, cancellationToken, grid).ConfigureAwait(false);
@@ -139,6 +142,9 @@ public sealed partial class ProjectWorkflowService
             }
             if (sceneItems.Count == 0)
             {
+                AddRejectedMarker(dbContext, job.Id, string.IsNullOrWhiteSpace(parseReason)
+                    ? "Phản hồi Script không phải storyboard/danh sách cảnh hợp lệ nên chưa tạo cảnh."
+                    : $"Phản hồi Script không hợp lệ nên chưa tạo cảnh. {parseReason}", nowIso);
                 var cfgSetting = await dbContext.AppSettings.FirstOrDefaultAsync(
                     setting => setting.Key == GetConfigKey(job.ProjectId), cancellationToken).ConfigureAwait(false);
                 if (cfgSetting != null)
@@ -152,7 +158,7 @@ public sealed partial class ProjectWorkflowService
                 }
                 await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 await WriteAutoRenderLogAsync(job.Id, "error", VideoWorkflowPromptComposer.IsGridMode(config)
-                    ? $"Phản hồi Script không phải storyboard đúng {ReferenceImageModes.GridShotCount} shot liên tiếp {ReferenceImageModes.GridDurationSeconds} giây (mỗi shot có imagePrompt và motionPrompt) nên chưa tạo cảnh. Hãy kiểm tra mẫu Script và bắt đầu lại."
+                    ? $"Phản hồi Script không phải storyboard đúng {ReferenceImageModes.GridShotCount} shot liên tiếp {config.TargetDurationPerSceneSeconds} giây (mỗi shot có imagePrompt và motionPrompt) nên chưa tạo cảnh. Lý do: {parseReason} Hãy kiểm tra mẫu Script và bắt đầu lại."
                     : config.VideoStrategy == VideoStrategies.SingleVideo
                     ? "Phản hồi Script không phải storyboard hợp lệ nên chưa tạo cảnh. Hãy kiểm tra mẫu Script và bắt đầu lại."
                     : $"Phản hồi Script chưa hợp lệ nên chưa tạo cảnh: cần JSON có đúng {Math.Max(1, config.TargetSceneCount)} cảnh và mỗi cảnh có imagePrompt. Hãy kiểm tra mẫu Script và bắt đầu lại.",
@@ -299,6 +305,15 @@ public sealed partial class ProjectWorkflowService
         // 2. Áp dụng kết quả Image -> Lưu ảnh và kích hoạt VideoPrompt
         if (job.TaskType == JobTaskType.Image)
         {
+            // Job báo xong nhưng không có ảnh: không ghi đè ảnh cảnh bằng giá trị rỗng và không sinh bước sau trên ảnh sai.
+            if (string.IsNullOrWhiteSpace(job.ResultReference))
+            {
+                AddRejectedMarker(dbContext, job.Id, "Provider báo xong nhưng không trả về ảnh.", nowIso);
+                await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                await WriteAutoRenderLogAsync(job.Id, "error", "Provider báo xong nhưng không trả về ảnh nên chưa chuyển sang bước tiếp theo. Hãy thử lại bước này.", CancellationToken.None).ConfigureAwait(false);
+                return false;
+            }
+
             // Kiểm tra stale: nếu user đã chỉnh sửa/chọn ảnh khác trong khi job đang chạy
             // Kết quả của job này chuyển vào candidateHistory thay vì ghi đè ảnh hiện tại (PV-R3)
             if (isUserModified && !string.IsNullOrWhiteSpace(scene.ImageAssetId) &&
@@ -402,6 +417,7 @@ public sealed partial class ProjectWorkflowService
             var contentItem = contentParsed.Candidate;
             // Chỉ phản hồi đạt thẩm định mới thành prompt render; phản hồi lỗi giữ trong bảng để người dùng sửa.
             promptRejected = !contentParsed.IsCompliant || string.IsNullOrWhiteSpace(contentItem?.VideoPrompt);
+            promptRejectReason = string.Join(" ", contentParsed.Errors);
 
             // Kiểm tra stale: nếu user đã tự tay sửa PromptText trong khi job VideoPrompt đang chạy
             // Kết quả này không được ghi đè prompt đã sửa của user (PV-R3)
@@ -423,6 +439,9 @@ public sealed partial class ProjectWorkflowService
             if (promptRejected)
             {
                 staleTaskTypes.Add(JobTaskType.VideoPrompt);
+                AddRejectedMarker(dbContext, job.Id, string.IsNullOrWhiteSpace(promptRejectReason)
+                    ? "Phản hồi chưa có prompt video hợp lệ."
+                    : $"Phản hồi chưa có prompt video hợp lệ. {promptRejectReason}", nowIso);
             }
             else
             {
@@ -594,7 +613,8 @@ public sealed partial class ProjectWorkflowService
         }
         if (promptRejected)
         {
-            await WriteAutoRenderLogAsync(job.Id, "error", "Phản hồi chưa có prompt video hợp lệ nên chưa đưa vào render. Hãy kiểm tra và sửa nội dung trong bảng Project.", CancellationToken.None).ConfigureAwait(false);
+            var reasonSuffix = string.IsNullOrWhiteSpace(promptRejectReason) ? string.Empty : $" Lý do: {promptRejectReason}";
+            await WriteAutoRenderLogAsync(job.Id, "error", $"Phản hồi chưa có prompt video hợp lệ nên chưa đưa vào render.{reasonSuffix} Hãy kiểm tra và sửa nội dung trong bảng Project.", CancellationToken.None).ConfigureAwait(false);
         }
 
         // Dispatch continuation intent nếu có
@@ -668,7 +688,7 @@ public sealed partial class ProjectWorkflowService
                 // Đọc lại cấu hình dưới khóa: lượt hủy có thể vừa kết thúc run.
                 recovered += await RunUnderProjectGateAsync(projectId, async () =>
                 {
-                    var config = await GetWorkflowConfigAsync(projectId, cancellationToken).ConfigureAwait(false);
+                    var config = await GetStoredWorkflowConfigAsync(projectId, cancellationToken).ConfigureAwait(false);
                     if (config.RunState != WorkflowRunState.Running || string.IsNullOrWhiteSpace(config.CurrentRunId) || config.FinalVideoAssetId != null)
                     {
                         return 0;
@@ -694,7 +714,7 @@ public sealed partial class ProjectWorkflowService
         if (!MuseAiTrialMode.Enabled || _jobService == null) return;
 
         // Callback retry có thể đến sau khi run đã kết thúc hoặc đã chuyển sang run khác: không tạo render mới.
-        var config = await GetWorkflowConfigAsync(projectId, cancellationToken).ConfigureAwait(false);
+        var config = await GetStoredWorkflowConfigAsync(projectId, cancellationToken).ConfigureAwait(false);
         if (config.RunState != WorkflowRunState.Running || config.CurrentRunId != runId || config.FinalVideoAssetId != null) return;
 
         if (config.VideoStrategy == VideoStrategies.MultiVideo)
@@ -985,7 +1005,7 @@ public sealed partial class ProjectWorkflowService
                 var intent = JsonSerializer.Deserialize<WorkflowContinuationIntent>(setting.Value, JsonOptions);
                 if (intent != null && string.Equals(intent.ProjectId, projectId, StringComparison.OrdinalIgnoreCase))
                 {
-                    var config = await GetWorkflowConfigAsync(intent.ProjectId, cancellationToken).ConfigureAwait(false);
+                    var config = await GetStoredWorkflowConfigAsync(intent.ProjectId, cancellationToken).ConfigureAwait(false);
                     if (!string.Equals(config.CurrentRunId, intent.RunId, StringComparison.Ordinal) ||
                         config.RunState is WorkflowRunState.Idle or WorkflowRunState.Failed or WorkflowRunState.Completed)
                     {
@@ -1093,14 +1113,16 @@ public sealed partial class ProjectWorkflowService
     };
 
     /// <summary>Storyboard hợp lệ thì trả về; kết quả Script không phải storyboard sẽ đi theo đường scenes cũ.</summary>
-    private static StoryboardContent? TryParseStoryboard(string resultText, int durationSeconds, bool grid = false)
+    private static StoryboardContent? TryParseStoryboard(string resultText, int durationSeconds, bool grid, out string? reason)
     {
+        reason = null;
         try
         {
             return grid ? StoryboardContentService.ParseGrid(resultText, durationSeconds) : StoryboardContentService.Parse(resultText, durationSeconds);
         }
-        catch (ProjectWorkflowValidationException)
+        catch (ProjectWorkflowValidationException ex)
         {
+            reason = ex.Message;
             return null;
         }
     }

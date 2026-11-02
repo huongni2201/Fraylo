@@ -131,9 +131,8 @@ public sealed class HostBrowserGatekeeper : IBrowserGatekeeper, IDisposable
                     if (_activity != null)
                         await _activity.WriteAsync(jobId, "browser", "Đang khởi động browser cho tác vụ.", cancellationToken).ConfigureAwait(false);
                     var profile = await _profileRegistry.GetProfileAsync(profileId, cancellationToken).ConfigureAwait(false);
-                    // User-requested trial: show the browser for ChatGPT/Gemini text jobs and the MuseAI render.
-                    var visibleTrial = (((ChatGptTrialMode.Enabled && profile?.ProviderKey == ProviderKeys.ChatGPTWeb) ||
-                        (GeminiTrialMode.Enabled && profile?.ProviderKey == ProviderKeys.GeminiWeb)) &&
+                    // User-requested trial: show the browser for Gemini text jobs and the MuseAI render. ChatGPT runs hidden.
+                    var visibleTrial = (GeminiTrialMode.Enabled && profile?.ProviderKey == ProviderKeys.GeminiWeb &&
                         role is JobTaskType.Script or JobTaskType.Image or JobTaskType.VideoPrompt) ||
                         (MuseAiTrialMode.Enabled && profile?.ProviderKey == ProviderKeys.MuseAI && role == JobTaskType.VideoRender);
                     if (visibleTrial)

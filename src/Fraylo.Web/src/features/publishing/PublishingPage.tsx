@@ -181,7 +181,7 @@ export function PublishingPage({ active, api, initialProjectId, selectionRevisio
             {blocking && <p role="status" className="text-sm text-muted-foreground">{publishStateLabels[blocking.state]}. Kiểm tra lịch sử bên dưới trước khi đăng lại.</p>}
             {account && <p className="text-sm">Đăng lên <strong>{account.accountIdentity}</strong></p>}
             <Button onClick={() => void publish()} disabled={!canPublish} className="w-full gap-2">
-              {publishing ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
+              {publishing ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
               {publishing ? "Đang tải và đăng video…" : "Đăng lên TikTok"}
             </Button>
           </CardContent></Card>

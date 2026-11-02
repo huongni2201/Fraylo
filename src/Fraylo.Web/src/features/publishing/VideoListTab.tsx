@@ -122,7 +122,7 @@ export function VideoListTab({ videos, attempts, accounts, api, disabled, onAtte
                     </TableCell>
                     <TableCell className="text-right align-top">
                       <Button size="sm" className="gap-2" disabled={!canPublish} onClick={() => void publish(video, accountId, caption)}>
-                        {running ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
+                        {running ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
                         {running ? "Đang đăng…" : "Đăng"}
                       </Button>
                     </TableCell>
