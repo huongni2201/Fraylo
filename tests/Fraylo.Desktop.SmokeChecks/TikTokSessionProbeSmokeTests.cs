@@ -51,7 +51,7 @@ public static class TikTokSessionProbeSmokeTests
 
     private static bool IsProfileLockedByExternalProcess(string profileDir)
     {
-        string lockFilePath = Path.Combine(profileDir, ".titoai_lock");
+        string lockFilePath = Path.Combine(profileDir, ".Fraylo_lock");
         if (!File.Exists(lockFilePath)) return false;
 
         try
@@ -71,7 +71,7 @@ public static class TikTokSessionProbeSmokeTests
         Console.WriteLine("       Fraylo — TikTok Session & Identity Probe Smoke Checks     ");
         Console.WriteLine("=================================================================");
 
-        var tempDir = Path.Combine(Path.GetTempPath(), "titoai_tiktok_smoke_" + Guid.NewGuid().ToString("N"));
+        var tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_tiktok_smoke_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
         var dbPath = Path.Combine(tempDir, "tiktok_smoke.db");
 
@@ -125,7 +125,7 @@ public static class TikTokSessionProbeSmokeTests
     {
         string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         string profileId = "profile_tiktok_3dc15208b53a4fa79b807d66ee003422";
-        string realProfileDir = Path.Combine(localAppData, "TiToAI", "profiles", profileId);
+        string realProfileDir = Path.Combine(localAppData, "Fraylo", "profiles", profileId);
 
         if (!Directory.Exists(realProfileDir))
         {
@@ -139,7 +139,7 @@ public static class TikTokSessionProbeSmokeTests
             return;
         }
 
-        string customProfilesDir = Path.Combine(localAppData, "TiToAI", "profiles");
+        string customProfilesDir = Path.Combine(localAppData, "Fraylo", "profiles");
         var tabPool = new TabPool();
         var profileRegistry = new ProfileRegistry(() => new FrayloDbContext(dbOptions), customProfilesDir, tabPool);
         var profileOwner = new ProfileOwner(pid => profileRegistry.GetUserDataDir(pid, "TikTok"));
@@ -219,7 +219,7 @@ public static class TikTokSessionProbeSmokeTests
     {
         string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         string profileId = "profile_tiktok_3dc15208b53a4fa79b807d66ee003422";
-        string realProfileDir = Path.Combine(localAppData, "TiToAI", "profiles", profileId);
+        string realProfileDir = Path.Combine(localAppData, "Fraylo", "profiles", profileId);
 
         if (!Directory.Exists(realProfileDir) || IsProfileLockedByExternalProcess(realProfileDir))
         {
@@ -227,7 +227,7 @@ public static class TikTokSessionProbeSmokeTests
             return;
         }
 
-        string customProfilesDir = Path.Combine(localAppData, "TiToAI", "profiles");
+        string customProfilesDir = Path.Combine(localAppData, "Fraylo", "profiles");
 
         // Giả lập app restart: Tạo mới toàn bộ dependency instances từ đầu
         var tabPool = new TabPool();

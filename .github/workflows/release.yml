@@ -32,7 +32,7 @@ jobs:
           RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
         run: |
           if (-not $env:RELEASE_SIGNING_KEY) { throw "Thiếu secret RELEASE_SIGNING_KEY (PKCS#8 base64 của release-signing.key)." }
-          $dir = Join-Path $env:LOCALAPPDATA "Fraylo"
+          $dir = Join-Path $env:USERPROFILE "Fraylo-keys"
           New-Item -ItemType Directory -Force $dir | Out-Null
           Set-Content (Join-Path $dir "release-signing.key") $env:RELEASE_SIGNING_KEY -NoNewline
       - name: Đóng gói

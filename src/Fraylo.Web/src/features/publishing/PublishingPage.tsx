@@ -139,7 +139,7 @@ export function PublishingPage({ active, api, initialProjectId, selectionRevisio
             <div className="flex justify-center">
               <TikTokPostPreview
                 key={video?.assetId ?? "none"}
-                videoSrc={video ? `https://media.titoai.local/media/${encodeURIComponent(video.assetId)}` : null}
+                videoSrc={video ? `https://media.Fraylo.local/media/${encodeURIComponent(video.assetId)}` : null}
                 caption={caption}
                 handle={account?.accountIdentity}
                 showCopy={false}

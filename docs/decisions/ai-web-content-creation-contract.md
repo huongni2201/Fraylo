@@ -1,4 +1,4 @@
-# TiToAI — Quyết định Kiến trúc & Hợp đồng Tạo nội dung qua AI Web (AC0)
+# Fraylo — Quyết định Kiến trúc & Hợp đồng Tạo nội dung qua AI Web (AC0)
 
 
 Ngày 2026-10-27 (UTC+07).  

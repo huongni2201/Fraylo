@@ -1,4 +1,4 @@
-# TiToAI — contract bổ sung browser, pool tài khoản, job và pipeline v1.1
+# Fraylo — contract bổ sung browser, pool tài khoản, job và pipeline v1.1
 
 
 

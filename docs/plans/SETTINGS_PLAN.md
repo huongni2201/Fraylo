@@ -1,4 +1,4 @@
-# TiToAI — bổ sung plan Cài đặt
+# Fraylo — bổ sung plan Cài đặt
 
 >
 > **Yêu cầu mới nhất 2026-10-27:** [Luồng tạo video chỉ chạy tự động](AUTOMATIC_VIDEO_WORKFLOW_PLAN.md). Trong phạm vi này, Settings không cung cấp Manual Mode; capability chưa xác minh/không hỗ trợ thì báo automation chưa sẵn sàng, không hướng dẫn nhập kết quả handoff. Quản lý tài khoản và đăng nhập vẫn giữ nguyên.
@@ -21,13 +21,13 @@ Ba trường chọn thư mục độc lập, mỗi trường hiển thị đư�
 
 | Trường | Nội dung được lưu | Root mặc định |
 |---|---|---|
-| Tài liệu | Kịch bản, prompt và tài liệu được người dùng lưu/xuất thành file | `%LOCALAPPDATA%/TiToAI/documents` |
-| Ảnh AI | Ảnh AI tạo ra và ảnh tham chiếu được nhập vào library | `%LOCALAPPDATA%/TiToAI/images` |
-| Video AI | Video AI trả về hoặc được nhập thủ công vào library | `%LOCALAPPDATA%/TiToAI/videos` |
+| Tài liệu | Kịch bản, prompt và tài liệu được người dùng lưu/xuất thành file | `%LOCALAPPDATA%/Fraylo/documents` |
+| Ảnh AI | Ảnh AI tạo ra và ảnh tham chiếu được nhập vào library | `%LOCALAPPDATA%/Fraylo/images` |
+| Video AI | Video AI trả về hoặc được nhập thủ công vào library | `%LOCALAPPDATA%/Fraylo/videos` |
 
 - Có thể chọn các ổ/thư mục khác nhau cho từng loại hoặc dùng cùng một root. App phân tách bên dưới theo `<project-id>/<assets|videos|documents>/...` để tránh trùng tên và lẫn kênh. Tên file an toàn và ID duy nhất ngăn ghi đè ngoài ý muốn.
 - Đây là nơi lưu bản file thật. Nội dung editor/template tiếp tục lưu version trong DB; chọn thư mục không tự xuất file ở mọi lần gõ. Audio gốc giữ layout nội bộ của plan nguồn.
-- DB, browser profiles, logs và secrets ở `%LOCALAPPDATA%/TiToAI`; trang này không chuyển DB hoặc session browser.
+- DB, browser profiles, logs và secrets ở `%LOCALAPPDATA%/Fraylo`; trang này không chuyển DB hoặc session browser.
 - Host chuẩn hóa đường dẫn và kiểm tra có thể tạo/ghi file; báo rõ đường dẫn sai, thiếu quyền hoặc ổ không sẵn sàng. Thư mục chưa tồn tại được tạo khi lưu hợp lệ; không lưu lựa chọn mới không dùng được.
 - Khi ghi file, hết dung lượng/mất ổ/mất quyền phải báo lỗi, giữ thông tin job và kết quả đã nhận để thử lưu lại. Không âm thầm đổi thư mục hoặc gửi lại yêu cầu sinh AI chỉ vì lưu file thất bại.
 - Host kiểm tra đường dẫn sau chuẩn hóa, kể cả junction/symlink, vẫn thuộc root đã cấp. UI chọn thư mục qua contract cho phép; không có lệnh đọc/ghi file tùy ý.

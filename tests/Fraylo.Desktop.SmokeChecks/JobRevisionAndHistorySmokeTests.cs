@@ -37,10 +37,10 @@ public static class JobRevisionAndHistorySmokeTests
 
     private static (DbContextOptions<FrayloDbContext> Options, string TempDir) CreateTestContext()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"titoai_c1c3_smoke_{Guid.NewGuid():N}");
+        var tempDir = Path.Combine(Path.GetTempPath(), $"Fraylo_c1c3_smoke_{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
 
-        var dbPath = Path.Combine(tempDir, "titoai_c1c3_test.db");
+        var dbPath = Path.Combine(tempDir, "Fraylo_c1c3_test.db");
         var connectionString = DatabasePathHelper.BuildConnectionString(dbPath);
 
         var optionsBuilder = new DbContextOptionsBuilder<FrayloDbContext>();

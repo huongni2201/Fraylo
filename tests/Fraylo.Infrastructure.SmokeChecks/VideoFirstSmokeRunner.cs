@@ -16,7 +16,7 @@ public static class VideoFirstSmokeRunner
             return 0;
         }
 
-        var directory = Path.Combine(Path.GetTempPath(), "titoai_infrastructure_" + Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(Path.GetTempPath(), "Fraylo_infrastructure_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         var database = Path.Combine(directory, "smoke.db");
         try

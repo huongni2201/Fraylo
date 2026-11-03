@@ -162,7 +162,7 @@ interface ProjectCardProps {
 function ProjectCard({ project, onOpen, onEdit, onDelete }: ProjectCardProps) {
   const [previewFailed, setPreviewFailed] = useState(false);
   const previewSrc = project.previewVideoAssetId && !previewFailed
-    ? `https://media.titoai.local/media/${encodeURIComponent(project.previewVideoAssetId)}#t=0.1`
+    ? `https://media.Fraylo.local/media/${encodeURIComponent(project.previewVideoAssetId)}#t=0.1`
     : null;
 
   return (

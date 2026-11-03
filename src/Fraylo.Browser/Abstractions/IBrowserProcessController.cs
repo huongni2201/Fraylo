@@ -18,7 +18,7 @@ public interface IBrowserContextHandle : IAsyncDisposable, IDisposable
     IBrowserContext Context { get; }
 
     /// <summary>
-    /// Khóa sở hữu độc quyền single-instance lock (.titoai_lock).
+    /// Khóa sở hữu độc quyền single-instance lock (.Fraylo_lock).
     /// </summary>
     IProfileOwnerLock OwnerLock { get; }
 
@@ -30,13 +30,13 @@ public interface IBrowserContextHandle : IAsyncDisposable, IDisposable
 
 /// <summary>
 /// Quản lý tiến trình và vòng đời Browser Chromium Persistent Context của Playwright.
-/// Tích hợp cơ chế Single-Instance Lock (.titoai_lock) để đảm bảo không xung đột dữ liệu profile.
+/// Tích hợp cơ chế Single-Instance Lock (.Fraylo_lock) để đảm bảo không xung đột dữ liệu profile.
 /// </summary>
 public interface IBrowserProcessController : IAsyncDisposable, IDisposable
 {
     /// <summary>
     /// Khởi chạy persistent context của Chromium cho profile được chỉ định.
-    /// Bắt buộc chiếm single-instance lock (.titoai_lock) trước khi mở trình duyệt.
+    /// Bắt buộc chiếm single-instance lock (.Fraylo_lock) trước khi mở trình duyệt.
     /// </summary>
     Task<IBrowserContextHandle> LaunchPersistentContextAsync(
         string profileId,
@@ -89,7 +89,7 @@ public interface IBrowserProcessController : IAsyncDisposable, IDisposable
     bool IsRunning(string profileId);
 
     /// <summary>
-    /// Cho biết cửa sổ đăng nhập Chrome thường của profileId có đang mở (đang giữ .titoai_lock) hay không.
+    /// Cho biết cửa sổ đăng nhập Chrome thường của profileId có đang mở (đang giữ .Fraylo_lock) hay không.
     /// </summary>
     bool IsLoginWindowOpen(string profileId) => false;
 

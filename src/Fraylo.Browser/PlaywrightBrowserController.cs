@@ -9,7 +9,7 @@ namespace Fraylo.Browser;
 
 /// <summary>
 /// Quản lý vòng đời tiến trình Playwright Chromium persistent context trên userDataDir của profile.
-/// Tích hợp chặt chẽ với IProfileOwner để chiếm và giải phóng lock .titoai_lock,
+/// Tích hợp chặt chẽ với IProfileOwner để chiếm và giải phóng lock .Fraylo_lock,
 /// cấu hình chế độ headless/visible và xử lý lỗi driver Playwright có cấu trúc, không crash ngầm.
 /// </summary>
 public sealed class PlaywrightBrowserController : IBrowserProcessController
@@ -124,7 +124,7 @@ public sealed class PlaywrightBrowserController : IBrowserProcessController
             string chromePath = FindChromeExecutable()
                 ?? throw new InvalidOperationException("Chưa tìm thấy Google Chrome đã cài trên máy. Hãy cài Chrome rồi thử lại.");
 
-            // Giữ .titoai_lock suốt lúc Chrome mở để tác vụ Playwright không chiếm cùng userDataDir
+            // Giữ .Fraylo_lock suốt lúc Chrome mở để tác vụ Playwright không chiếm cùng userDataDir
             var ownerLock = await _profileOwner.AcquireOwnerLockAsync(
                 profileId,
                 $"ChromeLogin-{Guid.NewGuid():N}",
@@ -208,7 +208,7 @@ public sealed class PlaywrightBrowserController : IBrowserProcessController
             string userDataDir = _profileRegistry.GetUserDataDir(profileId, profile.Kind);
             Directory.CreateDirectory(userDataDir);
 
-            // Chiếm Single-Instance Lock (.titoai_lock) trước khi khởi chạy Playwright persistent context
+            // Chiếm Single-Instance Lock (.Fraylo_lock) trước khi khởi chạy Playwright persistent context
             var ownerLock = await _profileOwner.AcquireOwnerLockAsync(
                 profileId,
                 $"PlaywrightProcess-{Guid.NewGuid():N}",
@@ -413,7 +413,7 @@ public sealed class PlaywrightBrowserController : IBrowserProcessController
         catch (PlaywrightException ex)
         {
             // Bắt lỗi Playwright (ví dụ driver/chromium chưa được cài đặt)
-            // Giải phóng lock .titoai_lock ngay lập tức để không rò rỉ tài nguyên
+            // Giải phóng lock .Fraylo_lock ngay lập tức để không rò rỉ tài nguyên
             if (handle != null)
             {
                 RemoveActiveContext(profileId, handle);
@@ -564,7 +564,7 @@ public sealed class PlaywrightBrowserController : IBrowserProcessController
 
     private async Task HandleContextClosedAsync(string profileId, PlaywrightBrowserContextHandle handle)
     {
-        // 1. Luôn dispose handle để giải phóng owner lock (.titoai_lock)
+        // 1. Luôn dispose handle để giải phóng owner lock (.Fraylo_lock)
         try
         {
             await handle.DisposeAsync();

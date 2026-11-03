@@ -46,7 +46,7 @@ public sealed class ProfileOwner : IProfileOwner, IDisposable
             string userDataDir = _userDataDirResolver(profileId);
             Directory.CreateDirectory(userDataDir);
 
-            string lockFilePath = Path.Combine(userDataDir, ".titoai_lock");
+            string lockFilePath = Path.Combine(userDataDir, ".Fraylo_lock");
             fileStream = new FileStream(
                 lockFilePath,
                 FileMode.OpenOrCreate,

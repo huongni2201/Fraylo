@@ -93,11 +93,11 @@ Fraylo tổ chức theo kiến trúc modular monolith: WPF làm host desktop, We
 - [Trạng thái hiện hành](docs/agents/STATUS.md) — tiến độ, kết quả kiểm tra và giới hạn đã biết.
 - [Kiến trúc video-first](docs/plans/VIDEO_FIRST_ARCHITECTURE_PLAN.md) và [hai luồng sản xuất video](docs/plans/VIDEO_TWO_FLOW_SPLIT.md).
 - [Tích hợp đăng TikTok](docs/plans/TIKTOK_PUBLISHING_HANDOFF.md).
-- [Nhận diện Fraylo](docs/branding/README.md) — logo, tên sản phẩm và tương thích với TiToAI.
+- [Nhận diện Fraylo](docs/branding/README.md) — logo và tên sản phẩm.
 
 ## Dữ liệu và giới hạn hiện tại
 
-- Fraylo là tên hiện hành của TiToAI. Thư mục dữ liệu mặc định `%LOCALAPPDATA%\TiToAI` và tên database `titoai.db` được giữ để tiếp tục sử dụng dữ liệu, phiên đăng nhập và đường nâng cấp cũ.
+- Thư mục dữ liệu mặc định là `%LOCALAPPDATA%\Fraylo`, database `fraylo.db`. Dữ liệu của bản TiToAI cũ không được chuyển sang; app tạo database trống khi chạy lần đầu.
 - Tác vụ lỗi thông thường không tự động thử lại; người dùng kiểm tra nguyên nhân và quyết định thử lại thủ công.
 - Nếu TikTok đã nhận bài nhưng ứng dụng chưa đọc được xác nhận, đăng lại sau lỗi có thể tạo bài trùng. Kiểm tra tài khoản TikTok trước khi đăng lại.
 - Chức năng sao lưu/khôi phục đầy đủ chưa hoàn tất. Xem [STATUS](docs/agents/STATUS.md) trước khi dựa vào các khả năng đang phát triển.

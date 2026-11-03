@@ -4,8 +4,8 @@ namespace Fraylo.Infrastructure.Persistence;
 
 public static class DatabasePathHelper
 {
-    public const string DefaultDatabaseFileName = "titoai.db";
-    public const string DefaultAppFolderName = "TiToAI";
+    public const string DefaultDatabaseFileName = "fraylo.db";
+    public const string DefaultAppFolderName = "Fraylo";
 
     public static string GetDefaultDatabaseDirectory()
     {

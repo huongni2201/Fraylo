@@ -1,4 +1,4 @@
-# TiToAI — nhật ký và tiến trình từng tác vụ
+# Fraylo — nhật ký và tiến trình từng tác vụ
 
 Ngày 2026-10-27 (UTC+07). **Kế hoạch đề xuất; chưa triển khai hoặc nghiệm thu.** Yêu cầu: mở một job để xem những bước nó đã thực sự đi qua, cập nhật trong lúc chạy, và theo dõi tiến trình rõ ràng. Tài liệu bổ sung [queue/Settings 1.2](QUEUE_EXECUTION_SETTINGS_PLAN.md), [T17](implementation/T17-queue-progress-ui.md), [T27b](implementation/T27b-logging-secrets.md) và [workflow ảnh/video](PRODUCT_IMAGE_VIDEO_WORKFLOW_PLAN.md); không thay lifecycle, retry, snapshot hoặc quy tắc browser của các tài liệu đó.
 

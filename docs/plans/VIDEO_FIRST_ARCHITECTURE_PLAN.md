@@ -20,7 +20,7 @@ Ngày 2026-10-27 (UTC+07). Trạng thái: **ĐỊNH HƯỚNG ĐÃ CHỐT; triể
 | Video | Tệp đầu ra được chọn cho Project, kèm metadata/provenance và revision. Một Project có tối đa một video hiện hành; lịch sử candidate được giữ. |
 | Publish record | Kết quả đăng và đối soát, phân biệt xác nhận TikTok với dữ liệu người dùng cung cấp. |
 | Provider account | Account/profile của AI executor, quản lý toàn app; chỉ được bind vào job khi reserve theo policy hiện hành. |
-| Asset | File local được quản lý bởi TiToAI; có thể được tham chiếu từ nhiều Project mà không chuyển quyền sở hữu file. |
+| Asset | File local được quản lý bởi Fraylo; có thể được tham chiếu từ nhiều Project mà không chuyển quyền sở hữu file. |
 | Job | Một tác vụ bền vững trong queue chung, có snapshot đầu vào và trạng thái recovery độc lập với trạng thái Project/video. |
 
 ## 3. Aggregate và mô-đun
@@ -75,7 +75,7 @@ Project: Draft → Generating → NeedsReview → VideoReady → Exported
 - `Generating` chỉ phản ánh generation run đang hoạt động; job lifecycle vẫn dùng states hiện hành.
 - `NeedsReview` yêu cầu video file hoàn chỉnh và previewable, metadata hợp lệ, revision còn khớp.
 - `VideoReady` có thể tồn tại trước khi user đăng; caption có thể sửa mà không tạo video lại.
-- `Exported` chỉ xác nhận TiToAI đã chuẩn bị file cho người dùng; không chứng minh TikTok đã nhận hoặc đăng.
+- `Exported` chỉ xác nhận Fraylo đã chuẩn bị file cho người dùng; không chứng minh TikTok đã nhận hoặc đăng.
 - Publish record do người dùng nhập được gắn nhãn là dữ liệu do người dùng cung cấp.
 - Lưu lịch sử revision và publish records để không mất dữ liệu khi tạo lại hoặc đăng lại.
 

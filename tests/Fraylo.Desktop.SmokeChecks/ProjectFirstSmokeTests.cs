@@ -15,7 +15,7 @@ public static class ProjectFirstSmokeTests
 {
     public static async Task<int> RunAllAsync()
     {
-        var tempDirectory = Path.Combine(Path.GetTempPath(), "titoai-project-first-" + Guid.NewGuid().ToString("N"));
+        var tempDirectory = Path.Combine(Path.GetTempPath(), "Fraylo-project-first-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         var databasePath = Path.Combine(tempDirectory, "project-first.db");
         var options = new DbContextOptionsBuilder<FrayloDbContext>()

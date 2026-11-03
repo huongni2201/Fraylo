@@ -9,7 +9,7 @@ Ngày 2026-10-28, thử thủ công trên chatgpt.com trong trình duyệt khôn
 3. Phản hồi xuất hiện dần, gồm nhiều khối nội dung và ảnh; nội dung chưa đầy đủ trong lúc đang tạo.
 4. Khi phản hồi hoàn tất xuất hiện nhóm thao tác, gồm nút sao chép phản hồi. Kết quả mẫu gồm ba cảnh và lời thoại.
 
-## Quy trình cần triển khai cho TiToAI
+## Quy trình cần triển khai cho Fraylo
 
 - Lấy đúng profile tài khoản và quyền sở hữu browser; kiểm tra phiên, mở hội thoại sạch và nạp prompt từ snapshot của job.
 - Trước khi gửi, ghi checkpoint side effect theo contract hiện hành; gửi một lần, ghi nhận hội thoại và theo dõi phản hồi của lượt gửi đó.
@@ -19,7 +19,7 @@ Ngày 2026-10-28, thử thủ công trên chatgpt.com trong trình duyệt khôn
 
 ## Chưa kiểm chứng
 
-Phiên đăng nhập trong profile TiToAI, selector DOM, cấu trúc trả lời phù hợp parser, browser ẩn, lỗi mạng, hủy và phục hồi chưa được kiểm thử. Không bật capability Verified hoặc AutomationSupported chỉ dựa trên lượt thử này. Các bước tạo ảnh và video chưa được thử.
+Phiên đăng nhập trong profile Fraylo, selector DOM, cấu trúc trả lời phù hợp parser, browser ẩn, lỗi mạng, hủy và phục hồi chưa được kiểm thử. Không bật capability Verified hoặc AutomationSupported chỉ dựa trên lượt thử này. Các bước tạo ảnh và video chưa được thử.
 
 ## Cập nhật triển khai 2026-10-28
 

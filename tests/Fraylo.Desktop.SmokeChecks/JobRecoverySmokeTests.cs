@@ -25,10 +25,10 @@ public static class JobRecoverySmokeTests
 {
     private static (DbContextOptions<FrayloDbContext> Options, string TempDir, StorageRootRegistry Registry, SettingsService Settings) CreateTestContext()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"titoai_t16_fault_{Guid.NewGuid():N}");
+        var tempDir = Path.Combine(Path.GetTempPath(), $"Fraylo_t16_fault_{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
 
-        var dbPath = Path.Combine(tempDir, "titoai_fault_test.db");
+        var dbPath = Path.Combine(tempDir, "Fraylo_fault_test.db");
         var connectionString = DatabasePathHelper.BuildConnectionString(dbPath);
 
         var optionsBuilder = new DbContextOptionsBuilder<FrayloDbContext>();

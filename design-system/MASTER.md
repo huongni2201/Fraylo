@@ -1,4 +1,4 @@
-# TiToAI — Design System Master File (UI/UX Pro Max)
+# Fraylo — Design System Master File (UI/UX Pro Max)
 
 > **LOGIC:** When designing or implementing a specific view, first check `design-system/pages/[page-name].md`.
 > If that file exists, its rules **override** this Master file.
@@ -6,7 +6,7 @@
 
 ---
 
-**Project:** TiToAI Desktop Studio  
+**Project:** Fraylo Desktop Studio  
 **Tech Stack:** React 19 + TypeScript + Vite + Tailwind CSS 4 + shadcn/ui + Windows WPF/WebView2  
 **Design Category:** Creative AI Video Automation / Desktop Studio  
 **Aesthetic Style:** Dark Navy / OLED (`#080d1a`) with Vibrant Purple Accent (`#6d3af2`) + Crisp Light Mode (`#f4f6fb`)  

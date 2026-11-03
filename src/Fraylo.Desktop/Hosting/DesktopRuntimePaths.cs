@@ -8,7 +8,7 @@ namespace Fraylo.Desktop.Hosting;
 
 /// <summary>
 /// Quản lý và thẩm định đường dẫn runtime cho Desktop host (SQLite database và WebView2 profile).
-/// Mặc định sản phẩm sử dụng %LOCALAPPDATA%/TiToAI.
+/// Mặc định sản phẩm sử dụng %LOCALAPPDATA%/Fraylo.
 /// Hỗ trợ cặp tham số dòng lệnh kiểm thử: --test-database-path và --test-webview2-profile-dir
 /// để cô lập hoàn toàn môi trường test trong thư mục tạm mà không ghi đè dữ liệu production.
 /// </summary>

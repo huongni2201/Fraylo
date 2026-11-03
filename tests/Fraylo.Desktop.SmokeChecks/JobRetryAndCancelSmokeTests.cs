@@ -30,10 +30,10 @@ public static class JobRetryAndCancelSmokeTests
 
     private static (DbContextOptions<FrayloDbContext> Options, string TempDir) CreateTestContext()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"titoai_t16_test_{Guid.NewGuid():N}");
+        var tempDir = Path.Combine(Path.GetTempPath(), $"Fraylo_t16_test_{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
 
-        var dbPath = Path.Combine(tempDir, "titoai_test.db");
+        var dbPath = Path.Combine(tempDir, "Fraylo_test.db");
         var connectionString = DatabasePathHelper.BuildConnectionString(dbPath);
 
         var optionsBuilder = new DbContextOptionsBuilder<FrayloDbContext>();

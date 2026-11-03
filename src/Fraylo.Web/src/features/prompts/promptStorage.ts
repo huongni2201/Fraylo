@@ -16,9 +16,9 @@ export interface CustomPromptItem {
   isPreset?: boolean;
 }
 
-const STORAGE_KEY_PREFIX = "titoai_user_prompts_";
-const ACTIVE_PROMPT_PREFIX = "titoai_active_prompt_";
-const DELETED_PROMPTS_PREFIX = "titoai_deleted_prompts_";
+const STORAGE_KEY_PREFIX = "Fraylo_user_prompts_";
+const ACTIVE_PROMPT_PREFIX = "Fraylo_active_prompt_";
+const DELETED_PROMPTS_PREFIX = "Fraylo_deleted_prompts_";
 
 /**
  * Các prompt mẫu chuẩn ban đầu cho từng mục đích.

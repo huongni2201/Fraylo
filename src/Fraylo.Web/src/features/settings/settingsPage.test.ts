@@ -314,7 +314,7 @@ async function runTests() {
   const docsInput = container.querySelector<HTMLInputElement>("#docs-path");
   if (!docsInput) throw new Error("FAIL: Không tìm thấy input #docs-path trong tab Lưu trữ");
 
-  const DRAFT_PATH = "D:/titoai_custom_draft_storage/docs";
+  const DRAFT_PATH = "D:/Fraylo_custom_draft_storage/docs";
   await act(async () => {
     setNativeInputValue(docsInput, DRAFT_PATH);
   });

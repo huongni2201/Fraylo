@@ -45,9 +45,6 @@
     <ItemGroup>
       <WebUiPublishFile Include="$(MSBuildProjectDirectory)\..\Fraylo.Web\dist\**\*" />
     </ItemGroup>
-    <Copy SourceFiles="@(WebUiPublishFile)" DestinationFiles="@(WebUiPublishFile->'$(PublishDir)wwwroot\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
-    <!-- Launcher Fraylo đã cài trước khi đổi tên cần executable cũ để nâng cấp. -->
-    <Copy SourceFiles="$(PublishDir)Fraylo.exe" DestinationFiles="$(PublishDir)TiToAI.Desktop.exe" />
-  </Target>
+    <Copy SourceFiles="@(WebUiPublishFile)" DestinationFiles="@(WebUiPublishFile->'$(PublishDir)wwwroot\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />  </Target>
 
 </Project>

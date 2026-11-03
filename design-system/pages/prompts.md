@@ -1,6 +1,6 @@
 # Prompts Page Overrides
 
-> **PROJECT:** TiToAI
+> **PROJECT:** Fraylo
 > **Generated:** 2026-10-27 03:55:11
 > **Page Type:** General
 

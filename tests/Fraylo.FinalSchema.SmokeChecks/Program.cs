@@ -2,7 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Fraylo.Infrastructure.Persistence;
 
-var root = Path.Combine(Path.GetTempPath(), "titoai_final_schema_" + Guid.NewGuid().ToString("N"));
+var root = Path.Combine(Path.GetTempPath(), "Fraylo_final_schema_" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 
 try

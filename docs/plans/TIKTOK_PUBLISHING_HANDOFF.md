@@ -48,7 +48,7 @@ Sau nối UI/host: TypeScript và Vite build PASS; **11 tests PASS** trong appNa
 
 
 ```powershell
-dotnet tests/Fraylo.Publishing.SmokeChecks/bin/module-verification/TiToAI.Publishing.SmokeChecks.dll
+dotnet tests/Fraylo.Publishing.SmokeChecks/bin/module-verification/Fraylo.Publishing.SmokeChecks.dll
 ```
 
 Trong `src/Fraylo.Web`:

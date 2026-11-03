@@ -40,7 +40,7 @@ public interface IProfileRegistry
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Tính toán đường dẫn thư mục userDataDir an toàn nằm dưới %LOCALAPPDATA%/TiToAI/profiles/{profileId}.
+    /// Tính toán đường dẫn thư mục userDataDir an toàn nằm dưới %LOCALAPPDATA%/Fraylo/profiles/{profileId}.
     /// Tuyệt đối không chứa email, username hay ký tự directory traversal.
     /// </summary>
     string GetUserDataDir(string profileId, string kind);

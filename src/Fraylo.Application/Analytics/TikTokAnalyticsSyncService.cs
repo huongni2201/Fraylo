@@ -236,7 +236,7 @@ public sealed class TikTokAnalyticsSyncService : ITikTokAnalyticsCrawler
             var analyticsSidebarButton = page.Locator("button[data-tt='Sidebar_Sidebar_Clickable']:has-text('Analytics')").And(page.Locator(":visible"));
             var analyticsText = page.GetByText("Analytics", new() { Exact = true }).And(page.Locator(":visible"));
             await analyticsSidebarButton.Or(analyticsText).First.ClickAsync(new() { Timeout = 30000 });
-            tempDir = Path.Combine(Path.GetTempPath(), "TiToAI", "tiktok-export-" + Guid.NewGuid().ToString("N"));
+            tempDir = Path.Combine(Path.GetTempPath(), "Fraylo", "tiktok-export-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             string overviewCsv = await ExportSectionCsvAsync(page, "Overview", tempDir, cancellationToken);

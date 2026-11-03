@@ -1,4 +1,4 @@
-# TiToAI — bổ sung plan giao diện sáng/tối
+# Fraylo — bổ sung plan giao diện sáng/tối
 
 **Phiên bản:** 1.2 — bổ sung ngày 2026-10-26.  
 **Mức ưu tiên:** P0 trong MVP.  
@@ -22,7 +22,7 @@ Tài liệu này bổ sung `SOURCE_PLAN.md` theo yêu cầu mới của người
 - Bao phủ app shell, sidebar, form, bảng, prompt editor, library, Browser Manager, queue, pipeline, Settings và analytics khi có. Tooltip, dropdown, dialog, empty/loading/error/disabled states đều có hai theme.
 - Chart/legend/grid và trạng thái job phải đọc được trong cả hai theme; trạng thái có nhãn hoặc biểu tượng, không chỉ phân biệt bằng màu.
 - Văn bản, nút và focus bàn phím có độ tương phản dễ đọc ở cả hai theme. Không đảo màu ảnh/video hoặc thay đổi file media gốc.
-- Theme chỉ tác động giao diện TiToAI. Không tự chỉnh theme hay nội dung website ChatGPT/Gemini/MuseAI/TikTok đang mở trong browser riêng.
+- Theme chỉ tác động giao diện Fraylo. Không tự chỉnh theme hay nội dung website ChatGPT/Gemini/MuseAI/TikTok đang mở trong browser riêng.
 - Áp dụng theme đã xác định trước khi hiển thị nội dung chính để tránh chớp nền sáng khi mở ứng dụng ở Dark.
 
 ## 3. Lưu trữ và contract

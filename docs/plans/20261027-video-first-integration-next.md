@@ -65,7 +65,7 @@ Build và regression liên quan đạt trên source hiện hành; database backu
 
 ## Kết quả baseline VF0 — 2026-10-27
 
-- HEAD `3d7c253c0448d260f39c2e72008a5ca468f521ec`; `git status --short` ghi 115 mục sửa, 21 mục xóa và 16 mục chưa theo dõi theo cách Git gộp thư mục. Các mục chưa theo dõi gồm `.tmp/`, plan, Publishing, final schema và smoke projects. Không xóa hoặc hoàn tác bất kỳ mục nào. Không thấy tiến trình `TiToAI.Desktop` tại thời điểm kiểm tra; không suy diễn tình trạng profile hay DB từ kết quả này.
+- HEAD `3d7c253c0448d260f39c2e72008a5ca468f521ec`; `git status --short` ghi 115 mục sửa, 21 mục xóa và 16 mục chưa theo dõi theo cách Git gộp thư mục. Các mục chưa theo dõi gồm `.tmp/`, plan, Publishing, final schema và smoke projects. Không xóa hoặc hoàn tác bất kỳ mục nào. Không thấy tiến trình `Fraylo.Desktop` tại thời điểm kiểm tra; không suy diễn tình trạng profile hay DB từ kết quả này.
 - Publishing dùng contract app-global theo handoff. Handoff chứa các kết luận build lịch sử đã bị checkpoint STATUS/TASKS mới hơn thay thế; live TikTok vẫn NOT_RUN. Không sửa hoặc xóa evidence lịch sử.
 - CodeGraph CLI và MCP không trả kết quả trong thời gian kiểm tra; inventory trên là tìm kiếm source có giới hạn, không phải kiểm tra toàn bộ call graph. Không đóng VF0 hoặc khẳng định contract đã hoàn tất.
 
@@ -84,7 +84,7 @@ Build và regression liên quan đạt trên source hiện hành; database backu
 
 ## Kiểm tra lại baseline — 2026-10-27
 
-- Build và chạy `TiToAI.FinalSchema.SmokeChecks` từ source hiện hành PASS: SQL/model parity, DB mới, reset DB legacy và backup trên fixture tạm. Không chạy app trên DB chính.
+- Build và chạy `Fraylo.FinalSchema.SmokeChecks` từ source hiện hành PASS: SQL/model parity, DB mới, reset DB legacy và backup trên fixture tạm. Không chạy app trên DB chính.
 - CodeGraph MCP tiếp tục lỗi `Transport closed`. Chưa nghiệm thu WPF/WebView2, storage smoke và provider/publishing thật trong lượt này.
 
 ## Phục hồi Infrastructure smoke — 2026-10-27

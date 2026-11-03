@@ -37,9 +37,9 @@ public static class DesktopRuntimePathsSmokeTests
             "DatabasePath không đổi khi chỉ có cờ không liên quan");
 
         // 4. Xác nhận đường dẫn chứa thư mục chuẩn Fraylo
-        Assert(defaultPaths.DatabasePath.Contains("TiToAI", StringComparison.OrdinalIgnoreCase),
+        Assert(defaultPaths.DatabasePath.Contains("Fraylo", StringComparison.OrdinalIgnoreCase),
             "DatabasePath mặc định phải nằm dưới thư mục Fraylo");
-        Assert(defaultPaths.WebView2ProfileDirectory.Contains("TiToAI", StringComparison.OrdinalIgnoreCase),
+        Assert(defaultPaths.WebView2ProfileDirectory.Contains("Fraylo", StringComparison.OrdinalIgnoreCase),
             "WebView2ProfileDirectory mặc định phải nằm dưới thư mục Fraylo");
     }
 

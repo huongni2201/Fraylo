@@ -167,7 +167,7 @@ public static class VideoWorkflowSmokeTests
 
     private static (DbContextOptions<FrayloDbContext> dbOptions, string tempDir, string projectId) CreateTestEnvironment()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "titoai_wf_smoke_" + Guid.NewGuid().ToString("N"));
+        var tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_wf_smoke_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
         var dbPath = Path.Combine(tempDir, "workflow_smoke.db");
 

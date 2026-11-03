@@ -507,7 +507,7 @@ test("VideoProductionTab: CD04 & CD08 - Dữ liệu cũ 5s hiển thị cảnh b
 });
 
 test("VideoProductionTab: không bắt buộc brief khi template không có biến", async () => {
-  localStorage.removeItem("titoai_workflow_prompt_values_prj_test_02");
+  localStorage.removeItem("Fraylo_workflow_prompt_values_prj_test_02");
   mockPromptTemplate = { template: { templateId: "tpl_no_vars", purpose: "Script", createdAtUtc: "2026-10-27T00:00:00Z", updatedAtUtc: "2026-10-27T00:00:00Z" }, content: { templateId: "tpl_no_vars", templateText: "Tạo một video ngắn.", variableDefinitionsJson: "[]", createdAtUtc: "2026-10-27T00:00:00Z" } };
   executedCommands = [];
   mockConfig = {

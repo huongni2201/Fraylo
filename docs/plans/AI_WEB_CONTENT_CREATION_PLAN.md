@@ -1,4 +1,4 @@
-# TiToAI — AI web đề xuất ý tưởng và tạo prompt video
+# Fraylo — AI web đề xuất ý tưởng và tạo prompt video
 
 
 
@@ -10,7 +10,7 @@ Ngày 2026-10-27 (UTC+07). Trạng thái: **đặc tả để giao AI khác tri�
 
 Hỗ trợ hai cách bắt đầu: người dùng cung cấp ý tưởng/nội dung/kịch bản, hoặc ChatGPT Web/Gemini Web phân tích analytics của kênh và đề xuất ý tưởng. Sau khi người dùng chọn, AI web phát triển kịch bản, chia cảnh và viết prompt video bằng tiếng Anh. Người dùng không phải điền các biến kỹ thuật như camera, ánh sáng hay chuyển động.
 
-TiToAI chuẩn bị dữ liệu, ghép hướng dẫn, gửi yêu cầu qua adapter web và nhận/lưu kết quả. ChatGPT/Gemini trên website thực hiện phân tích và sáng tạo. Không thay bằng OpenAI API, Gemini API hoặc model local khi chưa có yêu cầu mới.
+Fraylo chuẩn bị dữ liệu, ghép hướng dẫn, gửi yêu cầu qua adapter web và nhận/lưu kết quả. ChatGPT/Gemini trên website thực hiện phân tích và sáng tạo. Không thay bằng OpenAI API, Gemini API hoặc model local khi chưa có yêu cầu mới.
 
 Nguồn liên quan: [SOURCE](SOURCE_PLAN.md) §7.4,9; [Settings](SETTINGS_PLAN.md); [queue 1.2](QUEUE_EXECUTION_SETTINGS_PLAN.md); [UI/Browser](UI_BROWSER_PLAN.md); [Theme](UI_THEME_PLAN.md); [Engineering](../agents/ENGINEERING_RULES.md). Prompt bàn giao và hướng dẫn AI web nằm tại [bộ prompt](AI_WEB_CONTENT_CREATION_PROMPTS.md).
 
@@ -32,7 +32,7 @@ Nguồn liên quan: [SOURCE](SOURCE_PLAN.md) §7.4,9; [Settings](SETTINGS_PLAN.m
 ### 3.1. Tôi có ý tưởng — phần nền P0
 
 2. Nhập ý tưởng, nội dung hoặc kịch bản có sẵn. Tùy chọn: mục tiêu, đối tượng, thời lượng, phong cách. Nếu bỏ trống, AI đề xuất và ghi rõ giả định.
-3. Chọn **AI phát triển kịch bản**. TiToAI gửi brief + ngữ cảnh kênh + hướng dẫn Script + hợp đồng đầu ra tới provider text đã cấu hình.
+3. Chọn **AI phát triển kịch bản**. Fraylo gửi brief + ngữ cảnh kênh + hướng dẫn Script + hợp đồng đầu ra tới provider text đã cấu hình.
 4. Xem kịch bản, cảnh và bài đăng; sửa, yêu cầu tạo lại hoặc áp dụng. Nếu đã đưa kịch bản, ưu tiên giữ nội dung/chia cảnh, không tự đổi chủ đề.
 5. Tạo/chọn ảnh nếu bước video cần ảnh. Chọn **AI tạo prompt video** cho các cảnh đã chọn.
 6. Xem prompt tiếng Anh từng cảnh, chỉnh và lưu/áp dụng. Đầu ra là bản nháp cho đến khi người dùng áp dụng.
@@ -42,9 +42,9 @@ Analytics không phải điều kiện của luồng này. Không tự gọi AI 
 
 ### 3.2. AI đề xuất từ dữ liệu kênh — P1
 
-2. TiToAI lấy analytics snapshot của đúng kênh từ dữ liệu đã nhập hoặc adapter thu thập được phép/đã xác minh. MVP làm import CSV/JSON trước.
+2. Fraylo lấy analytics snapshot của đúng kênh từ dữ liệu đã nhập hoặc adapter thu thập được phép/đã xác minh. MVP làm import CSV/JSON trước.
 3. Hiện nguồn, thời điểm cập nhật, kỳ dữ liệu, số video, metric còn thiếu và nội dung sắp gửi AI web. Người dùng xem/chỉnh phạm vi, chọn **Phân tích và đề xuất**; hành động này gửi dữ liệu được hiển thị.
-4. TiToAI gửi snapshot + hồ sơ nội dung kênh + lịch sử ý tưởng đã chọn trong phạm vi liên quan. AI web phân tích và trả mặc định 5 ý tưởng kèm lý do/bằng chứng/giả thuyết thử nghiệm.
+4. Fraylo gửi snapshot + hồ sơ nội dung kênh + lịch sử ý tưởng đã chọn trong phạm vi liên quan. AI web phân tích và trả mặc định 5 ý tưởng kèm lý do/bằng chứng/giả thuyết thử nghiệm.
 5. Hiện các thẻ ý tưởng: tiêu đề, hook, tóm tắt, thời lượng gợi ý, lý do, bằng chứng dữ liệu và bài đăng TikTok dự kiến. Phân biệt phát hiện có dữ liệu với suy luận sáng tạo.
 6. Người dùng chọn, sửa hoặc yêu cầu thêm ý tưởng. **Dùng ý tưởng này** lưu lựa chọn vào brief; tạo kịch bản là hành động tiếp theo có chủ đích.
 7. Tiếp tục luồng chung ở §3.1 bước 3–7.

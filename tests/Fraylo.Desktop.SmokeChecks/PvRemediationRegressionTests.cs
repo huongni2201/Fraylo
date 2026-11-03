@@ -36,7 +36,7 @@ public static class PvRemediationRegressionTests
 
     private static (DbContextOptions<FrayloDbContext> dbOptions, string tempDir, string prjId) CreateTestEnvironment()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "titoai-pvrepro-" + Guid.NewGuid().ToString("N"));
+        var tempDir = Path.Combine(Path.GetTempPath(), "Fraylo-pvrepro-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
 
         var dbPath = Path.Combine(tempDir, "pvrepro.db");

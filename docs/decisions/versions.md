@@ -1,9 +1,9 @@
-# TiToAI — Báo cáo xác minh Stack & Công nghệ (T01)
+# Fraylo — Báo cáo xác minh Stack & Công nghệ (T01)
 
 - **Task ID:** T01 (Xác minh stack)
 - **Vai trò thực hiện:** Researcher duy nhất của T01
 - **Ngày xác minh:** 2026-10-26 (UTC+07)
-- **Model evidence:** Gemini 3.8 Flash (High) — quan sát từ UI Antigravity ngày 2026-10-26 01:18 UTC+07 (project: TitoAI; Model Selection: Gemini 3.8 Flash High). Không sử dụng Auto, không đổi sang model khác, không gọi subagent chưa kiểm chứng.
+- **Model evidence:** Gemini 3.8 Flash (High) — quan sát từ UI Antigravity ngày 2026-10-26 01:18 UTC+07 (project: Fraylo; Model Selection: Gemini 3.8 Flash High). Không sử dụng Auto, không đổi sang model khác, không gọi subagent chưa kiểm chứng.
 - **Chế độ dự án:** `IMPLEMENTATION` (Đã được người dùng cấp quyền triển khai code theo `docs/agents/STATUS.md`; T01 thực hiện nghiên cứu/xác minh trong phạm vi G0, chưa scaffold/build).
 - **Trạng thái Task:** Hoàn tất nghiên cứu tài liệu, xác minh metadata registry và đề xuất pins; sẵn sàng bàn giao cho T02.
 
@@ -69,7 +69,7 @@ Toàn bộ phiên bản dưới đây được tra cứu và đối chiếu vớ
 
 2. **WPF Host + WebView2 Evergreen (`1.0.4314.35`):**
    - Yêu cầu cài đặt sẵn WebView2 Evergreen Runtime trên máy người dùng Windows. Với bản đóng gói installer tự thân (Self-contained), cần kiểm tra runtime tồn tại qua `CoreWebView2Environment.GetAvailableBrowserVersionString()`.
-   - **Bắt buộc chỉ định User Data Folder (UDF) tùy biến:** Mặc định WebView2 cố gắng tạo thư mục UDF ngay cạnh file thực thi. Nếu ứng dụng được cài trong `Program Files`, thao tác này sẽ thất bại với lỗi `Access Denied` (HRESULT 0x80070005). Do đó, WPF host **bắt buộc** truyền thư mục `%LOCALAPPDATA%/TiToAI/WebView2` vào `CoreWebView2Environment.CreateAsync(null, userDataFolder, options)`.
+   - **Bắt buộc chỉ định User Data Folder (UDF) tùy biến:** Mặc định WebView2 cố gắng tạo thư mục UDF ngay cạnh file thực thi. Nếu ứng dụng được cài trong `Program Files`, thao tác này sẽ thất bại với lỗi `Access Denied` (HRESULT 0x80070005). Do đó, WPF host **bắt buộc** truyền thư mục `%LOCALAPPDATA%/Fraylo/WebView2` vào `CoreWebView2Environment.CreateAsync(null, userDataFolder, options)`.
 
 3. **Vite 8.3.5 + React 19.3.1 + TypeScript 7.0.2 + `@vitejs/plugin-react` 6.1.1:**
    - Hoàn toàn tương thích; Vite 8 đi cùng `@vitejs/plugin-react` 6.1.1 (sử dụng Oxc transform) hỗ trợ Rollup/Rolldown pipeline hiện đại, build ra các static asset HTML/JS/CSS tối ưu để WebView2 load trực tiếp từ file hoặc custom scheme (`app://` hoặc `https://appassets.local`). Bản fallback `5.1.4` (Babel-based) có thể dùng nếu gặp sự cố tương thích transformer, nhưng khuyến nghị chốt `6.1.1`.
@@ -93,7 +93,7 @@ Quá trình nghiên cứu phát hiện các điểm khác biệt và bổ sung q
 | Hạng mục | Trong `SOURCE_PLAN.md` | Thực tế xác minh & Yêu cầu mới | Giải pháp xử lý |
 |---|---|---|---|
 | **Phiên bản WebView2** | Chỉ ghi "WebView2 Evergreen", không có số version NuGet cụ thể (§2). | Gói `Microsoft.Web.WebView2` trên NuGet đã đạt bản `1.0.4314.35`. | Đề xuất pin rõ ràng `1.0.4314.35` trong `Directory.Packages.props` tại T03. |
-| **Tên sản phẩm & Namespace** | `AIContentStudio` và `%LOCALAPPDATA%/AIContentStudio` | Đã đổi chính thức thành **TiToAI** theo `AGENTS.md`. | Toàn bộ solution, namespace, đường dẫn dữ liệu là `%LOCALAPPDATA%/TiToAI`. |
+| **Tên sản phẩm & Namespace** | `AIContentStudio` và `%LOCALAPPDATA%/AIContentStudio` | Đã đổi chính thức thành **fraylo** theo `AGENTS.md`. | Toàn bộ solution, namespace, đường dẫn dữ liệu là `%LOCALAPPDATA%/Fraylo`. |
 | **Chế độ hiển thị Browser** | Giả định có thể mở browser theo dõi (§7.1, §11). | `UI_BROWSER_PLAN.md` (P0) quy định: **Automation bắt buộc chạy ẩn 100%**. Chỉ hiện browser khi cần người dùng **đăng nhập/đăng nhập lại thủ công**. | Loại bỏ mọi tùy chọn "luôn hiện browser"; xây dựng cơ chế handoff an toàn khi login. |
 | **Phiên bản SQLite Bundle** | Gợi ý upstream SQLite 3.54.1 (§2). | Metadata NuGet `SQLitePCLRaw.bundle_e_sqlite3` 3.0.5 phụ thuộc `SourceGear.sqlite3 (>= 3.53.4)`, KHÔNG chứng minh bundle sẵn SQLite 3.54.1. Runtime thực tế là `NOT_RUN`. | Chốt exact pin `3.0.5` cho `SQLitePCLRaw.bundle_e_sqlite3`. Bắt buộc chạy `SELECT sqlite_version();` ở T04 để ghi log engine thật. |
 | **Sẵn sàng của Toolchain máy trạm** | Giả định máy phát triển đã có đầy đủ SDK .NET và Node.js. | Máy trạm đã có Node.js v24.19.0, npm 11.17.0 (tại `C:\Program Files\nodejs\`) và pnpm 12.15.0; tuy nhiên .NET SDK chưa thấy trên PATH hoặc hai vị trí chuẩn. Trong sandbox, Node.js bị hạn chế truy cập/PATH. | Ghi nhận blocker môi trường: Cần cài đặt/cấu hình .NET 10 SDK trước T03, và phân quyền/PATH cho Node.js trong sandbox. Không mất thời gian dò toàn máy. |
@@ -108,7 +108,7 @@ Quá trình nghiên cứu phát hiện các điểm khác biệt và bổ sung q
 - Nếu một tiến trình Playwright thứ hai cố gắng gọi `LaunchPersistentContextAsync` trên cùng một thư mục đang hoạt động:
   1. Nếu tiến trình đầu đang giữ khóa, tiến trình thứ hai sẽ bị từ chối hoặc timeout không thể khởi động.
   2. Hoặc Chromium sẽ kích hoạt cơ chế chuyển tiếp IPC (forward command-line) đến tiến trình cũ và tự thoát ngay lập tức, làm đứt gãy kết nối CDP (Chrome DevTools Protocol) của Playwright.
-- **Ràng buộc kiến trúc TiToAI:**
+- **Ràng buộc kiến trúc Fraylo:**
   - Tuyệt đối **không bao giờ** chạy đồng thời hai instance (một headless để làm việc, một headful để login) trên cùng một `userDataDir`.
   - Mọi thao tác truy cập vào profile phải được kiểm soát bởi một **Single Profile Ownership Lock** (ví dụ: `SemaphoreSlim(1, 1)` hoặc `AsyncKeyedLock` theo profile ID).
 
@@ -183,16 +183,16 @@ stateDiagram-v2
 ### 5.6. Giới hạn kỹ thuật & Kịch bản ngoại lệ trên Windows
 
 1. **Tiến trình mồ côi (Orphan Processes / Hang):**
-   - *Hiện tượng:* Khi người dùng tắt đột ngột ứng dụng TiToAI qua Task Manager hoặc máy tính mất điện, Chromium có thể để lại tiến trình ngầm `chrome.exe` hoặc file lock (`lockfile`). Khi TiToAI mở lại, việc gọi `LaunchPersistentContextAsync` có thể bị treo.
-   - *Biện pháp:* Khi bootstrap `BrowserManager`, cần kiểm tra file lock và đối soát danh sách tiến trình con được quản lý bởi TiToAI. Cung cấp cơ chế dọn dẹp tiến trình treo thuộc phạm vi profile của TiToAI trước khi khởi tạo context mới.
+   - *Hiện tượng:* Khi người dùng tắt đột ngột ứng dụng Fraylo qua Task Manager hoặc máy tính mất điện, Chromium có thể để lại tiến trình ngầm `chrome.exe` hoặc file lock (`lockfile`). Khi Fraylo mở lại, việc gọi `LaunchPersistentContextAsync` có thể bị treo.
+   - *Biện pháp:* Khi bootstrap `BrowserManager`, cần kiểm tra file lock và đối soát danh sách tiến trình con được quản lý bởi Fraylo. Cung cấp cơ chế dọn dẹp tiến trình treo thuộc phạm vi profile của Fraylo trước khi khởi tạo context mới.
 2. **Người dùng đóng cửa sổ đăng nhập giữa chừng:**
    - Bắt sự kiện `context.Close` hoặc `page.Close`.
    - Không được coi việc đóng cửa sổ là đăng nhập thành công.
    - Không tự ý bật lại cửa sổ lập tức gây khó chịu (popup loop). Giữ nguyên trạng thái job là `awaiting_user` kèm CTA "Thử đăng nhập lại".
 3. **Cơ chế chống tự động hóa (Bot Detection / CAPTCHA):**
-   - TiToAI **nghiêm cấm tuyệt đối** việc sử dụng cờ lách bot detection hoặc xây dựng cơ chế stealth/bypass (không truyền cờ lách tự động hóa).
+   - Fraylo **nghiêm cấm tuyệt đối** việc sử dụng cờ lách bot detection hoặc xây dựng cơ chế stealth/bypass (không truyền cờ lách tự động hóa).
    - Khi gặp CAPTCHA, Cloudflare Turnstile, thay đổi UI hoặc website từ chối chạy ẩn (headless): Hệ thống **lập tức chuyển trạng thái sang `awaiting_user`** với mã lý do `automation_blocked` theo đúng `ENGINEERING_RULES.md` §38 và `UI_BROWSER_PLAN.md` §6.
-   - Kích hoạt **chế độ thao tác thủ công (manual mode trong app)**: người dùng sao chép prompt, tải file đầu vào và nhập/dán kết quả bằng tay trong giao diện app TiToAI mà không tự động mở browser ra desktop.
+   - Kích hoạt **chế độ thao tác thủ công (manual mode trong app)**: người dùng sao chép prompt, tải file đầu vào và nhập/dán kết quả bằng tay trong giao diện app Fraylo mà không tự động mở browser ra desktop.
    - Việc hiển thị cửa sổ browser do app quản lý **chỉ áp dụng duy nhất cho luồng đăng nhập/đăng nhập lại thủ công**, nơi người dùng tự tay nhập thông tin xác thực. Mọi thao tác ngoài login đều qua hướng dẫn manual in-app; tuyệt đối không cố vượt cơ chế bảo vệ dịch vụ.
 
 ---

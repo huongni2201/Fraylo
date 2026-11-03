@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 
-powershell.exe -NoProfile -Command "if (Get-Process -Name 'Fraylo','TiToAI.Desktop' -ErrorAction SilentlyContinue) { exit 1 }"
+powershell.exe -NoProfile -Command "if (Get-Process -Name 'Fraylo' -ErrorAction SilentlyContinue) { exit 1 }"
 if errorlevel 1 (
     echo Hay dong Fraylo dang chay truoc khi mo ban moi.
     pause

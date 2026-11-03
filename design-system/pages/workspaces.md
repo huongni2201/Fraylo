@@ -1,6 +1,6 @@
 # Workspaces Page Overrides
 
-> **PROJECT:** TiToAI
+> **PROJECT:** Fraylo
 > **Generated:** 2026-10-27 03:55:02
 > **Page Type:** General
 

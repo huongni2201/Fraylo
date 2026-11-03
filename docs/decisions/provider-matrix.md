@@ -1,4 +1,4 @@
-# Ma trận Năng lực Nhà cung cấp AI (Provider Capability Matrix) — TiToAI
+# Ma trận Năng lực Nhà cung cấp AI (Provider Capability Matrix) — Fraylo
 
 Cập nhật: 2026-10-27 (UTC+07).
 
@@ -28,7 +28,7 @@ Tài liệu này xác lập ma trận năng lực chính thức của 3 nhà cun
 
 4. **Hành vi âm thanh (Audio Behavior) khi tạo video:**
    - Quyết định đã chốt: **Audio là tùy chọn (Không bắt buộc)**. Mặc định là không gửi audio (`AudioMode = None`).
-   - **Lưu ý đặc thù về Provider:** "Không gửi audio" có nghĩa là hệ thống TiToAI không tải tệp âm thanh lên và không gửi chỉ thị audio tới nhà cung cấp. Tuy nhiên, điều này **không đồng nghĩa video xuất xưởng từ MuseAI chắc chắn im lặng tuyệt đối**. Một số phiên bản web của MuseAI có thể tự động gán nhạc nền ngẫu nhiên hoặc xuất video không có audio track. Hệ thống TiToAI phản ánh trung thực kết quả của provider, không can thiệp cắt ghép hay lọc audio cục bộ.
+   - **Lưu ý đặc thù về Provider:** "Không gửi audio" có nghĩa là hệ thống Fraylo không tải tệp âm thanh lên và không gửi chỉ thị audio tới nhà cung cấp. Tuy nhiên, điều này **không đồng nghĩa video xuất xưởng từ MuseAI chắc chắn im lặng tuyệt đối**. Một số phiên bản web của MuseAI có thể tự động gán nhạc nền ngẫu nhiên hoặc xuất video không có audio track. Hệ thống Fraylo phản ánh trung thực kết quả của provider, không can thiệp cắt ghép hay lọc audio cục bộ.
 
 ---
 

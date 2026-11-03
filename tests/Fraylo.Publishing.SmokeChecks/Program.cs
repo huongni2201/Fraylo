@@ -45,7 +45,7 @@ public static partial class Program
             else await FavoriteSoundsDomFixtureAsync(await browser.NewPageAsync());
             return 0;
         }
-        var temp = Path.Combine(Path.GetTempPath(), "titoai-publishing-" + Guid.NewGuid().ToString("N"));
+        var temp = Path.Combine(Path.GetTempPath(), "Fraylo-publishing-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temp);
         try
         {

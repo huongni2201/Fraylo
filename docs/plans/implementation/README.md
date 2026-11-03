@@ -1,4 +1,4 @@
-# TiToAI — mục lục implementation
+# Fraylo — mục lục implementation
 
 Các file mô tả phạm vi hiện hành; trạng thái và evidence theo [TASKS](../../agents/TASKS.md) và [STATUS](../../agents/STATUS.md). Kiến trúc theo [video-first](../VIDEO_FIRST_ARCHITECTURE_PLAN.md).
 

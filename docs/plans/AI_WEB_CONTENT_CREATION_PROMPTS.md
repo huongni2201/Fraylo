@@ -1,15 +1,15 @@
 > Cập nhật 2026-10-28: Không dùng trường `USER_BRIEF`; nội dung được đưa vào template đã render. Những yêu cầu mapping brief cũ bên dưới không còn áp dụng.
 
-# TiToAI — prompt bàn giao và hướng dẫn cho AI web
+# Fraylo — prompt bàn giao và hướng dẫn cho AI web
 
 Ngày 2026-10-27. Dùng cùng [plan chi tiết](AI_WEB_CONTENT_CREATION_PLAN.md), nguồn chuẩn về hành vi và nghiệm thu. Các đoạn dưới là nội dung để sao chép, không phải lệnh đang thực thi trong chat viết tài liệu này.
 
 ## 1. Prompt giao AI triển khai
 
-Sao chép nguyên khối vào chat AI triển khai TiToAI:
+Sao chép nguyên khối vào chat AI triển khai Fraylo:
 
 ```text
-Bạn tiếp nhận tính năng TiToAI: hai cách tạo nội dung qua ChatGPT Web/Gemini Web.
+Bạn tiếp nhận tính năng Fraylo: hai cách tạo nội dung qua ChatGPT Web/Gemini Web.
 
 Đọc trước AGENTS.md, docs/agents/STATUS.md, ORCHESTRATION.md,
 ENGINEERING_RULES.md, TASKS.md và:
@@ -32,7 +32,7 @@ chia cảnh và prompt video tiếng Anh, qua các bước review/apply.
 trả ý tưởng có lý do và evidence; người dùng chọn rồi đi vào luồng 1.
 3. Tab Prompt video lưu hướng dẫn tự nhiên có version; AI tự quyết camera,
 ánh sáng/chuyển động. Không bắt người dùng điền biến kỹ thuật.
-4. TiToAI chuẩn bị/gửi/nhận/lưu; ChatGPT/Gemini trên web phân tích/sáng tạo.
+4. Fraylo chuẩn bị/gửi/nhận/lưu; ChatGPT/Gemini trên web phân tích/sáng tạo.
 Giữ bài đăng TikTok cấp project theo SOURCE §7.4.
 
 Trước sửa:

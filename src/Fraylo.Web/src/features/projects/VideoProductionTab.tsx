@@ -1569,7 +1569,7 @@ export function VideoProductionTab({
                     className="w-[200px]"
                     title={preview.title}
                     caption={preview.caption}
-                    videoSrc={`https://media.titoai.local/media/${encodeURIComponent(preview.assetId)}`}
+                    videoSrc={`https://media.Fraylo.local/media/${encodeURIComponent(preview.assetId)}`}
                   />
                 ))}
               </div>

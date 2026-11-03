@@ -1,4 +1,4 @@
-# TiToAI — sản xuất video từ ảnh mẫu và sản phẩm
+# Fraylo — sản xuất video từ ảnh mẫu và sản phẩm
 
 
 Ngày 2026-10-27 (UTC+07). **Đặc tả workflow generation hiện hành; phần triển khai đã có checkpoint trong [STATUS](../agents/STATUS.md) và [TASKS](../agents/TASKS.md).** Không coi ma trận/tiêu chí baseline bên dưới là bằng chứng nghiệm thu cho những thay đổi kiến trúc video-first mới.

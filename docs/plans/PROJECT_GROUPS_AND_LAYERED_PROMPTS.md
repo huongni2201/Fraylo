@@ -149,7 +149,7 @@ Rủi ro cần biết:
 - Cấu hình cũ có `scriptPromptText`/`videoPromptText` (bản sao toàn văn của mẫu) bị bỏ qua khi đọc. Dự án nào từng chỉnh tay nội dung mẫu sẽ mất phần chỉnh đó và quay về mẫu chung.
 - Hướng dẫn nhóm dài có thể lấn át mẫu chung. Chất lượng chưa được kiểm chứng với provider thật.
 
-Kiểm chứng: `TiToAI.FinalSchema.SmokeChecks` PASS (fresh, legacy reset, nâng cấp v2 và v3 giữ dữ liệu, backup); `TiToAI.Infrastructure.SmokeChecks` PASS; Desktop smoke `project-first` (gồm `ProjectGroupSmokeTests`: CRUD, trùng tên, hướng dẫn/biến không hợp lệ, gán nhóm, ghép prompt nhóm + dự án, biến thiếu, xóa nhóm giữ dự án, JSON từ bridge), `workflow` 16/16, `remediation` 14/14 PASS. Web: `tsc` và `vite build` PASS; `videoProductionTab.test.ts` 8/8 PASS. NOT_RUN: giao diện trong WebView2 và render thật qua provider.
+Kiểm chứng: `Fraylo.FinalSchema.SmokeChecks` PASS (fresh, legacy reset, nâng cấp v2 và v3 giữ dữ liệu, backup); `Fraylo.Infrastructure.SmokeChecks` PASS; Desktop smoke `project-first` (gồm `ProjectGroupSmokeTests`: CRUD, trùng tên, hướng dẫn/biến không hợp lệ, gán nhóm, ghép prompt nhóm + dự án, biến thiếu, xóa nhóm giữ dự án, JSON từ bridge), `workflow` 16/16, `remediation` 14/14 PASS. Web: `tsc` và `vite build` PASS; `videoProductionTab.test.ts` 8/8 PASS. NOT_RUN: giao diện trong WebView2 và render thật qua provider.
 
 ## 10. Tệp dùng chung trong nhóm (2026-10-30)
 
@@ -174,8 +174,8 @@ Hạn chế đã biết:
 
 Kiểm chứng (2026-10-30):
 
-- `TiToAI.FinalSchema.SmokeChecks` PASS: fresh, legacy reset, nâng cấp v2, v3, v4 giữ dữ liệu, backup một lần cho chuỗi.
-- `TiToAI.Infrastructure.SmokeChecks` PASS, gồm `T09-9`: tải lên theo nhóm và phạm vi theo Project/Nhóm.
+- `Fraylo.FinalSchema.SmokeChecks` PASS: fresh, legacy reset, nâng cấp v2, v3, v4 giữ dữ liệu, backup một lần cho chuỗi.
+- `Fraylo.Infrastructure.SmokeChecks` PASS, gồm `T09-9`: tải lên theo nhóm và phạm vi theo Project/Nhóm.
 - Desktop smoke: `project-first` PASS (`ProjectGroupSmokeTests` thêm: đặt tệp mặc định và chuyển tệp của Project, từ chối tệp sai loại/ngoài nhóm/thư viện, kế thừa và ghi đè riêng, đổi mặc định theo thời gian thực, âm thanh tùy chọn, dự án ngoài nhóm bị chặn, xóa nhóm bỏ liên kết tệp); `workflow` 16/16; `remediation` 14/14; `t15` 19/19.
 - Web: `tsc` và `vite build` PASS; `videoProductionTab.test.ts` 8/8 PASS. `appNavigation.test.ts` và `settingsPage.test.ts` FAIL với cùng lỗi trên HEAD (đã đối chiếu bằng worktree), không liên quan thay đổi này.
 - NOT_RUN: giao diện chọn/tải tệp trong WebView2; render thật qua provider.

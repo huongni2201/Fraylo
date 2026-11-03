@@ -1,6 +1,6 @@
 # Một video nhiều phân cảnh và ảnh tham chiếu
 
-Yêu cầu người dùng 2026-10-28: ChatGPT hoặc Gemini lập kịch bản theo tổng thời lượng và tạo ảnh cho từng phân cảnh; TiToAI lưu nội dung và ảnh, rồi gửi prompt cùng các ảnh cho Muse tạo **một video**. Muse chỉ làm bước tạo video. Người dùng xác nhận dùng https://muse.ai/ và nhận nhiều ảnh; model, giới hạn và cách gán ảnh chưa xác minh.
+Yêu cầu người dùng 2026-10-28: ChatGPT hoặc Gemini lập kịch bản theo tổng thời lượng và tạo ảnh cho từng phân cảnh; Fraylo lưu nội dung và ảnh, rồi gửi prompt cùng các ảnh cho Muse tạo **một video**. Muse chỉ làm bước tạo video. Người dùng xác nhận dùng https://muse.ai/ và nhận nhiều ảnh; model, giới hạn và cách gán ảnh chưa xác minh.
 
 ## Contract đích
 
@@ -13,7 +13,7 @@ Yêu cầu người dùng 2026-10-28: ChatGPT hoặc Gemini lập kịch bản t
 
 ## Quyết định 2026-10-28: nối clip và thời lượng 30 giây
 
-- Người dùng cho phép Muse nối nhiều clip để đạt tối đa 30 giây. Việc nối do Muse thực hiện trong phiên chat, tạo ra một video đầu ra. TiToAI vẫn không ghép video cục bộ, không dùng FFmpeg.
+- Người dùng cho phép Muse nối nhiều clip để đạt tối đa 30 giây. Việc nối do Muse thực hiện trong phiên chat, tạo ra một video đầu ra. Fraylo vẫn không ghép video cục bộ, không dùng FFmpeg.
 - Muse tự báo một clip AI tối đa 10 giây. Vết cắt giữa các clip được chấp nhận. Adapter phải ghi nhận kết quả là video nối nhiều clip, không coi là một clip liền mạch.
 - Storyboard và capability cần cập nhật theo tối đa 30 giây. Hiện `ProviderCapabilities` ghi Muse hỗ trợ 10 và 15 giây, nên giá trị này phải đổi khi triển khai.
 - Chưa xác nhận Muse luôn tạo đủ 30 giây khi được yêu cầu. Cần kiểm tra bằng thử nghiệm thật, và cần đối chiếu thời lượng trả về (`duration` của `<video>`) với thời lượng yêu cầu.
@@ -27,8 +27,8 @@ Yêu cầu người dùng 2026-10-28: ChatGPT hoặc Gemini lập kịch bản t
 - `JobMediaSnapshotDto.ImageAssetIds` (mới): danh sách ảnh có thứ tự; được kiểm tra scope và hash như các ảnh snapshot khác. `CreateSceneVideoAsync` hiện chỉ truyền một ảnh.
 - `AssetService.SaveVideoAssetAsync` (mới): kiểm tra MP4 bằng chữ ký `ftyp`, lưu vào thư mục Videos của Project.
 - `MuseAiVideoAdapter` đăng ký trong `MainWindow.xaml.cs` với automation mới. Capability Muse thêm thời lượng 30 giây.
-- Build: `TiToAI.Application` và `TiToAI.Desktop` đều PASS, 0 warning/0 error (output Desktop ở `.tmp/muse-desktop-build`).
-- **Chưa kiểm chứng:** chưa chạy render thật từ TiToAI; profile MuseAI của TiToAI chưa được xác nhận đăng nhập (đăng nhập trong trình duyệt tích hợp không tính); selector và đường tải `Download` qua Playwright chưa được kiểm chứng trong ứng dụng; chưa có test riêng cho `ReadRenderInput`.
+- Build: `Fraylo.Application` và `Fraylo.Desktop` đều PASS, 0 warning/0 error (output Desktop ở `.tmp/muse-desktop-build`).
+- **Chưa kiểm chứng:** chưa chạy render thật từ Fraylo; profile MuseAI của Fraylo chưa được xác nhận đăng nhập (đăng nhập trong trình duyệt tích hợp không tính); selector và đường tải `Download` qua Playwright chưa được kiểm chứng trong ứng dụng; chưa có test riêng cho `ReadRenderInput`.
 - **Còn thiếu cho flow đầy đủ:** Script chưa sinh và lưu storyboard; chưa có ảnh riêng cho từng phân cảnh; `CreateSceneVideoAsync` chưa gom nhiều ảnh theo storyboard; UI chưa có trình phát video.
 
 ### Storyboard từ Script và gom ảnh theo thứ tự — 2026-10-28
@@ -37,7 +37,7 @@ Yêu cầu người dùng 2026-10-28: ChatGPT hoặc Gemini lập kịch bản t
 - Kết quả Script hợp lệ theo storyboard được lưu bằng `StoryboardContentService.SaveAsync`; mỗi shot thành một phân cảnh theo thứ tự, thời lượng là `end - start`, `imagePrompt` giữ làm purpose để tạo ảnh bằng đường có sẵn. Kết quả không phải storyboard vẫn đi theo đường `scenes` cũ.
 - Khi Project có từ hai phân cảnh trở lên, `CreateSceneVideoAsync` gửi một job `VideoRender` cho cả Project: `ImageAssetIds` theo thứ tự phân cảnh, thời lượng là tổng, prompt liệt kê `start–end giây: <mô tả hoặc prompt video>`. Từng phân cảnh phải có ảnh; thiếu thì báo đúng phân cảnh.
 - Kết quả render chỉ thành video cuối khi job phủ mọi phân cảnh (`ImageAssetIds` số lượng bằng số phân cảnh) hoặc Project chỉ có một cảnh. Clip của một cảnh lẻ không thành video cuối.
-- **Kiểm thử:** `TiToAI.Storyboard.SmokeChecks` PASS. Suite `workflow` của `TiToAI.Desktop.SmokeChecks`: 27 PASS / 11 FAIL. Test 15 (multi-scene legacy) PASS sau khi khôi phục điều kiện chặn clip một cảnh. Các FAIL còn lại: Test 1–17 của bridge, T10 (template biến chưa khai báo), mục 5 (browser headless) không liên quan; mục 13 (CD06) còn kỳ vọng 30 giây bị chặn, mâu thuẫn quyết định cho phép 30 giây. Chưa xác minh được các FAIL có tồn tại trước thay đổi này, vì không stash được cây làm việc đang có nhiều thay đổi.
+- **Kiểm thử:** `Fraylo.Storyboard.SmokeChecks` PASS. Suite `workflow` của `Fraylo.Desktop.SmokeChecks`: 27 PASS / 11 FAIL. Test 15 (multi-scene legacy) PASS sau khi khôi phục điều kiện chặn clip một cảnh. Các FAIL còn lại: Test 1–17 của bridge, T10 (template biến chưa khai báo), mục 5 (browser headless) không liên quan; mục 13 (CD06) còn kỳ vọng 30 giây bị chặn, mâu thuẫn quyết định cho phép 30 giây. Chưa xác minh được các FAIL có tồn tại trước thay đổi này, vì không stash được cây làm việc đang có nhiều thay đổi.
 - **Chưa làm:** chưa có test cho đường storyboard → scene → render; chưa xác nhận Image job tạo ảnh cho từng shot (cần cấu hình workflow mode và model/product); chưa có UI cho storyboard và trình phát video.
 
 ### Chat mới, main chat và side chat — 2026-10-28
@@ -57,7 +57,7 @@ Yêu cầu người dùng 2026-10-28: ChatGPT hoặc Gemini lập kịch bản t
 - **Lệch so với quyết định:** tin này được gửi vào side chat thử `7195d6b1…` thay vì side chat mới qua `/thread/new`, vì sáu ảnh đã nằm sẵn trong composer của chat này. Lịch sử của chat chỉ có tin `đã nhận`, nên ảnh hưởng ngữ cảnh là nhỏ.
 - **Kết quả:** sau khoảng 5 phút, Muse trả lời với một video. Thẻ `<video>` có `duration` 30.021 giây, 720×1280. Thứ tự ảnh được giữ, điểm cắt ở 5, 10, 15, 20, 25 giây.
 - Muse mô tả cách làm: mỗi ảnh tạo một clip AI 10 giây, lấy 5 giây đầu rồi nối lại. Ảnh không đúng 9:16 được đưa về 720×1280 bằng nền mờ. Muse cũng ghi chuyển động làm biểu cảm và tư thế đổi nhẹ trong đoạn; ví dụ cô gái cyberpunk cúi đầu thấp hơn ảnh gốc.
-- **Ý nghĩa cho adapter:** Muse không dựng một clip từ sáu ảnh cùng lúc. Nó sinh sáu clip riêng rồi tự nối; TiToAI chỉ gửi ảnh và prompt, không kiểm soát cách cắt. Chất lượng khớp ảnh gốc cần kiểm tra thủ công.
+- **Ý nghĩa cho adapter:** Muse không dựng một clip từ sáu ảnh cùng lúc. Nó sinh sáu clip riêng rồi tự nối; Fraylo chỉ gửi ảnh và prompt, không kiểm soát cách cắt. Chất lượng khớp ảnh gốc cần kiểm tra thủ công.
 - Chưa xác nhận được giới hạn số ảnh: sáu ảnh đã được chấp nhận.
 - Tin video này có nút `Open animated video video-ai-6-anh-30-giay-9-16.mp4`, nằm ngoài phần tử tin nhắn mà JavaScript đọc đầu tiên. Bấm nút này mở `Media preview` với cùng cấu trúc như clip 15 giây: `Close`, `Download`, `Unmute`. Thời lượng 30,021 giây, 720×1280, nguồn `blob:`. Đã đóng bằng Escape, chưa bấm `Download`.
 - Cách tải lần trước (clip 15 giây) tạo file `ush.mp4` trong Downloads. Tin này chưa tải; kích thước file chưa biết trước khi tải.
@@ -74,7 +74,7 @@ Yêu cầu người dùng 2026-10-28: ChatGPT hoặc Gemini lập kịch bản t
 
 ## Dependency và kiểm chứng
 
-- Quan sát phiên Muse đã đăng nhập ngày 2026-10-28: giao diện là chat trợ lý, có ô Message và nút Attach file; input file cho phép chọn nhiều tệp. Người dùng cho phép gửi một ảnh để thử; Muse trả về một MP4, trình xem cho thấy thời lượng 5 giây, 704×1248 và nút Download lưu được file. Muse mô tả kết quả là video AI có chuyển động. Các message DOM có `data-message-id` và `data-message-role`; response và video mới nằm sau message người dùng, không xóa lịch sử. Một mẫu thao tác thủ công không xác minh adapter TiToAI, nhiều ảnh, video 15 giây hoặc xử lý crash/concurrency. Lịch sử trong phiên cũng có MP4 dựng từ ảnh tĩnh và các lần báo lỗi tạo video AI; không coi mọi MP4 là bằng chứng thành công.
+- Quan sát phiên Muse đã đăng nhập ngày 2026-10-28: giao diện là chat trợ lý, có ô Message và nút Attach file; input file cho phép chọn nhiều tệp. Người dùng cho phép gửi một ảnh để thử; Muse trả về một MP4, trình xem cho thấy thời lượng 5 giây, 704×1248 và nút Download lưu được file. Muse mô tả kết quả là video AI có chuyển động. Các message DOM có `data-message-id` và `data-message-role`; response và video mới nằm sau message người dùng, không xóa lịch sử. Một mẫu thao tác thủ công không xác minh adapter Fraylo, nhiều ảnh, video 15 giây hoặc xử lý crash/concurrency. Lịch sử trong phiên cũng có MP4 dựng từ ảnh tĩnh và các lần báo lỗi tạo video AI; không coi mọi MP4 là bằng chứng thành công.
 - ChatGPT và Gemini có adapter thử nghiệm cho Script/Image/VideoPrompt; Muse VideoRender chưa triển khai. Không xác nhận capability chỉ dựa trên tài liệu này. Cần xác định model/chế độ Muse, số ảnh, vai trò ảnh, thời lượng 15 giây và cách theo dõi/tải kết quả trên giao diện thật.
 - `Scene` hiện đại diện clip và các bước render theo scene. Cần thay contract, điều phối, snapshot, persistence và UI đồng bộ; không tái diễn giải dữ liệu cũ thành storyboard mà không có quyết định reset hoặc chuyển đổi rõ ràng.
 - Kiểm tra tối thiểu: storyboard đủ và liên tục đúng tổng thời lượng; ảnh thiếu/sai scope/hash bị chặn; một render nhận đủ ảnh đúng thứ tự; recovery sau submit không gửi trùng; lưu được đúng video cuối. Test fixture không thay thế kiểm tra provider thật.

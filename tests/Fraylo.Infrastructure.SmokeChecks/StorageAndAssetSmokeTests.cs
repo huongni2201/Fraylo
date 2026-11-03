@@ -38,7 +38,7 @@ public static class StorageAndAssetSmokeTests
                       .AddInterceptors(new SqlitePragmaInterceptor());
         var dbOptions = optionsBuilder.Options;
 
-        var testWorkDir = Path.Combine(Path.GetTempPath(), "titoai_t09_test_" + Guid.NewGuid().ToString("N"));
+        var testWorkDir = Path.Combine(Path.GetTempPath(), "Fraylo_t09_test_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(testWorkDir);
 
         // Cô lập hoàn toàn StorageRootRegistry với testWorkDir (không chạm LocalAppData)
@@ -227,7 +227,7 @@ public static class StorageAndAssetSmokeTests
         Assert(probeSuccess && string.IsNullOrEmpty(err), $"Dry-run write probe trên thư mục hợp lệ phải thành công. Lỗi: {err}");
 
         // Kiểm tra không còn file probe sót lại
-        var remainingProbes = Directory.GetFiles(validDir, ".titoai_probe_*.tmp");
+        var remainingProbes = Directory.GetFiles(validDir, ".Fraylo_probe_*.tmp");
         Assert(remainingProbes.Length == 0, "File tạm probe phải được xóa ngay sau khi kiểm tra.");
 
         // Kiểm tra qua ValidateRootsAsync với đường dẫn rỗng / không hợp lệ
@@ -343,7 +343,7 @@ public static class StorageAndAssetSmokeTests
         }, "Chặn import file có đuôi .exe vào audio.");
 
         // 3. Import Reference Image
-        var sampleImageData = Encoding.UTF8.GetBytes("PNG-MOCK-IMAGE-DATA-TITOAI-TEST-SUITE");
+        var sampleImageData = Encoding.UTF8.GetBytes("PNG-MOCK-IMAGE-DATA-Fraylo-TEST-SUITE");
         var sourceImagePath = Path.Combine(testWorkDir, "reference.png");
         await File.WriteAllBytesAsync(sourceImagePath, sampleImageData);
 

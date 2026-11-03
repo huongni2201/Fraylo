@@ -43,11 +43,11 @@ public sealed class StorageRootRegistry
     }
 
     /// <summary>
-    /// Lấy đường dẫn gốc mặc định theo chuẩn Fraylo trong %LOCALAPPDATA%/TiToAI hoặc customBaseDir.
+    /// Lấy đường dẫn gốc mặc định theo chuẩn Fraylo trong %LOCALAPPDATA%/Fraylo hoặc customBaseDir.
     /// </summary>
     public static string GetDefaultRootPath(string rootId, string? customBaseDir = null)
     {
-        var baseDir = customBaseDir ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TiToAI");
+        var baseDir = customBaseDir ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Fraylo");
 
         return rootId switch
         {

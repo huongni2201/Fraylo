@@ -59,7 +59,7 @@ public static class BrowserBridgeSmokeTests
         var (connection, factory) = await CreateInMemoryDbContextFactoryAsync();
         await using (connection)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "titoai_test_bridge_lp_" + Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_test_bridge_lp_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             try
@@ -129,7 +129,7 @@ public static class BrowserBridgeSmokeTests
         var (connection, factory) = await CreateInMemoryDbContextFactoryAsync();
         await using (connection)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "titoai_test_bridge_rl_" + Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_test_bridge_rl_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             try
@@ -193,7 +193,7 @@ public static class BrowserBridgeSmokeTests
         var (connection, factory) = await CreateInMemoryDbContextFactoryAsync();
         await using (connection)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "titoai_test_bridge_cl_" + Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_test_bridge_cl_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             try
@@ -261,7 +261,7 @@ public static class BrowserBridgeSmokeTests
         var (connection, factory) = await CreateInMemoryDbContextFactoryAsync();
         await using (connection)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "titoai_test_bridge_cs_" + Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_test_bridge_cs_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             try
@@ -324,7 +324,7 @@ public static class BrowserBridgeSmokeTests
         var (connection, factory) = await CreateInMemoryDbContextFactoryAsync();
         await using (connection)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "titoai_test_bridge_uc_" + Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_test_bridge_uc_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             try
@@ -361,7 +361,7 @@ public static class BrowserBridgeSmokeTests
         var (connection, factory) = await CreateInMemoryDbContextFactoryAsync();
         await using (connection)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "titoai_test_bridge_val_" + Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_test_bridge_val_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             try
@@ -422,7 +422,7 @@ public static class BrowserBridgeSmokeTests
         var (connection, factory) = await CreateInMemoryDbContextFactoryAsync();
         await using (connection)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "titoai_test_bridge_enf_" + Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_test_bridge_enf_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             try
@@ -465,7 +465,7 @@ public static class BrowserBridgeSmokeTests
         var (connection, factory) = await CreateInMemoryDbContextFactoryAsync();
         await using (connection)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "titoai_test_bridge_unreg_" + Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_test_bridge_unreg_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             try
@@ -519,7 +519,7 @@ public static class BrowserBridgeSmokeTests
         var (connection, factory) = await CreateInMemoryDbContextFactoryAsync();
         await using (connection)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "titoai_test_bridge_purl_" + Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_test_bridge_purl_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             try

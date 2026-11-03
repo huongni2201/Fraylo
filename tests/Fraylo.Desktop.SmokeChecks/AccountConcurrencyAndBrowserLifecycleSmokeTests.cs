@@ -58,7 +58,7 @@ public static class AccountConcurrencyAndBrowserLifecycleSmokeTests
 
     private static (DbContextOptions<FrayloDbContext> Options, string TempDir, StorageRootRegistry Registry, SettingsService Settings) CreateTestContext()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"titoai_concurrency_{Guid.NewGuid():N}");
+        var tempDir = Path.Combine(Path.GetTempPath(), $"Fraylo_concurrency_{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
 
         var dbPath = Path.Combine(tempDir, "concurrency.db");

@@ -32,6 +32,7 @@ Source: "..\dist\launcher\FrayloLauncher.exe"; DestDir: "{app}"; Flags: ignoreve
 Source: "..\dist\app\*"; DestDir: "{app}\versions\{#MyAppVersion}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [InstallDelete]
+; Dọn shortcut của bản TiToAI cũ trước khi tạo shortcut Fraylo.
 Type: files; Name: "{autodesktop}\TiToAI.lnk"
 Type: files; Name: "{autoprograms}\TiToAI.lnk"
 
@@ -44,7 +45,7 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\FrayloLauncher.exe"; IconF
 Filename: "{app}\FrayloLauncher.exe"; Description: "Khởi động {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
-; Chỉ xóa phần chương trình; dữ liệu người dùng ở %LOCALAPPDATA%\TiToAI được giữ nguyên.
+; Chỉ xóa phần chương trình; dữ liệu người dùng ở %LOCALAPPDATA%\Fraylo được giữ nguyên.
 Type: filesandordirs; Name: "{app}\versions"
 Type: files; Name: "{app}\current.json"
 

@@ -13,9 +13,9 @@ Theo yêu cầu trực tiếp ngày 2026-11-01, **Fraylo** thay thế tên sản
 
 Mở [Chay-Fraylo.cmd](../../Chay-Fraylo.cmd) để build và chạy bản mới. Desktop tạo `Fraylo.exe`, launcher tạo `FrayloLauncher.exe`; bộ cài/zip mang tiền tố `Fraylo-`. Luồng build, cập nhật và bộ cài cùng dùng icon mới.
 
-Giữ Inno Setup AppId để nâng cấp bản đã cài; bộ cài đổi shortcut sang Fraylo. Bản publish có thêm apphost `TiToAI.Desktop.exe` trỏ tới cùng assembly Fraylo để launcher cũ có thể nhận gói đổi tên. Launcher mới có thể mở bản TiToAI cũ khi quay về phiên bản trước.
+Giữ Inno Setup AppId để nâng cấp bản đã cài; bộ cài đổi shortcut sang Fraylo và dọn shortcut `TiToAI.lnk` của bản cũ. Bản publish không còn alias executable; launcher chỉ mở `Fraylo.exe`.
 
-Sau yêu cầu bổ sung, thư mục dự án là `D:\workspace\Fraylo`, solution `Fraylo.sln`, thư mục source/test, csproj, namespace, DbContext và resource đều dùng Fraylo. Giữ GitHub repo, ID manifest, `%LOCALAPPDATA%/TiToAI`, `titoai.db`, lock profile, origin media và alias executable cũ để dùng tiếp dữ liệu, phiên đăng nhập và đường nâng cấp. Các plan lịch sử dùng TiToAI/AIContentStudio được hiểu là Fraylo; không đổi tên hàng loạt evidence lịch sử.
+Thư mục dự án là `D:\workspace\Fraylo`, solution `Fraylo.sln`, thư mục source/test, csproj, namespace, DbContext và resource đều dùng Fraylo. Dữ liệu mặc định ở `%LOCALAPPDATA%\Fraylo`, database `fraylo.db`, manifest `app_id` là `fraylo`. Các plan lịch sử dùng TiToAI/AIContentStudio được hiểu là Fraylo; không đổi tên hàng loạt evidence lịch sử.
 
 ## Repo GitHub
 

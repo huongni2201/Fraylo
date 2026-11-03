@@ -49,7 +49,7 @@ public static class ProviderAccountAndCapacitySmokeTests
 
     public static async Task<int> RunAllAsync()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "titoai_q1_smoke_" + Guid.NewGuid().ToString("N"));
+        var tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_q1_smoke_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
         var dbPath = Path.Combine(tempDir, "smoke.db");
 

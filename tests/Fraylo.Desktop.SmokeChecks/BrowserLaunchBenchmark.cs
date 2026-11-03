@@ -88,7 +88,7 @@ public static class BrowserLaunchBenchmark
         Console.WriteLine($"Số mẫu cho mỗi điều kiện: {sampleCount}");
         Console.WriteLine($"Thời gian đo: {DateTime.Now:yyyy-MM-dd HH:mm:ss} (Timestamp đơn điệu)\n");
 
-        string baseTemp = Path.Combine(Path.GetTempPath(), "titoai_bench_" + Guid.NewGuid().ToString("N"));
+        string baseTemp = Path.Combine(Path.GetTempPath(), "Fraylo_bench_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(baseTemp);
 
         // Dùng local HTML file để đo đạc navigation độc lập mạng, không cần HttpListener

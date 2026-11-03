@@ -1,4 +1,4 @@
-# TiToAI — giao diện và browser chạy ẩn
+# Fraylo — giao diện và browser chạy ẩn
 
 
 ## 1. Điều hướng và màn hình
@@ -36,12 +36,12 @@
 ## 5. Quy tắc browser chạy ẩn — P0
 
 - Mọi tác vụ tự động lấy/tối ưu prompt, viết kịch bản, tạo/tải ảnh, gửi/nhận video và đọc dữ liệu được phép đều chạy **ẩn**. Không tự mở tab/cửa sổ ra desktop, giành focus hoặc bật browser để báo hoàn thành/lỗi.
-- Chỉ hiện browser được TiToAI quản lý khi người dùng cần **đăng nhập/đăng nhập lại thủ công**, gồm MFA hoặc xác minh gắn với phiên đăng nhập đó. Người dùng có thể chủ động chọn “Đăng nhập” để bắt đầu luồng; không cần chờ job lỗi.
+- Chỉ hiện browser được Fraylo quản lý khi người dùng cần **đăng nhập/đăng nhập lại thủ công**, gồm MFA hoặc xác minh gắn với phiên đăng nhập đó. Người dùng có thể chủ động chọn “Đăng nhập” để bắt đầu luồng; không cần chờ job lỗi.
 - “Ẩn” là hành vi người dùng quan sát được, không đồng nghĩa chỉ thu nhỏ cửa sổ. Phương án kỹ thuật (headless hoặc cơ chế chạy ẩn được hỗ trợ) phải chứng minh không ló cửa sổ/giành focus trên Windows. Không mặc định đổi cờ launch là có thể hiện/ẩn phiên đang chạy.
 - Không có tùy chọn production “Luôn hiện browser khi chạy job”. Khi adapter không đáp ứng chạy ẩn, tắt automation cho capability đó và báo giới hạn; không âm thầm chuyển sang visible.
 - **Ngoại lệ trial (theo yêu cầu người dùng, 2026-10-28):** ChatGPT Web, Gemini Web và MuseAI đang bật trial mode, browser hiển thị khi job chạy để quan sát. Phải gỡ hoặc chốt lại trước khi phát hành. Trạng thái hiện tại xem [STATUS](../agents/STATUS.md).
 - **Ngoại lệ kiểm tra ngày 2026-10-30:** theo yêu cầu người dùng, browser do thao tác đăng TikTok tạo ra được hiển thị để quan sát. Cần chốt lại trước khi phát hành.
-- Session được lưu trong profile TiToAI đúng loại/account theo quyền dịch vụ. Login không đọc profile browser cá nhân; cookie/token không đưa vào UI/log/Git. Không tự điền/lưu mật khẩu trong form của app.
+- Session được lưu trong profile Fraylo đúng loại/account theo quyền dịch vụ. Login không đọc profile browser cá nhân; cookie/token không đưa vào UI/log/Git. Không tự điền/lưu mật khẩu trong form của app.
 - Hạn chế tự bật nhiều cửa sổ login: thông báo trong app và chỉ mở khi user chủ động chọn “Đăng nhập”. Cho phép người dùng mở đồng thời nhiều profile độc lập; mỗi profile chỉ có 1 owner, không mở trùng khi bấm nhiều lần và tuân thủ ngân sách tài nguyên max_open_browsers.
 - Browser AI mở ẩn khi job lấy slot; xong nhận/lưu kết quả thì đóng nếu toàn profile idle, giữ userDataDir/session. Nhả slot/wake queue sau close/release owner; tab khác còn bận thì chỉ nhả tab, không đóng context. Full pool hiển thị Chờ slot. Uncertain/checkpoint chưa an toàn không bị idle-close; ngoại lệ: job MuseAI chờ đối soát (đã lưu side chat) không giữ browser, vì khôi phục mở lại qua lease. Chi tiết [v1.1 §1.3/§3](../decisions/execution-contract-v1.1.md).
 

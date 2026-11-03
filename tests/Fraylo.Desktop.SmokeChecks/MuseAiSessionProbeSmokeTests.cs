@@ -52,7 +52,7 @@ public static class MuseAiSessionProbeSmokeTests
 
     private static bool IsProfileLockedByExternalProcess(string profileDir)
     {
-        string lockFilePath = Path.Combine(profileDir, ".titoai_lock");
+        string lockFilePath = Path.Combine(profileDir, ".Fraylo_lock");
         if (!File.Exists(lockFilePath)) return false;
 
         try
@@ -72,7 +72,7 @@ public static class MuseAiSessionProbeSmokeTests
         Console.WriteLine("      Fraylo — MuseAI Session & Identity Probe Smoke Checks      ");
         Console.WriteLine("=================================================================");
 
-        var tempDir = Path.Combine(Path.GetTempPath(), "titoai_muse_smoke_" + Guid.NewGuid().ToString("N"));
+        var tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_muse_smoke_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
         var dbPath = Path.Combine(tempDir, "muse_smoke.db");
 
@@ -128,7 +128,7 @@ public static class MuseAiSessionProbeSmokeTests
         string tempDir)
     {
         string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        string realProfileDir = Path.Combine(localAppData, "TiToAI", "profiles", "profile_museai_98fa16b5891045bab598d73113d45d5e");
+        string realProfileDir = Path.Combine(localAppData, "Fraylo", "profiles", "profile_museai_98fa16b5891045bab598d73113d45d5e");
 
         if (!Directory.Exists(realProfileDir))
         {
@@ -142,7 +142,7 @@ public static class MuseAiSessionProbeSmokeTests
             return;
         }
 
-        string customProfilesDir = Path.Combine(localAppData, "TiToAI", "profiles");
+        string customProfilesDir = Path.Combine(localAppData, "Fraylo", "profiles");
         var tabPool = new TabPool();
         var profileRegistry = new ProfileRegistry(() => new FrayloDbContext(dbOptions), customProfilesDir, tabPool);
         var profileOwner = new ProfileOwner(pid => profileRegistry.GetUserDataDir(pid, "AI"));
@@ -206,7 +206,7 @@ public static class MuseAiSessionProbeSmokeTests
         string tempDir)
     {
         string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        string realProfileDir = Path.Combine(localAppData, "TiToAI", "profiles", "profile_museai_98fa16b5891045bab598d73113d45d5e");
+        string realProfileDir = Path.Combine(localAppData, "Fraylo", "profiles", "profile_museai_98fa16b5891045bab598d73113d45d5e");
 
         if (!Directory.Exists(realProfileDir))
         {
@@ -220,7 +220,7 @@ public static class MuseAiSessionProbeSmokeTests
             return;
         }
 
-        string customProfilesDir = Path.Combine(localAppData, "TiToAI", "profiles");
+        string customProfilesDir = Path.Combine(localAppData, "Fraylo", "profiles");
 
         // Giả lập app restart: Tạo mới toàn bộ dependency instances từ đầu
         var tabPool = new TabPool();
@@ -320,7 +320,7 @@ public static class MuseAiSessionProbeSmokeTests
         string tempDir)
     {
         string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        string realProfileDir = Path.Combine(localAppData, "TiToAI", "profiles", "profile_museai_98fa16b5891045bab598d73113d45d5e");
+        string realProfileDir = Path.Combine(localAppData, "Fraylo", "profiles", "profile_museai_98fa16b5891045bab598d73113d45d5e");
 
         if (!Directory.Exists(realProfileDir))
         {
@@ -334,7 +334,7 @@ public static class MuseAiSessionProbeSmokeTests
             return;
         }
 
-        string customProfilesDir = Path.Combine(localAppData, "TiToAI", "profiles");
+        string customProfilesDir = Path.Combine(localAppData, "Fraylo", "profiles");
         var tabPool = new TabPool();
         var profileRegistry = new ProfileRegistry(() => new FrayloDbContext(dbOptions), customProfilesDir, tabPool);
         var profileOwner = new ProfileOwner(pid => profileRegistry.GetUserDataDir(pid, "AI"));

@@ -61,16 +61,13 @@ public sealed class AppUpdateService(Action requestExit)
         var launcher = versionDir.Parent?.Name == "versions"
             ? Path.Combine(versionDir.Parent.Parent!.FullName, "FrayloLauncher.exe")
             : null;
-        // Bản được nâng cấp qua launcher Fraylo hiện hữu vẫn dùng launcher đó.
-        if (launcher is not null && !File.Exists(launcher))
-            launcher = Path.Combine(versionDir.Parent!.Parent!.FullName, "TiToAILauncher.exe");
         if (launcher is null || !File.Exists(launcher))
             throw new InvalidOperationException("Chỉ bản đã cài đặt bằng bộ cài mới tự cập nhật được.");
 
         var info = await CheckAsync(ct);
         if (!info.HasUpdate) throw new InvalidOperationException("Không có bản cập nhật mới.");
 
-        var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TiToAI", "downloads");
+        var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Fraylo", "downloads");
         Directory.CreateDirectory(downloads);
         var zip = Path.Combine(downloads, $"Fraylo-{info.LatestVersion}-win-x64.zip");
         await using (var source = await Http.GetStreamAsync(info.DownloadUrl, ct))

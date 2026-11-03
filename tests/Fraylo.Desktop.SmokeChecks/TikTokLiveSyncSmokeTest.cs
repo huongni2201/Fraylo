@@ -22,7 +22,7 @@ public static class TikTokLiveSyncSmokeTest
 
         string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         string profileId = "profile_tiktok_3dc15208b53a4fa79b807d66ee003422";
-        string realProfileDir = Path.Combine(localAppData, "TiToAI", "profiles", profileId);
+        string realProfileDir = Path.Combine(localAppData, "Fraylo", "profiles", profileId);
 
         if (!Directory.Exists(realProfileDir))
         {
@@ -30,7 +30,7 @@ public static class TikTokLiveSyncSmokeTest
             return 0;
         }
 
-        string customProfilesDir = Path.Combine(localAppData, "TiToAI", "profiles");
+        string customProfilesDir = Path.Combine(localAppData, "Fraylo", "profiles");
         var tabPool = new TabPool();
         var tempDbPath = Path.Combine(Path.GetTempPath(), "tiktok_live_test_" + Guid.NewGuid().ToString("N") + ".db");
         var bootstrapper = new SqliteDatabaseBootstrapper();

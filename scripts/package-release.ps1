@@ -28,7 +28,7 @@ $dist = Join-Path $root "dist"
 $appDir = Join-Path $dist "app"
 $launcherDir = Join-Path $dist "launcher"
 $releases = Join-Path $dist "releases"
-Get-Process -Name "Fraylo", "TiToAI.Desktop" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name "Fraylo" -ErrorAction SilentlyContinue | Stop-Process -Force
 if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
 New-Item -ItemType Directory -Force $releases | Out-Null
 
@@ -53,14 +53,14 @@ Compress-Archive -Path "$appDir\*" -DestinationPath $zip
 
 # Ký "{version}|{sha256}" bằng khóa riêng ECDSA P-256; app chỉ nhận cập nhật có chữ ký khớp khóa công khai nhúng trong AppUpdateService.
 # Khóa nằm ngoài repo; mất khóa thì mọi bản đã cài không còn tự cập nhật được nữa (phải cài lại bằng Setup.exe), nên hãy sao lưu.
-$keyFile = Join-Path $env:LOCALAPPDATA "Fraylo\release-signing.key"
+$keyFile = Join-Path $env:USERPROFILE "Fraylo-keys\release-signing.key"
 if (-not (Test-Path $keyFile)) { throw "Thiếu khóa ký $keyFile (xem AppUpdateService.PublicKey)." }
 $sha = (Get-FileHash $zip -Algorithm SHA256).Hash
 $ec = [Security.Cryptography.ECDsa]::Create()
 $ec.ImportPkcs8PrivateKey([Convert]::FromBase64String((Get-Content $keyFile -Raw).Trim()), [ref]$null)
 $signature = [Convert]::ToBase64String($ec.SignData([Text.Encoding]::UTF8.GetBytes("$Version|$sha"), [Security.Cryptography.HashAlgorithmName]::SHA256))
 @{
-    app_id    = "titoai"
+    app_id    = "Fraylo"
     version   = $Version
     asset     = @{ name = $zipName; sha256 = $sha; size_bytes = (Get-Item $zip).Length }
     signature = $signature

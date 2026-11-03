@@ -51,7 +51,7 @@ public static class ChatGptSessionProbeSmokeTests
 
     private static bool IsProfileLockedByExternalProcess(string profileDir)
     {
-        string lockFilePath = Path.Combine(profileDir, ".titoai_lock");
+        string lockFilePath = Path.Combine(profileDir, ".Fraylo_lock");
         if (!File.Exists(lockFilePath)) return false;
 
         try
@@ -71,7 +71,7 @@ public static class ChatGptSessionProbeSmokeTests
         Console.WriteLine("     Fraylo — ChatGPT Session & Identity Probe Smoke Checks      ");
         Console.WriteLine("=================================================================");
 
-        var tempDir = Path.Combine(Path.GetTempPath(), "titoai_chatgpt_smoke_" + Guid.NewGuid().ToString("N"));
+        var tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_chatgpt_smoke_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
         var dbPath = Path.Combine(tempDir, "chatgpt_smoke.db");
 
@@ -125,7 +125,7 @@ public static class ChatGptSessionProbeSmokeTests
     {
         string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         string profileId = "profile_chatgpt_web_d4b5bc918d7647e1b9550b30de78fb80";
-        string realProfileDir = Path.Combine(localAppData, "TiToAI", "profiles", profileId);
+        string realProfileDir = Path.Combine(localAppData, "Fraylo", "profiles", profileId);
 
         if (!Directory.Exists(realProfileDir))
         {
@@ -139,7 +139,7 @@ public static class ChatGptSessionProbeSmokeTests
             return;
         }
 
-        string customProfilesDir = Path.Combine(localAppData, "TiToAI", "profiles");
+        string customProfilesDir = Path.Combine(localAppData, "Fraylo", "profiles");
         var tabPool = new TabPool();
         var profileRegistry = new ProfileRegistry(() => new FrayloDbContext(dbOptions), customProfilesDir, tabPool);
         var profileOwner = new ProfileOwner(pid => profileRegistry.GetUserDataDir(pid, "AI"));
@@ -202,7 +202,7 @@ public static class ChatGptSessionProbeSmokeTests
     {
         string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         string profileId = "profile_chatgpt_web_d4b5bc918d7647e1b9550b30de78fb80";
-        string realProfileDir = Path.Combine(localAppData, "TiToAI", "profiles", profileId);
+        string realProfileDir = Path.Combine(localAppData, "Fraylo", "profiles", profileId);
 
         if (!Directory.Exists(realProfileDir) || IsProfileLockedByExternalProcess(realProfileDir))
         {
@@ -210,7 +210,7 @@ public static class ChatGptSessionProbeSmokeTests
             return;
         }
 
-        string customProfilesDir = Path.Combine(localAppData, "TiToAI", "profiles");
+        string customProfilesDir = Path.Combine(localAppData, "Fraylo", "profiles");
 
         // Giả lập app restart: Tạo mới toàn bộ dependency instances từ đầu
         var tabPool = new TabPool();
@@ -308,7 +308,7 @@ public static class ChatGptSessionProbeSmokeTests
     {
         string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         string profileId1 = "profile_chatgpt_web_d4b5bc918d7647e1b9550b30de78fb80";
-        string realProfileDir = Path.Combine(localAppData, "TiToAI", "profiles", profileId1);
+        string realProfileDir = Path.Combine(localAppData, "Fraylo", "profiles", profileId1);
 
         if (!Directory.Exists(realProfileDir) || IsProfileLockedByExternalProcess(realProfileDir))
         {
@@ -316,7 +316,7 @@ public static class ChatGptSessionProbeSmokeTests
             return;
         }
 
-        string customProfilesDir = Path.Combine(localAppData, "TiToAI", "profiles");
+        string customProfilesDir = Path.Combine(localAppData, "Fraylo", "profiles");
         var tabPool = new TabPool();
         var profileRegistry = new ProfileRegistry(() => new FrayloDbContext(dbOptions), customProfilesDir, tabPool);
         var profileOwner = new ProfileOwner(pid => profileRegistry.GetUserDataDir(pid, "AI"));

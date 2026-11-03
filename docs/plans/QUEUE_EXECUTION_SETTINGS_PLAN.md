@@ -1,4 +1,4 @@
-# TiToAI — queue thực thi độc lập và trang Cài đặt
+# Fraylo — queue thực thi độc lập và trang Cài đặt
 
 Ngày 2026-10-26 (UTC+07). Phiên bản yêu cầu **1.2**. **Tài liệu nền/historical:** các phần queue durable, capacity, provider account và Settings còn tham khảo khi không mâu thuẫn với kiến trúc video-first. Tiến độ thật theo [STATUS](../agents/STATUS.md) và [TASKS](../agents/TASKS.md); không dùng dòng trạng thái giao việc cũ trong tài liệu này.
 

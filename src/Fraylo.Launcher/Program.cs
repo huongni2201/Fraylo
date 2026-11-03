@@ -15,9 +15,6 @@ int Launch(string[] launchArgs)
 {
     var version = ReadCurrentVersion();
     var exe = version is null ? null : Path.Combine(versionsDir, version, AppExe);
-    // Cho phép mở lại phiên bản Fraylo cũ khi người dùng quay về bản trước.
-    if (exe is not null && !File.Exists(exe))
-        exe = Path.Combine(versionsDir, version!, "TiToAI.Desktop.exe");
     if (exe is null || !File.Exists(exe)) return 1;
 
     Process.Start(new ProcessStartInfo(exe, launchArgs) { WorkingDirectory = Path.GetDirectoryName(exe)! });
@@ -29,7 +26,7 @@ int Update(string[] updateArgs)
     var pid = int.Parse(Arg("--pid"));
     var zip = Arg("--zip");
     var version = Arg("--version");
-    var dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TiToAI");
+    var dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Fraylo");
     var logFile = Path.Combine(dataDir, "logs", "updater.log");
 
     string Arg(string name) => updateArgs[Array.IndexOf(updateArgs, name) + 1];
@@ -53,7 +50,7 @@ int Update(string[] updateArgs)
         // Sao lưu database trước khi bản mới chạy migration; app đã thoát nên file không bị khóa.
         var backupDir = Path.Combine(dataDir, "backups");
         Directory.CreateDirectory(backupDir);
-        foreach (var file in Directory.GetFiles(dataDir, "titoai.db*"))
+        foreach (var file in Directory.GetFiles(dataDir, "fraylo.db*"))
             File.Copy(file, Path.Combine(backupDir, $"pre_update_{version}_{DateTime.Now:yyyyMMddHHmmss}_{Path.GetFileName(file)}"), true);
 
         var target = Path.Combine(versionsDir, version);

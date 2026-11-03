@@ -1,6 +1,6 @@
 > Cập nhật 2026-10-28: Đã bỏ `USER_BRIEF` khỏi contract tạo prompt. Những hướng dẫn mapping hoặc kiểm thử `USER_BRIEF` bên dưới là lịch sử và không còn áp dụng; nội dung được cung cấp qua template đã render.
 
-# TiToAI — thời lượng clip và phân cảnh trong prompt
+# Fraylo — thời lượng clip và phân cảnh trong prompt
 
 Ngày 2026-10-27 (UTC+07). **Spec bàn giao; chưa triển khai, chưa nghiệm thu runtime/provider.**
 

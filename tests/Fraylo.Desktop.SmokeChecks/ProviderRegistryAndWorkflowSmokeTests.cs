@@ -335,7 +335,7 @@ public static class ProviderRegistryAndWorkflowSmokeTests
     /// </summary>
     public static async Task Test_3_ProviderDispatchStrictRoutingAndValidation()
     {
-        var (dbOptions, tempDir, _, settingsService) = CreateTestContext("titoai_dispatch_test");
+        var (dbOptions, tempDir, _, settingsService) = CreateTestContext("Fraylo_dispatch_test");
 
         try
         {
@@ -438,7 +438,7 @@ public static class ProviderRegistryAndWorkflowSmokeTests
     /// </summary>
     public static async Task Test_4_WorkflowDefaultInitialization()
     {
-        var (dbOptions, tempDir, _, _) = CreateTestContext("titoai_wf_init_test");
+        var (dbOptions, tempDir, _, _) = CreateTestContext("Fraylo_wf_init_test");
 
         try
         {
@@ -485,7 +485,7 @@ public static class ProviderRegistryAndWorkflowSmokeTests
     /// </summary>
     public static async Task Test_5_WorkflowVersioningActivationAndRollback()
     {
-        var (dbOptions, tempDir, _, _) = CreateTestContext("titoai_wf_version_test");
+        var (dbOptions, tempDir, _, _) = CreateTestContext("Fraylo_wf_version_test");
 
         try
         {

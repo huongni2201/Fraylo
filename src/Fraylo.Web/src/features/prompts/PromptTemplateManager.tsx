@@ -17,7 +17,7 @@ const tabs: { purpose: PromptPurpose; label: string }[] = [
 ];
 
 type PromptDraft = { templateId: string | null; name: string; templateText: string };
-const draftKey = (purpose: PromptPurpose) => `titoai_prompt_draft_${purpose}`;
+const draftKey = (purpose: PromptPurpose) => `Fraylo_prompt_draft_${purpose}`;
 function readDraft(purpose: PromptPurpose): PromptDraft | null {
   try {
     const value = JSON.parse(window.sessionStorage.getItem(draftKey(purpose)) || "null") as PromptDraft | null;

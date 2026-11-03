@@ -43,10 +43,10 @@ public static class JobQueueSmokeTests
 
     private static (DbContextOptions<FrayloDbContext> Options, string TempDir, StorageRootRegistry Registry, SettingsService Settings) CreateTestContext()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"titoai_t15_test_{Guid.NewGuid():N}");
+        var tempDir = Path.Combine(Path.GetTempPath(), $"Fraylo_t15_test_{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
 
-        var dbPath = Path.Combine(tempDir, "titoai_test.db");
+        var dbPath = Path.Combine(tempDir, "Fraylo_test.db");
         var connectionString = DatabasePathHelper.BuildConnectionString(dbPath);
 
         var optionsBuilder = new DbContextOptionsBuilder<FrayloDbContext>();

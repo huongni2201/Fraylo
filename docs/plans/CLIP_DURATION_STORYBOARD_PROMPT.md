@@ -3,7 +3,7 @@
 Ngày 2026-10-27. Copy nội dung trong khối dưới để giao cho AI triển khai. Nguồn acceptance duy nhất cho delta này là [plan clip/phân cảnh](CLIP_DURATION_STORYBOARD_PLAN.md).
 
 ```text
-Hãy triển khai delta “Thời lượng clip và phân cảnh trong prompt” của TiToAI theo docs/plans/CLIP_DURATION_STORYBOARD_PLAN.md. Phạm vi là form, contract/validation liên quan và cách lập prompt cho từng clip. Ghép/cắt/nối video và video dài thành phẩm nằm ngoài phạm vi.
+Hãy triển khai delta “Thời lượng clip và phân cảnh trong prompt” của Fraylo theo docs/plans/CLIP_DURATION_STORYBOARD_PLAN.md. Phạm vi là form, contract/validation liên quan và cách lập prompt cho từng clip. Ghép/cắt/nối video và video dài thành phẩm nằm ngoài phạm vi.
 
 Trước khi sửa:
 1. Đọc AGENTS.md, docs/agents/STATUS.md, TASKS.md, ENGINEERING_RULES.md và ORCHESTRATION.md. Áp dụng Model policy khi làm trong Antigravity. Ghi baseline working tree, dependency và owner thực tế; giữ nguyên thay đổi đang có của người khác. Chỉ coordinator cập nhật trạng thái chung.

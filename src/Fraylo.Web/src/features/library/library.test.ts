@@ -183,7 +183,7 @@ test("T12b: LibraryPage render danh sách tài nguyên và filter loại", async
   // Assert các cards tài nguyên được render
   const cards = container.querySelectorAll(".asset-card");
   assert.equal(cards.length, 3, "Phải hiển thị đủ 3 tài nguyên ban đầu");
-  assert.equal(cards[0].querySelector("img")?.getAttribute("src"), "https://media.titoai.local/media/ast_img_01");
+  assert.equal(cards[0].querySelector("img")?.getAttribute("src"), "https://media.Fraylo.local/media/ast_img_01");
   assert.ok(cards[1].querySelector("audio[controls]"));
   assert.ok(cards[2].querySelector("video[controls]"));
   await act(async () => {

@@ -65,7 +65,7 @@ public static class AnalyticsSmokeTests
 
         public static async Task<AnalyticsTestContext> CreateAsync()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), $"titoai_analytics_smoke_{Guid.NewGuid():N}");
+            var tempDir = Path.Combine(Path.GetTempPath(), $"Fraylo_analytics_smoke_{Guid.NewGuid():N}");
             Directory.CreateDirectory(tempDir);
 
             var dbPath = Path.Combine(tempDir, "analytics_smoke.db");
@@ -230,7 +230,7 @@ public static class AnalyticsSmokeTests
 
     public static async Task Test_TikTokZipCsvExports()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"titoai_csv_{Guid.NewGuid():N}");
+        var tempDir = Path.Combine(Path.GetTempPath(), $"Fraylo_csv_{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
         try
         {

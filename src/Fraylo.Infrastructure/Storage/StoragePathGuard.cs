@@ -153,7 +153,7 @@ public static class StoragePathGuard
     }
 
     /// <summary>
-    /// Dry-run write probe: Thử tạo và xóa một tệp thăm dò .titoai_probe_{guid}.tmp 4 bytes trong thư mục
+    /// Dry-run write probe: Thử tạo và xóa một tệp thăm dò .Fraylo_probe_{guid}.tmp 4 bytes trong thư mục
     /// để xác thực quyền ghi thực tế trên phân vùng đĩa.
     /// </summary>
     public static bool TryVerifyWritable(string directoryPath, out string? errorMessage)
@@ -181,7 +181,7 @@ public static class StoragePathGuard
                 Directory.CreateDirectory(normalized);
             }
 
-            var probeFileName = $".titoai_probe_{Guid.NewGuid():N}.tmp";
+            var probeFileName = $".Fraylo_probe_{Guid.NewGuid():N}.tmp";
             var probeFilePath = Path.Combine(normalized, probeFileName);
 
             // Ghi 4 bytes probe signature (ASCII "TITO")

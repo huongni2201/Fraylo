@@ -48,7 +48,7 @@ public static class BrowserSmokeTests
         var (connection, factory) = await CreateInMemoryDbContextFactoryAsync();
         await using (connection)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "titoai_test_profiles_" + Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_test_profiles_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             try
@@ -101,7 +101,7 @@ public static class BrowserSmokeTests
     /// </summary>
     public static async Task Test_SingleInstanceProfileLock_InProcessAndCrossProcess()
     {
-        string tempDir = Path.Combine(Path.GetTempPath(), "titoai_lock_test_" + Guid.NewGuid().ToString("N"));
+        string tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_lock_test_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
 
         try
@@ -127,8 +127,8 @@ public static class BrowserSmokeTests
             Assert(lockBlocked, "Owner 2 chiếm cùng profile phải bị TimeoutException.");
 
             // Kiểm tra file lock cấp hệ điều hành không cho phép process/stream khác mở
-            string lockFilePath = Path.Combine(tempDir, profileId, ".titoai_lock");
-            Assert(File.Exists(lockFilePath), "Tệp .titoai_lock phải tồn tại trên đĩa.");
+            string lockFilePath = Path.Combine(tempDir, profileId, ".Fraylo_lock");
+            Assert(File.Exists(lockFilePath), "Tệp .Fraylo_lock phải tồn tại trên đĩa.");
 
             bool fileLocked = false;
             try
@@ -139,7 +139,7 @@ public static class BrowserSmokeTests
             {
                 fileLocked = true;
             }
-            Assert(fileLocked, "File .titoai_lock phải bị khóa cấp HĐH (IOException).");
+            Assert(fileLocked, "File .Fraylo_lock phải bị khóa cấp HĐH (IOException).");
 
             // Giải phóng lock 1
             await lock1.DisposeAsync();
@@ -566,14 +566,14 @@ public static class BrowserSmokeTests
 
     /// <summary>
     /// Test 11: PlaywrightBrowserController - Xử lý lỗi driver Playwright chưa cài đặt (PlaywrightException),
-    /// đảm bảo ném lỗi có cấu trúc, cập nhật Error state và GIẢI PHÓNG lock .titoai_lock an toàn (không rò rỉ).
+    /// đảm bảo ném lỗi có cấu trúc, cập nhật Error state và GIẢI PHÓNG lock .Fraylo_lock an toàn (không rò rỉ).
     /// </summary>
     public static async Task Test_PlaywrightBrowserController_MissingDriverException_ReleasesLockSafely()
     {
         var (connection, factory) = await CreateInMemoryDbContextFactoryAsync();
         await using (connection)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "titoai_pw_driver_err_" + Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_pw_driver_err_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             try
@@ -614,7 +614,7 @@ public static class BrowserSmokeTests
                     }
                     Assert(exceptionCaught, "Phải ném InvalidOperationException có cấu trúc khi thiếu Playwright driver.");
 
-                    // QUAN TRỌNG: Lock .titoai_lock phải được giải phóng an toàn, không bị treo/rò rỉ
+                    // QUAN TRỌNG: Lock .Fraylo_lock phải được giải phóng an toàn, không bị treo/rò rỉ
                     Assert(!owner.IsLocked(profileId), "Lock single-instance phải được giải phóng sau lỗi PlaywrightException.");
                     Assert(!controller.IsRunning(profileId), "Controller không được ghi nhận tiến trình đang chạy.");
 
@@ -642,7 +642,7 @@ public static class BrowserSmokeTests
         var (connection, factory) = await CreateInMemoryDbContextFactoryAsync();
         await using (connection)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "titoai_pw_gotoclose_" + Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_pw_gotoclose_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             try
@@ -710,7 +710,7 @@ public static class BrowserSmokeTests
                     Assert(!coordinator.IsVisibleLoginActive, "Slot hiển thị của coordinator phải được giải phóng.");
                     Assert(coordinator.CurrentVisibleProfileId == null, "CurrentVisibleProfileId phải là null.");
 
-                    string lockFilePath = Path.Combine(registry.GetUserDataDir(profileId, BrowserProfileKind.SharedAI), ".titoai_lock");
+                    string lockFilePath = Path.Combine(registry.GetUserDataDir(profileId, BrowserProfileKind.SharedAI), ".Fraylo_lock");
                     if (File.Exists(lockFilePath))
                     {
                         using var stream = new FileStream(lockFilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
@@ -746,7 +746,7 @@ public static class BrowserSmokeTests
         var (connection, factory) = await CreateInMemoryDbContextFactoryAsync();
         await using (connection)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "titoai_pw_doubleclick_" + Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_pw_doubleclick_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             try
@@ -820,7 +820,7 @@ public static class BrowserSmokeTests
         var (connection, factory) = await CreateInMemoryDbContextFactoryAsync();
         await using (connection)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "titoai_pw_staleclose_" + Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_pw_staleclose_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             try
@@ -928,7 +928,7 @@ public static class BrowserSmokeTests
         var (connection, factory) = await CreateInMemoryDbContextFactoryAsync();
         await using (connection)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "titoai_pw_preserve_session_" + Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_pw_preserve_session_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             try
@@ -997,7 +997,7 @@ public static class BrowserSmokeTests
         var (connection, factory) = await CreateInMemoryDbContextFactoryAsync();
         await using (connection)
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "titoai_pw_stale_defense_" + Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "Fraylo_pw_stale_defense_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             try
