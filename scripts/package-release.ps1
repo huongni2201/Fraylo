@@ -44,7 +44,14 @@ dotnet publish "$root\src\Fraylo.Launcher\Fraylo.Launcher.csproj" -c Release -r 
 if ($LASTEXITCODE) { throw "publish launcher thất bại" }
 
 # Không bao giờ để dữ liệu người dùng lọt vào gói phát hành.
-Get-ChildItem $appDir -Recurse -Include *.db, *.db-wal, *.db-shm, *.sqlite* | Remove-Item -Force
+Get-ChildItem $appDir -Recurse -File -Include *.db, *.db-wal, *.db-shm, *.sqlite, *.sqlite-wal, *.sqlite-shm, *.sqlite3, *.sqlite3-wal, *.sqlite3-shm | Remove-Item -Force
+
+# Bộ lọc dữ liệu phải giữ nguyên thư viện SQLite dùng khi khởi động.
+foreach ($requiredFile in @("Microsoft.EntityFrameworkCore.Sqlite.dll", "Microsoft.Data.Sqlite.dll")) {
+    if (-not (Test-Path (Join-Path $appDir $requiredFile) -PathType Leaf)) {
+        throw "Gói phát hành thiếu thư viện bắt buộc: $requiredFile"
+    }
+}
 
 Write-Host "[3/4] Tạo zip cập nhật + manifest.json..." -ForegroundColor Yellow
 $zipName = "Fraylo-$Version-win-x64.zip"
