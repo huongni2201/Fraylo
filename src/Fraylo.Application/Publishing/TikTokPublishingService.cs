@@ -24,7 +24,7 @@ public sealed class TikTokPublishingService(
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static readonly HashSet<string> Active = new(StringComparer.Ordinal);
     private sealed record StoredAttempt(PublishAttemptDto Attempt, string ProfileId, string Sha256Hash,
-        int OwnerProcessId, long OwnerStartedAtTicks);
+        int OwnerProcessId, long OwnerStartedAtTicks, string? SoundName = null, string? FavoriteSoundKey = null);
 
     public async Task<PublishingListResponse> ListAsync(CancellationToken ct = default)
     {
@@ -53,6 +53,33 @@ public sealed class TikTokPublishingService(
         return new(videos, attempts);
     }
 
+    public async Task<FavoriteSoundsResponse> GetFavoriteSoundsAsync(FavoriteSoundsRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!Guid.TryParse(request.ProjectId, out _) || !Guid.TryParse(request.AssetId, out _) || string.IsNullOrWhiteSpace(request.AccountId))
+            throw new ArgumentException("Cần chọn video và tài khoản TikTok để tải nhạc yêu thích.");
+
+        await using var db = new FrayloDbContext(dbOptions);
+        var project = await db.Projects.AsNoTracking().SingleOrDefaultAsync(p => p.Id == request.ProjectId, ct)
+            ?? throw new KeyNotFoundException("Không tìm thấy dự án.");
+        if (!(await FindReadyVideosAsync(db, project, ct)).Any(v => v.AssetId == request.AssetId))
+            throw new InvalidOperationException("Video không còn sẵn sàng để mở trình chỉnh sửa TikTok.");
+        var profile = await profiles.GetProfileAsync(request.AccountId, ct);
+        if (profile == null || profile.Kind != BrowserProfileKind.TikTok || profile.Lifecycle != "Active" ||
+            profile.SessionStatus != BrowserSessionStatus.Connected || string.IsNullOrWhiteSpace(profile.AccountIdentity))
+            throw new InvalidOperationException("Hãy đăng nhập và xác minh tài khoản TikTok đã chọn trong Cài đặt.");
+        var asset = await db.Assets.AsNoTracking().SingleAsync(a => a.Id == request.AssetId, ct);
+        var root = await roots.ResolveRootPathAsync(asset.StorageRootId, ct);
+        var path = StoragePathGuard.CombineAndVerify(root, asset.RelativePath);
+        if (Path.GetExtension(path).ToLowerInvariant() is not (".mp4" or ".mov" or ".webm"))
+            throw new InvalidOperationException("Chỉ hỗ trợ video MP4, MOV hoặc WebM.");
+        await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        if (!Convert.ToHexString(await SHA256.HashDataAsync(file, ct)).Equals(asset.Sha256Hash, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Video đã thay đổi so với bản đã tạo; chưa tải lên TikTok.");
+        var result = await uploader.GetFavoriteSoundsAsync(new(profile.ProfileId, profile.AccountIdentity, path, ""), ct);
+        return new(request.AccountId, result.Sounds, result.IsComplete);
+    }
+
     public async Task<PublishAttemptDto> PublishAsync(PublishVideoRequest request, CancellationToken ct = default)
     {
         ValidateRequest(request);
@@ -67,9 +94,11 @@ public sealed class TikTokPublishingService(
             var prior = await db.AppSettings.AsNoTracking().SingleOrDefaultAsync(s => s.Key == AttemptPrefix + attemptId, ct);
             if (prior != null)
             {
-                var existing = Read(prior.Value).Attempt;
+                var existingStored = Read(prior.Value);
+                var existing = existingStored.Attempt;
                 if (existing.ProjectId != request.ProjectId || existing.AssetId != request.AssetId ||
-                    existing.AccountId != request.AccountId || existing.Caption != request.Caption)
+                    existing.AccountId != request.AccountId || existing.Caption != request.Caption ||
+                    existingStored.SoundName != request.SoundName?.Trim() || existingStored.FavoriteSoundKey != request.FavoriteSoundKey)
                     throw new ArgumentException("Mã yêu cầu đã được dùng với nội dung khác.");
                 return existing;
             }
@@ -100,7 +129,7 @@ public sealed class TikTokPublishingService(
             var now = DateTimeOffset.UtcNow.ToString("O");
             stored = new(new(attemptId, project.Id, asset.Id, account.Id, accountIdentity, request.Caption,
                 "Preparing", "Đang kiểm tra phiên, tải video và điền caption…", null, now, now),
-                account.ProfileId, asset.Sha256Hash, Environment.ProcessId, Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks);
+                account.ProfileId, asset.Sha256Hash, Environment.ProcessId, Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks, request.SoundName?.Trim(), request.FavoriteSoundKey);
             if (stored.Sha256Hash.Length != 64) throw new InvalidOperationException("Video thiếu SHA-256 hợp lệ.");
 
             await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -127,7 +156,7 @@ public sealed class TikTokPublishingService(
             if (!hash.Equals(stored.Sha256Hash, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Video đã thay đổi so với bản đã tạo; chưa tải lên TikTok.");
             var url = await uploader.PublishAsync(new(stored.ProfileId, stored.Attempt.AccountIdentity,
-                filePath, request.Caption, request.SoundName?.Trim()), async () =>
+                filePath, request.Caption, request.SoundName?.Trim(), request.FavoriteSoundKey), async () =>
             {
                 ct.ThrowIfCancellationRequested();
                 await using var currentDb = new FrayloDbContext(dbOptions);
@@ -284,6 +313,10 @@ public sealed class TikTokPublishingService(
             throw new ArgumentException("Mã yêu cầu/dự án/video/tài khoản không hợp lệ.");
         if (string.IsNullOrWhiteSpace(request.Caption) || request.Caption.EnumerateRunes().Count() > 2200)
             throw new ArgumentException("Caption cần từ 1 đến 2.200 ký tự.");
+        if (request.FavoriteSoundKey is { } key && (key.Length != 64 || !key.All(char.IsAsciiHexDigit)))
+            throw new ArgumentException("Mã nhạc yêu thích không hợp lệ.");
+        if (!string.IsNullOrWhiteSpace(request.FavoriteSoundKey) && !string.IsNullOrWhiteSpace(request.SoundName))
+            throw new ArgumentException("Chỉ chọn nhạc yêu thích hoặc nhập tên sound.");
         if (request.SoundName is { } sound && (sound.Length > 100 || sound.Any(char.IsControl)))
             throw new ArgumentException("Tên sound tối đa 100 ký tự và không chứa ký tự điều khiển.");
     }

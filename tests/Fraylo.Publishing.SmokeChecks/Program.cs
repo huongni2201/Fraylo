@@ -20,7 +20,7 @@ using Fraylo.Infrastructure.Storage;
 
 namespace Fraylo.Publishing.SmokeChecks;
 
-public static class Program
+public static partial class Program
 {
     private static int _passed;
     private static void Check(bool condition, string message)
@@ -35,8 +35,16 @@ public static class Program
         throw new InvalidOperationException("Phải từ chối thao tác không hợp lệ.");
     }
 
-    public static async Task<int> Main()
+    public static async Task<int> Main(string[] args)
     {
+        if (args.Contains("--favorites-dom") || args.Contains("--upload-notices"))
+        {
+            using var playwright = await Playwright.CreateAsync();
+            await using var browser = await playwright.Chromium.LaunchAsync(new() { Headless = true, Channel = "msedge" });
+            if (args.Contains("--upload-notices")) await UploadNoticesDomFixtureAsync(await browser.NewPageAsync());
+            else await FavoriteSoundsDomFixtureAsync(await browser.NewPageAsync());
+            return 0;
+        }
         var temp = Path.Combine(Path.GetTempPath(), "titoai-publishing-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temp);
         try
@@ -80,6 +88,16 @@ public static class Program
             }
             var fake = new FakeUploader();
             var service = new TikTokPublishingService(options, roots, profiles, fake);
+            var favoritesRequest = new FavoriteSoundsRequest(projectId, assetId, accountId);
+            var favorites = await service.GetFavoriteSoundsAsync(favoritesRequest);
+            Check(favorites.AccountId == accountId && favorites.Sounds.Single().Title == "@creator", "Favorites đúng account");
+            await Reject(() => service.GetFavoriteSoundsAsync(favoritesRequest with { AccountId = Guid.NewGuid().ToString("N") }));
+            await Reject(() => service.GetFavoriteSoundsAsync(favoritesRequest with { AssetId = Guid.NewGuid().ToString("D") }));
+            await profiles.UpdateProfileStateAsync(profileId, sessionStatus: BrowserSessionStatus.Unverified);
+            await Reject(() => service.GetFavoriteSoundsAsync(favoritesRequest));
+            await profiles.UpdateProfileStateAsync(profileId, sessionStatus: BrowserSessionStatus.Connected);
+            Check(fake.FavoriteCalls == 1 && fake.Calls == 0, "Account/video/session sai không vào browser hoặc publish");
+            Pass("Favorites kiểm scope video/account, session và không đăng bài.");
             PublishVideoRequest NewRequest() => new(Guid.NewGuid().ToString("N"), projectId, assetId, accountId, "Caption tiếng Việt #thoitrang 🎬");
             Check((await service.ListAsync()).Videos.Count == 1, "Video cuối xuất hiện");
             Check((await service.ListAsync()).Videos.Single().CreatedAtUtc == now, "Video có thời điểm tạo của asset");
@@ -119,6 +137,7 @@ public static class Program
             var calls = fake.Calls;
             Check((await service.PublishAsync(uncertainRequest)).AttemptId == uncertain.AttemptId && fake.Calls == calls, "Replay không gửi lại");
             await Reject(() => service.PublishAsync(uncertainRequest with { Caption = "Nội dung khác" }));
+            await Reject(() => service.PublishAsync(uncertainRequest with { FavoriteSoundKey = new string('a', 64) }));
             Pass("Timeout sau submit giữ lỗi gốc; replay không gửi lại, yêu cầu mới được phép đăng.");
 
             fake.Action = async (before, _) =>
@@ -221,6 +240,8 @@ public static class Program
             Check(!(await dispatcher.DispatchAsync(envelope, CancellationToken.None)).Success, "Unregister dọn handler");
             Pass("Bridge đăng ký/validation/camelCase/unregister hoạt động.");
 
+            await Reject(() => service.PublishAsync(NewRequest() with { FavoriteSoundKey = "not-a-key" }));
+            await Reject(() => service.PublishAsync(NewRequest() with { FavoriteSoundKey = new string('a', 64), SoundName = "ambiguous" }));
             await DomFixtureAsync(videoPath, profiles, profileId, temp);
             Console.WriteLine($"Kết quả: {_passed} nhóm PASS; live TikTok NOT_RUN.");
             return 0;
@@ -278,6 +299,8 @@ public static class Program
         await Reject(() => TikTokVideoUploader.ApplySoundAsync(page, "Trend Beat", CancellationToken.None));
         Pass("Thêm sound: chọn đúng kết quả theo tên, lưu; không khớp hoặc thiếu nút thì dừng trước khi đăng.");
 
+        await FavoriteSoundsDomFixtureAsync(page);
+
         // Toàn bộ request được fulfill bằng HTML cục bộ; không liên hệ TikTok thật.
         using var owner = new ProfileOwner(id => Path.Combine(temp, "controller", id));
         const string directPost = """
@@ -303,7 +326,7 @@ public static class Program
             await context.RouteAsync("**/*", route => route.FulfillAsync(new()
             {
                 Status = status,
-                ContentType = "text/html", Body = markup
+                ContentType = "text/html; charset=utf-8", Body = markup
             }));
             await context.NewPageAsync();
             return context;
@@ -318,6 +341,11 @@ public static class Program
         Check(controller.IsRunning(profileId) && !preservedPage.IsClosed && handle.Context.Pages.Count == 1,
             "Tái dùng context ẩn nhưng chỉ đóng page tự tạo");
         Pass("Toàn adapter đi qua upload/caption/checkpoint/Post/success; giữ context của caller.");
+        markup = UploadNoticesFixture;
+        bool noticeCheckpoint = false;
+        await Reject(() => uploader.PublishAsync(input, () => { noticeCheckpoint = true; throw new InvalidOperationException("Dừng fixture trước Post"); }, CancellationToken.None));
+        Check(noticeCheckpoint, "Đóng đúng hai notice để tìm thấy nút Post trước checkpoint");
+        Pass("Đăng video: bỏ qua notice kiểm tra tự động và giới thiệu editor, tới checkpoint mà không tự bật tùy chọn.");
         markup = copyrightPrompt;
         var promptedUrl = await uploader.PublishAsync(input, () => Task.CompletedTask, CancellationToken.None);
         markup = directPost;
@@ -335,16 +363,26 @@ public static class Program
         Pass("HTTP 403 khi mở trang tải lên dừng trước checkpoint, không gửi lại.");
         await Reject(() => uploader.PublishAsync(input with { AccountIdentity = "@other" }, () => throw new Exception("Không được submit sai account"), CancellationToken.None));
         Check(!preservedPage.IsClosed, "Sai account không đóng context của caller");
+        markup = FavoriteSoundsFixture;
+        var pagesBeforeFavorites = handle.Context.Pages.Count;
+        var favoriteResult = await uploader.GetFavoriteSoundsAsync(input, CancellationToken.None);
+        Check(favoriteResult.Sounds.Count == 2 && !preservedPage.IsClosed && handle.Context.Pages.Count == pagesBeforeFavorites, $"Đọc Favorites, giữ context/page caller: {favoriteResult.Sounds.Count} bài, {handle.Context.Pages.Count}/{pagesBeforeFavorites} page");
+        await Reject(() => uploader.GetFavoriteSoundsAsync(input with { AccountIdentity = "@other" }, CancellationToken.None));
+        markup = directPost;
+        Pass("Crawler Favorites thật trên fixture xác minh account, chỉ đóng page tự tạo và không bấm Post.");
+        markup = directPost;
         var submitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var continuePost = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var pending = uploader.PublishAsync(input, async () => { submitted.SetResult(); await continuePost.Task; }, CancellationToken.None);
         await submitted.Task.WaitAsync(TimeSpan.FromSeconds(15));
         await Reject(() => uploader.PublishAsync(input, () => Task.CompletedTask, CancellationToken.None));
+        await Reject(() => uploader.GetFavoriteSoundsAsync(input, CancellationToken.None));
         continuePost.SetResult(); await pending;
         Pass("Sai danh tính hoặc đăng đồng thời cùng profile đều bị chặn.");
         await controller.CloseContextAsync(profileId);
         var visible = await controller.LaunchPersistentContextAsync(profileId, false);
         await Reject(() => uploader.PublishAsync(input, () => throw new Exception("Không được submit khi login đang mở"), CancellationToken.None));
+        await Reject(() => uploader.GetFavoriteSoundsAsync(input, CancellationToken.None));
         Check(controller.IsRunning(profileId) && !visible.Context.Pages.Single().IsClosed, "Không chiếm/đóng cửa sổ login");
         Pass("Giữ cửa sổ login của người dùng; không chạy upload trong context visible.");
 
@@ -367,7 +405,7 @@ public static class Program
         public IBrowserContextHandle? TryGetContext(string id) => null;
         public bool IsRunning(string id) => false;
         public Task<IBrowserContextHandle> LaunchVisibleAutomationContextAsync(string id, CancellationToken ct = default) => Task.FromResult(handle);
-        public Task<IBrowserContextHandle> LaunchPersistentContextAsync(string id, bool headless, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IBrowserContextHandle> LaunchPersistentContextAsync(string id, bool headless, CancellationToken ct = default) => Task.FromResult(handle);
         public Task<IBrowserContextHandle> LaunchPersistentContextAsync(string id, bool headless, string? url, CancellationToken ct = default) => throw new NotSupportedException();
         public Task CloseContextAsync(string id, CancellationToken ct = default) => throw new InvalidOperationException("Fixture cleanup failed");
         public Task NavigateAsync(string id, string url, CancellationToken ct = default) => throw new NotSupportedException();
@@ -383,6 +421,12 @@ public static class Program
 
     private sealed class FakeUploader : ITikTokVideoUploader
     {
+        public int FavoriteCalls { get; private set; }
+        public Task<FavoriteSoundsResult> GetFavoriteSoundsAsync(TikTokUploadInput input, CancellationToken ct)
+        {
+            FavoriteCalls++;
+            return Task.FromResult(new FavoriteSoundsResult([new("fixture-key", input.AccountIdentity, "Artist", "00:21")], true));
+        }
         public int Calls { get; private set; }
         public Func<Func<Task>, CancellationToken, Task<string?>> Action { get; set; } = (_, _) => throw new InvalidOperationException();
         public Task<string?> PublishAsync(TikTokUploadInput input, Func<Task> beforeSubmit, CancellationToken ct)

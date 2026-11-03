@@ -138,6 +138,9 @@ public sealed class PlaywrightBrowserController : IBrowserProcessController
                 startInfo.ArgumentList.Add($"--user-data-dir={userDataDir}");
                 startInfo.ArgumentList.Add("--no-first-run");
                 startInfo.ArgumentList.Add("--no-default-browser-check");
+                // Chrome nhớ vị trí cửa sổ trong profile: sau lần chạy ẩn (-32000) cửa sổ đăng nhập sẽ mở ngoài màn hình nếu không ép lại.
+                startInfo.ArgumentList.Add("--window-position=80,60");
+                startInfo.ArgumentList.Add("--window-size=1280,900");
                 if (!string.IsNullOrWhiteSpace(initialUrl))
                 {
                     startInfo.ArgumentList.Add(initialUrl);
@@ -231,9 +234,15 @@ public sealed class PlaywrightBrowserController : IBrowserProcessController
                     launchOptions.Args = ["--disable-blink-features=AutomationControlled"];
                     if (isHeadless)
                     {
-                        // Chrome headless bị Cloudflare/ChatGPT nhận diện (không ra ô nhập); chạy có cửa sổ nhưng đặt ngoài màn hình để "ẩn".
+                        // Chrome headless bị Cloudflare/ChatGPT nhận diện (không ra ô nhập); chạy có cửa sổ thật.
+                        // Đẩy cửa sổ ra ngoài màn hình để ẩn.
                         launchOptions.Headless = false;
                         launchOptions.Args = [.. launchOptions.Args, "--window-position=-32000,-32000", "--window-size=1280,900"];
+                    }
+                    else
+                    {
+                        // Cửa sổ hiện phải ép về trong màn hình vì Chrome nhớ vị trí ẩn (-32000) của lần chạy trước.
+                        launchOptions.Args = [.. launchOptions.Args, "--window-position=80,60", "--window-size=1280,900"];
                     }
                 }
 

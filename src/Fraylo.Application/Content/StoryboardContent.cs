@@ -45,7 +45,9 @@ public sealed class StoryboardContentService
         }
         catch (JsonException ex)
         {
-            throw new ProjectWorkflowValidationException($"Storyboard không phải JSON hợp lệ: {ex.Message}");
+            var head = text.Trim();
+            if (head.Length > 120) head = head[..120] + "…";
+            throw new ProjectWorkflowValidationException($"Storyboard không phải JSON hợp lệ: {ex.Message} Phản hồi bắt đầu: \"{head}\"");
         }
 
         if (storyboard == null || durationSeconds <= 0 || storyboard.DurationSeconds <= 0 ||

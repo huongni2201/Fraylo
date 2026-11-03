@@ -178,6 +178,7 @@ export function AiProviderSettingsPanel({
   const [videoPromptProvider, setVideoPromptProvider] = useState<string>("");
   const [maxOpenBrowsers, setMaxOpenBrowsers] = useState<number>(4);
   const [maxConcurrentJobs, setMaxConcurrentJobs] = useState<number>(8);
+  const [visibleBrowsers, setVisibleBrowsers] = useState<string[]>([]);
 
   // UI state
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -207,6 +208,7 @@ export function AiProviderSettingsPanel({
       setVideoPromptProvider(settingsRes.videoPromptProvider ?? "");
       setMaxOpenBrowsers(settingsRes.maxOpenBrowsers ?? 4);
       setMaxConcurrentJobs(settingsRes.maxConcurrentJobs ?? 8);
+      setVisibleBrowsers(settingsRes.visibleBrowserProviders ?? []);
 
       if (providersRes) {
         setProvidersData(providersRes);
@@ -232,7 +234,8 @@ export function AiProviderSettingsPanel({
       (imageProvider || null) !== (savedSettings.imageProvider || null) ||
       (videoPromptProvider || null) !== (savedSettings.videoPromptProvider || null) ||
       maxOpenBrowsers !== (savedSettings.maxOpenBrowsers ?? 4) ||
-      maxConcurrentJobs !== (savedSettings.maxConcurrentJobs ?? 8)
+      maxConcurrentJobs !== (savedSettings.maxConcurrentJobs ?? 8) ||
+      [...visibleBrowsers].sort().join(",") !== [...(savedSettings.visibleBrowserProviders ?? [])].sort().join(",")
     );
   }, [
     savedSettings,
@@ -241,6 +244,7 @@ export function AiProviderSettingsPanel({
     videoPromptProvider,
     maxOpenBrowsers,
     maxConcurrentJobs,
+    visibleBrowsers,
   ]);
 
   // Đồng bộ dirty state với component cha
@@ -256,6 +260,7 @@ export function AiProviderSettingsPanel({
       setVideoPromptProvider(savedSettings.videoPromptProvider ?? "");
       setMaxOpenBrowsers(savedSettings.maxOpenBrowsers ?? 4);
       setMaxConcurrentJobs(savedSettings.maxConcurrentJobs ?? 8);
+      setVisibleBrowsers(savedSettings.visibleBrowserProviders ?? []);
     }
     setFieldErrors({});
     setGeneralError(null);
@@ -359,6 +364,7 @@ export function AiProviderSettingsPanel({
         videoPromptProvider: videoPromptProvider || null,
         maxOpenBrowsers,
         maxConcurrentJobs,
+        visibleBrowserProviders: visibleBrowsers,
         // Bảo tồn nguyên vẹn đường dẫn thư mục lưu trữ đã lưu
         documentsPath: savedSettings?.documentsPath,
         imagesPath: savedSettings?.imagesPath,
@@ -372,6 +378,7 @@ export function AiProviderSettingsPanel({
       setVideoPromptProvider(res.videoPromptProvider ?? "");
       setMaxOpenBrowsers(res.maxOpenBrowsers ?? 4);
       setMaxConcurrentJobs(res.maxConcurrentJobs ?? 8);
+      setVisibleBrowsers(res.visibleBrowserProviders ?? []);
       setSaveSuccessMessage("Đã lưu thành công cấu hình dịch vụ AI và hạn mức!");
       setFieldErrors({});
     } catch (err: any) {
@@ -406,12 +413,7 @@ export function AiProviderSettingsPanel({
     return (
       <div className="mt-2 space-y-1.5 pt-1 border-t border-border/40 text-xs">
         <div className="flex flex-wrap items-center gap-2">
-          {info?.isTrial ? (
-            <Badge variant="warning" className="gap-1 py-0.5" data-testid="verification-badge">
-              <AlertTriangle className="h-3 w-3" />
-              Đang thử nghiệm — Browser sẽ hiện khi chạy
-            </Badge>
-          ) : info?.isUnverified ? (
+          {info?.isTrial ? null : info?.isUnverified ? (
             <Badge
               variant="warning"
               className="gap-1 py-0.5"
@@ -650,6 +652,37 @@ export function AiProviderSettingsPanel({
                 Quản lý hoặc đăng nhập tài khoản MuseAI tại Cài đặt → Tài khoản
                 <ExternalLink className="h-3 w-3" />
               </button>
+            </CardContent>
+          </Card>
+
+          {/* KHỐI: HIỆN / ẨN BROWSER THEO TỪNG AI */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle>Hiển thị browser khi chạy tác vụ</CardTitle>
+              <CardDescription>
+                Bật để mở cửa sổ browser của AI đó khi chạy tác vụ (tiện theo dõi/gỡ lỗi); tắt để chạy ẩn. Áp dụng cho lần mở browser tiếp theo.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {[
+                ["chatgpt-web", "ChatGPT Web"],
+                ["gemini-web", "Gemini Web"],
+                ["museai", "MuseAI (tạo video)"],
+              ].map(([key, name]) => (
+                <label key={key} className="flex items-center gap-3 text-sm font-medium text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={visibleBrowsers.includes(key)}
+                    onChange={(e) => {
+                      setVisibleBrowsers((prev) =>
+                        e.target.checked ? [...prev, key] : prev.filter((k) => k !== key)
+                      );
+                      setSaveSuccessMessage(null);
+                    }}
+                  />
+                  Hiện browser {name}
+                </label>
+              ))}
             </CardContent>
           </Card>
 

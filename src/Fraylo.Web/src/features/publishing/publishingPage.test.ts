@@ -15,6 +15,7 @@ test("Form đăng video: chọn đầu ra, không double-submit và lỗi cho ph
   let openSettings = 0;
   let releasePublish: ((attempt: PublishAttempt) => void) | undefined;
   const api: PublishingApi = {
+    favoriteSounds: async request => ({ accountId: request.accountId, sounds: [], isComplete: true }),
     list: async () => ({ videos: [{ projectId: "project", projectName: "Video đầu tiên", assetId: "video", fileName: "output.mp4", byteSize: 1024, caption: "Caption tiếng Việt #test", createdAtUtc: "2026-11-01T00:00:00Z" }], attempts }),
     listAccounts: async () => accounts,
     publish: async request => { requests.push(request); return await new Promise(resolve => { releasePublish = resolve; }); },
@@ -85,6 +86,7 @@ test("Trang ẩn không tải dữ liệu; mở lại từ Project chọn đúng
     { projectId: "b", projectName: "B", assetId: "video-b", fileName: "b.mp4", byteSize: 1024, caption: "Caption B", createdAtUtc: "2026-11-01T00:00:00Z" },
   ];
   const api: PublishingApi = {
+    favoriteSounds: async request => ({ accountId: request.accountId, sounds: [], isComplete: true }),
     list: async () => { calls++; return { videos, attempts: [] }; }, listAccounts: async () => [],
     publish: async () => { throw new Error("Không được tự đăng"); },
   };
@@ -126,6 +128,7 @@ test("Tab danh sách video: mới nhất trước, phân trang 10 dòng, đăng 
     { accountId: "login", accountIdentity: "@login", profileId: "p-login", sessionStatus: "NeedsLogin" },
   ];
   const api: PublishingApi = {
+    favoriteSounds: async request => ({ accountId: request.accountId, sounds: [], isComplete: true }),
     list: async () => ({ videos, attempts: stored }), listAccounts: async () => accounts,
     publish: async request => { requests.push(request); return await new Promise(resolve => { release = resolve; }); },
   };
@@ -140,7 +143,7 @@ test("Tab danh sách video: mới nhất trước, phân trang 10 dòng, đăng 
   assert.match(container.textContent!, /Trang 1\/3/);
   assert.equal(nav("Trước").disabled, true);
   const row = rows()[0];
-  const rowButton = () => rows()[0].querySelector("button")!;
+  const rowButton = () => Array.from(rows()[0].querySelectorAll("button")).find(b => b.textContent === "Đăng")!;
   assert.equal(rowButton().disabled, true);
   await act(() => {
     const textarea = row.querySelector("textarea")!;
@@ -171,7 +174,117 @@ test("Tab danh sách video: mới nhất trước, phân trang 10 dòng, đăng 
   const done: PublishAttempt = { ...requests[0], attemptId: requests[0].clientRequestId, accountIdentity: "@ok", state: "Published", message: "OK", externalPostUrl: null, createdAtUtc: new Date().toISOString(), updatedAtUtc: new Date().toISOString() };
   stored = [done];
   await React.act(async () => { release!(done); await new Promise(resolve => setTimeout(resolve, 10)); });
-  assert.equal(rows()[0].querySelector("button")!.disabled, true);
+  assert.equal(rowButton().disabled, true);
   assert.match(rows()[0].textContent!, /Đã đăng/);
   await React.act(async () => root.unmount()); container.remove();
+});
+
+
+test("Favorites theo tài khoản: tải chủ động, chọn bài khi đăng và xóa lựa chọn khi đổi account", async () => {
+  const requests: PublishRequest[] = [];
+  const calls: unknown[] = [];
+  let resolveSounds: ((value: import("./publishingApi").FavoriteSoundsResponse) => void) | undefined;
+  const api: PublishingApi = {
+    list: async () => ({ videos: [{ projectId: "p", projectName: "Video", assetId: "v", fileName: "v.mp4", byteSize: 1, caption: "Caption", createdAtUtc: "2026-11-03T00:00:00Z" }], attempts: [] }),
+    listAccounts: async () => ["a", "b"].map(accountId => ({ accountId, profileId: accountId, accountIdentity: `@${accountId}`, sessionStatus: "Connected" })),
+    favoriteSounds: async request => { calls.push(request); return new Promise(resolve => { resolveSounds = resolve; }); },
+    publish: async request => {
+      requests.push(request);
+      return { ...request, attemptId: "attempt", accountIdentity: "@a", state: "Failed", message: "Fixture", externalPostUrl: null, createdAtUtc: "", updatedAtUtc: "" };
+    },
+  };
+  const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
+  const button = (text: string) => Array.from(container.querySelectorAll("button")).find(b => b.textContent === text && !b.closest('[data-state="inactive"]'))!;
+  const select = async (id: string, value: string) => React.act(async () => {
+    const element = container.querySelector<HTMLSelectElement>(id)!;
+    element.value = value; element.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await React.act(async () => root.render(React.createElement(PublishingPage, { active: true, api, onOpenAccounts: () => {}, onReviewVideo: () => {} })));
+  await select("#publish-video", "v"); await select("#publish-account", "a");
+  assert.equal(container.querySelector("audio"), null);
+  assert.equal(Array.from(container.querySelectorAll("button")).some(button => button.textContent?.includes("Nghe thử")), false);
+  assert.equal(calls.length, 0);
+  await React.act(async () => { button("Tải nhạc yêu thích").click(); button("Tải nhạc yêu thích")?.click(); });
+  assert.deepEqual(calls, [{ projectId: "p", assetId: "v", accountId: "a" }]);
+  assert.equal(button("Đăng lên TikTok").disabled, true);
+  await React.act(async () => resolveSounds!({ accountId: "a", isComplete: true, sounds: [{ key: "a-key", title: "Nhạc của A", author: "Artist A", duration: "00:21" }] }));
+  await React.act(async () => container.querySelector<HTMLInputElement>('input[value="a-key"]')!.click());
+  await React.act(async () => button("Đăng lên TikTok").click());
+  assert.equal(requests[0].favoriteSoundKey, "a-key");
+  assert.equal(requests[0].soundName, undefined);
+  await select("#publish-account", "b");
+  assert.doesNotMatch(container.textContent!, /Nhạc của A/);
+  await React.act(async () => button("Tải nhạc yêu thích").click());
+  await React.act(async () => resolveSounds!({ accountId: "b", isComplete: true, sounds: [] }));
+  assert.match(container.textContent!, /Chưa có nhạc yêu thích khả dụng/);
+  await React.act(async () => button("Đăng lên TikTok").click());
+  assert.equal(requests[1].accountId, "b");
+  assert.equal(requests[1].favoriteSoundKey, undefined);
+  await React.act(async () => root.unmount()); container.remove();
+});
+
+test("Favorites: response muộn của account cũ bị bỏ; sai account hoặc lỗi mạng không hiển thị dữ liệu", async () => {
+  const { FavoriteSoundPicker } = await import("./FavoriteSoundPicker");
+  let resolveSounds: ((value: import("./publishingApi").FavoriteSoundsResponse) => void) | undefined;
+  let rejectSounds: ((error: Error) => void) | undefined;
+  const api: PublishingApi = {
+    list: async () => ({ videos: [], attempts: [] }), listAccounts: async () => [], publish: async () => { throw new Error("Không đăng"); },
+    favoriteSounds: async () => new Promise((resolve, reject) => { resolveSounds = resolve; rejectSounds = reject; }),
+  };
+  const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
+  const render = (accountId: string) => React.createElement(FavoriteSoundPicker, {
+    key: accountId, api, projectId: "p", assetId: "v", accountId, connected: true, disabled: false,
+    value: "", onChange: () => {}, onBusyChange: () => {},
+  });
+  const load = async () => React.act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+  await React.act(async () => root.render(render("a"))); await load();
+  const oldResolve = resolveSounds!;
+  await React.act(async () => root.render(render("b"))); await load();
+  await React.act(async () => oldResolve({ accountId: "a", sounds: [{ key: "old", title: "Nhạc cũ", author: "A", duration: "00:10" }], isComplete: true }));
+  assert.doesNotMatch(container.textContent!, /Nhạc cũ/);
+  assert.match(container.textContent!, /Đang tải nhạc/);
+  await React.act(async () => resolveSounds!({ accountId: "a", sounds: [], isComplete: true }));
+  assert.match(container.querySelector('[role="alert"]')!.textContent!, /không khớp tài khoản/);
+  await load();
+  await React.act(async () => rejectSounds!(new Error("Phiên đã hết hạn")));
+  assert.match(container.querySelector('[role="alert"]')!.textContent!, /Phiên đã hết hạn/);
+  assert.equal(container.querySelector("[role=radiogroup]"), null);
+  await React.act(async () => root.unmount()); container.remove();
+});
+
+test("Favorites ở tab danh sách: lấy đúng account của dòng và gửi bài đã chọn", async () => {
+  const { VideoListTab } = await import("./VideoListTab");
+  const requests: PublishRequest[] = [];
+  const video = { projectId: "p", projectName: "Video", assetId: "v", fileName: "v.mp4", byteSize: 1, caption: "Caption", createdAtUtc: "" };
+  const api: PublishingApi = {
+    list: async () => ({ videos: [], attempts: [] }), listAccounts: async () => [],
+    favoriteSounds: async request => ({ accountId: request.accountId, sounds: [{ key: "row-key", title: "Nhạc dòng", author: "A", duration: "00:15" }], isComplete: false }),
+    publish: async request => { requests.push(request); return { ...request, attemptId: "x", accountIdentity: "@row", state: "Failed", message: "Fixture", externalPostUrl: null, createdAtUtc: "", updatedAtUtc: "" }; },
+  };
+  const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
+  await React.act(async () => root.render(React.createElement(VideoListTab, {
+    videos: [video], attempts: [], accounts: [{ accountId: "row", profileId: "row", accountIdentity: "@row", sessionStatus: "Connected" }], api, disabled: false,
+    onAttempt: () => {}, onBusyChange: () => {}, onSettled: () => {}, onOpenAccounts: () => {},
+  })));
+  await React.act(async () => { const select = container.querySelector("select")!; select.value = "row"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  await React.act(async () => container.querySelector<HTMLButtonElement>("tbody button")!.click());
+  assert.match(container.textContent!, /Danh sách chưa đầy đủ/);
+  await React.act(async () => container.querySelector<HTMLInputElement>('input[value="row-key"]')!.click());
+  await React.act(async () => Array.from(container.querySelectorAll("button")).find(b => b.textContent === "Đăng")!.click());
+  assert.equal(requests[0].accountId, "row");
+  assert.equal(requests[0].favoriteSoundKey, "row-key");
+  await React.act(async () => root.unmount()); container.remove();
+});
+
+test("Bridge Favorites dùng command được allow-list và timeout riêng", async () => {
+  const { createPublishingApi } = await import("./publishingApi");
+  const { bridgeCommandAllowlist } = await import("../../contracts/bridge");
+  const calls: unknown[] = [];
+  const api = createPublishingApi(async <T,>(command: string, payload: unknown, options: unknown) => {
+    calls.push([command, payload, options]); return { accountId: "a", sounds: [], isComplete: true } as T;
+  });
+  const request = { projectId: "p", assetId: "v", accountId: "a" };
+  await api.favoriteSounds(request);
+  assert.equal(bridgeCommandAllowlist.includes("publishing.favorite_sounds"), true);
+  assert.deepEqual(calls, [["publishing.favorite_sounds", request, { timeoutMs: 180000 }]]);
 });

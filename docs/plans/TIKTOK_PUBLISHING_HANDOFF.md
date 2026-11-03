@@ -62,3 +62,34 @@ pnpm exec vite build --outDir ../../tests/Fraylo.Publishing.SmokeChecks/bin/web-
 Preview độc lập: chạy Vite rồi mở `/tests/publishing-preview.html`; có banner dữ liệu giả, không gọi publish thật. Không phải route đã tích hợp.
 
 Nguồn API đã tra qua Context7: [persistent context](https://playwright.dev/dotnet/docs/api/class-browsertype#browser-type-launch-persistent-context), [SetInputFilesAsync](https://playwright.dev/dotnet/docs/api/class-locator#locator-set-input-files), [network routing](https://playwright.dev/dotnet/docs/network). Không thêm package hay nâng phiên bản.
+
+
+## Favorites theo tài khoản — 2026-11-03
+
+- Theo yêu cầu trực tiếp, thêm `publishing.favorite_sounds` với `projectId`, `assetId`, `accountId`. Chỉ nhận video sẵn sàng của Project và profile TikTok Active/Connected có danh tính. Kiểm hash và đường dẫn trước khi tải video vào trình chỉnh sửa; không bấm Post khi đọc nhạc. Không thêm schema, tải file audio hoặc ghép nhạc cục bộ.
+- Trình đọc dùng cùng khóa profile với đăng video, xác minh danh tính live, không chiếm cửa sổ login visible, chỉ đóng page/context tự sở hữu. Đọc tab Favorites/Yêu thích và `#panel-favorites`, cuộn vùng overflow để lấy dữ liệu tải thêm; tối đa 40 lượt/500 bài, trả `isComplete=false` khi chạm giới hạn.
+- DOM/AX thật của TikTok Studio tiếng Việt đã được quan sát ngày 2026-11-03: tab Yêu thích, panel `panel-favorites`, listitem chứa tên, thời lượng `mm:ss` và tác giả. Không đoán endpoint nội bộ. Trạng thái rỗng EN/VI và luồng Lưu vẫn cần qualification live.
+- Danh sách xuất hiện trong form Đăng một video và từng dòng của Danh sách video. Chọn video/account rồi bấm **Tải nhạc yêu thích**. Đổi account/video loại bỏ dữ liệu và bài đã chọn; phản hồi muộn từ component cũ bị bỏ. Phiên hiện tại giữ danh sách trong bộ nhớ, không lưu cookie/URL audio vào React.
+- `favoriteSoundKey` là SHA-256 của tên + thời lượng + tác giả đã chuẩn hóa khoảng trắng. Khi đăng, mở lại Favorites của account và đối chiếu metadata; thiếu hoặc có nhiều kết quả giống hệt trong trang đang đọc thì dừng trước Post. Đây chưa phải music ID của TikTok; không tuyên bố định danh tuyệt đối khi có nhiều audio trùng toàn bộ metadata ở các trang khác nhau. Theo yêu cầu mới nhất, nghe thử audio đã được gỡ; chỉ giữ chọn nhạc Favorites.
+- Giữ ô tìm theo tên làm lựa chọn độc lập; backend chặn yêu cầu chứa cả soundName và favoriteSoundKey. Journal so khớp cả lựa chọn nhạc khi replay request ID để không dùng lại yêu cầu cho nội dung nhạc khác.
+- Nguồn API Playwright đã kiểm qua Context7: [locators](https://playwright.dev/dotnet/docs/locators), [scrolling](https://playwright.dev/dotnet/docs/input#scrolling). Không thêm dependency hoặc nâng phiên bản.
+- Kiểm thử tự động dùng SQLite/profile/HTML fixture riêng. Quan sát trang TikTok thật không thay thế kiểm thử crawler trọn luồng trên profile của Fraylo; LIVE SYNC/PUBLISH và WebView2 thật chưa chạy.
+
+Kiểm chứng cuối 2026-11-03: publishing smoke **30/30 PASS**, UI/navigation **9/9 PASS**, TypeScript/Vite và Desktop Release (bản chuẩn + thư mục riêng) **PASS 0 warning/error**, git diff-check PASS. Preview bằng dữ liệu giả đã kiểm Light/Dark ở khung rộng và hẹp; không thay cho WebView2 hoặc TikTok live.
+
+## Trạng thái hiện hành — FA4, 2026-11-03
+
+Theo yêu cầu mới nhất của người dùng: **gỡ toàn bộ nghe thử audio**, giữ tải/chọn Favorites và tìm sound theo tên khi đăng. UI không còn nút Nghe thử/Dừng hoặc audio player; bỏ blob/cache, theo dõi media prototype, tải CDN, PreviewSoundKey/preview DTO và test riêng của preview. Không đổi DB hoặc dữ liệu tài khoản. FA2/FA3 là lịch sử tính năng đã được gỡ; các bằng chứng audio live trước đó không còn là contract hiện hành.
+
+Đồng thời sửa lỗi ảnh người dùng “không thấy nút Âm thanh/Đăng” trên account mới. Probe dùng DB ReadOnly và ProfileOwner, đúng account/video trong ảnh, đã tái hiện cả hai lỗi trước sửa. TikTok hiện dialog **Turn on automatic content checks?**; dialog làm Sounds/Post biến mất khỏi AX tree. Sau Cancel còn overlay giới thiệu **New editing features added**. DOM thật có overlay trong `#react-joyride-portal` nhưng nội dung/nút Got it nằm ở `.tutorial-tooltip` riêng, nên không được tìm Got it trong portal overlay.
+
+`WaitForUploadControlAsync` dùng chung cho Post, Favorites và tìm sound theo tên: chờ có giới hạn/cancellation, kiểm CAPTCHA, chỉ Cancel đúng dialog mời kiểm tra tự động, chỉ Got it đúng tutorial đã đối chiếu rồi đợi render lại. Không tự bật kiểm tra nội dung, không đóng dialog lạ và không tự retry Post. Vẫn chặn selector không duy nhất và giữ checkpoint trước khi đăng.
+
+Kiểm chứng:
+
+- Regression notice đã FAIL trước sửa với đúng lỗi thiếu Sounds; fixture DOM tooltip thực đã FAIL với pointer intercept trước sửa scope, PASS sau sửa. Fixture còn kiểm đến checkpoint Post nhưng dừng trước click, không Turn on hoặc đăng ngoài ý muốn.
+- **Live account/video trong ảnh PASS:** đọc được **11 Favorites**, nút Post visible=true sau xử lý notice. Không bấm Lưu/Thêm nhạc/Post và không thay trạng thái bài đăng. Chưa kiểm đăng thật hoặc UI WebView2 sau khởi động lại.
+- **Publishing smoke 32/32 PASS**, **UI đăng video 8/8 PASS** (gồm khẳng định không có audio/player nghe thử), TypeScript/Vite và Desktop Release chuẩn **PASS 0 warning/error**, diff-check PASS.
+- Bản dùng thử: `src/Fraylo.Desktop/bin/Release/net10.0-windows/Fraylo.exe`. Chưa tự dừng/mở lại app người dùng. Probe tạm được dọn sau kiểm chứng; giữ mọi thay đổi nguồn không thuộc task.
+
+Nguồn Playwright kiểm qua Context7: [WaitForAsync](https://playwright.dev/dotnet/docs/api/class-locator#locator-wait-for), [visibility assertions](https://playwright.dev/dotnet/docs/api/class-locatorassertions#locator-assertions-to-be-visible). Không đổi dependency.

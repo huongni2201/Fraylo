@@ -4,7 +4,7 @@ using Fraylo.Contracts.Providers;
 
 namespace Fraylo.Application.Providers;
 
-/// <summary>MuseAI video render; the Playwright trial runs only when the automation is wired.</summary>
+/// <summary>MuseAI video render; the Playwright automation runs only when the automation is wired.</summary>
 public sealed class MuseAiVideoAdapter : IProviderAdapter
 {
     private readonly MuseAiPlaywrightAutomation? _automation;
@@ -15,13 +15,13 @@ public sealed class MuseAiVideoAdapter : IProviderAdapter
 
     public IReadOnlyList<ProviderTaskCapabilityDto> GetCapabilities() =>
         ProviderCapabilities.GetDefaultCapabilities(ProviderKey)
-            .Select(capability => MuseAiTrialMode.Enabled && _automation is not null &&
+            .Select(capability => _automation is not null &&
                 capability.TaskType == JobTaskType.VideoRender
                 ? capability with
                 {
-                    VerificationStatus = ProviderVerificationStatus.Trial,
+                    VerificationStatus = ProviderVerificationStatus.Verified,
                     AutomationSupported = true,
-                    EvidenceId = "user-enabled-playwright-trial"
+                    EvidenceId = "playwright-automation"
                 }
                 : capability).ToArray();
 

@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { TikTokAnalyticsAccount } from "../analytics/analyticsApi";
 import { blocksAnotherPublish, publishingError, requestIdFor, type PublishAttempt, type PublishingApi, type PublishVideo } from "./publishingApi";
 import { PublishStateBadge } from "./PublishStateBadge";
+import { FavoriteSoundPicker } from "./FavoriteSoundPicker";
 
 export const VIDEO_LIST_PAGE_SIZE = 10;
 const selectClass = "h-9 w-full rounded-md border border-input bg-background px-2 text-sm cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
@@ -28,8 +29,9 @@ const time = (value: string) => { const t = Date.parse(value); return Number.isN
 
 export function VideoListTab({ videos, attempts, accounts, api, disabled, onAttempt, onBusyChange, onSettled, onOpenAccounts }: VideoListTabProps) {
   const [page, setPage] = useState(0);
-  const [drafts, setDrafts] = useState<Record<string, { accountId?: string; caption?: string }>>({});
+  const [drafts, setDrafts] = useState<Record<string, { accountId?: string; caption?: string; favoriteSoundKey?: string }>>({});
   const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [soundBusy, setSoundBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const requestIds = useRef(new Map<string, { signature: string; id: string }>());
@@ -39,16 +41,16 @@ export function VideoListTab({ videos, attempts, accounts, api, disabled, onAtte
   const pageCount = Math.max(1, Math.ceil(sorted.length / VIDEO_LIST_PAGE_SIZE));
   const current = Math.min(page, pageCount - 1);
   const rows = sorted.slice(current * VIDEO_LIST_PAGE_SIZE, (current + 1) * VIDEO_LIST_PAGE_SIZE);
-  const edit = (assetId: string, patch: { accountId?: string; caption?: string }) =>
+  const edit = (assetId: string, patch: { accountId?: string; caption?: string; favoriteSoundKey?: string }) =>
     setDrafts(d => ({ ...d, [assetId]: { ...d[assetId], ...patch } }));
 
-  const publish = async (video: PublishVideo, accountId: string, caption: string) => {
-    if (busyRef.current) return;
+  const publish = async (video: PublishVideo, accountId: string, caption: string, favoriteSoundKey: string) => {
+    if (busyRef.current || disabled || soundBusy) return;
     busyRef.current = true;
     setPublishingId(video.assetId); onBusyChange(true); setError(null); setMessage(null);
-    const id = requestIdFor(requestIds.current, video.assetId, JSON.stringify([video.projectId, video.assetId, accountId, caption]));
+    const id = requestIdFor(requestIds.current, video.assetId, JSON.stringify([video.projectId, video.assetId, accountId, caption, favoriteSoundKey]));
     try {
-      const result = await api.publish({ clientRequestId: id, projectId: video.projectId, assetId: video.assetId, accountId, caption });
+      const result = await api.publish({ clientRequestId: id, projectId: video.projectId, assetId: video.assetId, accountId, caption, ...(favoriteSoundKey && { favoriteSoundKey }) });
       onAttempt(result);
       setMessage(`${video.fileName}: ${result.message}`);
       if (result.state === "Failed") requestIds.current.delete(video.assetId);
@@ -81,6 +83,7 @@ export function VideoListTab({ videos, attempts, accounts, api, disabled, onAtte
                 const draft = drafts[video.assetId];
                 const accountId = draft?.accountId ?? "";
                 const caption = draft?.caption ?? video.caption;
+                const favoriteSoundKey = draft?.favoriteSoundKey ?? "";
                 const length = Array.from(caption).length;
                 const account = accounts.find(a => a.accountId === accountId);
                 const forAccount = attempts.filter(a => a.assetId === video.assetId && a.accountId === accountId);
@@ -88,7 +91,7 @@ export function VideoListTab({ videos, attempts, accounts, api, disabled, onAtte
                 const blocking = forAccount.find(a => blocksAnotherPublish(a.state));
                 const running = publishingId === video.assetId;
                 const canPublish = !!account && account.sessionStatus === "Connected" && caption.trim().length > 0 && length <= 2200 &&
-                  !blocking && !disabled && publishingId === null;
+                  !blocking && !disabled && !soundBusy && publishingId === null;
                 return (
                   <TableRow key={video.assetId} className="hover:bg-muted/30">
                     <TableCell className="align-top">
@@ -102,8 +105,8 @@ export function VideoListTab({ videos, attempts, accounts, api, disabled, onAtte
                       </div>
                     </TableCell>
                     <TableCell className="align-top">
-                      <select aria-label={`Tài khoản TikTok cho ${video.fileName}`} className={selectClass} value={accountId} disabled={running}
-                        onChange={e => edit(video.assetId, { accountId: e.target.value })}>
+                      <select aria-label={`Tài khoản TikTok cho ${video.fileName}`} className={selectClass} value={accountId} disabled={disabled || soundBusy || publishingId !== null}
+                        onChange={e => edit(video.assetId, { accountId: e.target.value, favoriteSoundKey: "" })}>
                         <option value="">Chọn tài khoản</option>
                         {accounts.map(a => <option key={a.accountId} value={a.accountId}>{a.accountIdentity} · {a.sessionStatus === "Connected" ? "Đã kết nối" : "Cần đăng nhập"}</option>)}
                       </select>
@@ -112,6 +115,10 @@ export function VideoListTab({ videos, attempts, accounts, api, disabled, onAtte
                       <Textarea aria-label={`Caption cho ${video.fileName}`} rows={5} value={caption} disabled={running} aria-invalid={length > 2200}
                         onChange={e => edit(video.assetId, { caption: e.target.value })} className="select-text" />
                       <p className={length > 2200 ? "mt-1 text-xs text-destructive" : "mt-1 text-xs text-muted-foreground"}>{length}/2.200 ký tự</p>
+                      <div className="mt-3"><FavoriteSoundPicker key={`${accountId}:${video.assetId}`} api={api} projectId={video.projectId} assetId={video.assetId}
+                        accountId={accountId} connected={account?.sessionStatus === "Connected"} disabled={disabled || soundBusy || publishingId !== null}
+                        value={favoriteSoundKey} onChange={key => edit(video.assetId, { favoriteSoundKey: key })}
+                        onBusyChange={busy => { setSoundBusy(busy); onBusyChange(busy); }} /></div>
                     </TableCell>
                     <TableCell className="align-top text-sm">
                       {latest ? <div className="space-y-1.5">
@@ -121,7 +128,7 @@ export function VideoListTab({ videos, attempts, accounts, api, disabled, onAtte
                       </div> : <Badge variant="outline" className="whitespace-nowrap text-muted-foreground">Chưa đăng</Badge>}
                     </TableCell>
                     <TableCell className="text-right align-top">
-                      <Button size="sm" className="gap-2" disabled={!canPublish} onClick={() => void publish(video, accountId, caption)}>
+                      <Button size="sm" className="gap-2" disabled={!canPublish} onClick={() => void publish(video, accountId, caption, favoriteSoundKey)}>
                         {running ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
                         {running ? "Đang đăng…" : "Đăng"}
                       </Button>
@@ -135,10 +142,10 @@ export function VideoListTab({ videos, attempts, accounts, api, disabled, onAtte
         <nav aria-label="Phân trang video" className="flex flex-wrap items-center justify-between gap-3 text-sm">
           <span className="text-muted-foreground">{sorted.length} video · mới nhất trước</span>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-1" disabled={current === 0} onClick={() => setPage(current - 1)}>
+            <Button variant="outline" size="sm" className="gap-1" disabled={soundBusy || publishingId !== null || current === 0} onClick={() => setPage(current - 1)}>
               <ChevronLeft className="size-4" aria-hidden="true" />Trước</Button>
             <span aria-live="polite">Trang {current + 1}/{pageCount}</span>
-            <Button variant="outline" size="sm" className="gap-1" disabled={current >= pageCount - 1} onClick={() => setPage(current + 1)}>
+            <Button variant="outline" size="sm" className="gap-1" disabled={soundBusy || publishingId !== null || current >= pageCount - 1} onClick={() => setPage(current + 1)}>
               Sau<ChevronRight className="size-4" aria-hidden="true" /></Button>
           </div>
         </nav>

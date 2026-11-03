@@ -178,6 +178,7 @@ public sealed class VideoWorkflowPromptComposer
         bool singleVideo = config.VideoStrategy == VideoStrategies.SingleVideo;
         if (!singleVideo) await AppendTikTokContentGuidanceAsync(sb, dbContext, cancellationToken).ConfigureAwait(false);
         sb.AppendLine("[OUTPUT_CONTRACT]");
+        sb.AppendLine("BẮT BUỘC: toàn bộ phản hồi chỉ là MỘT đối tượng JSON, ký tự đầu tiên là { và ký tự cuối cùng là }. Không lời chào, không giải thích, không hỏi lại, không từ chối, không bọc markdown. Nếu thiếu dữ liệu thì tự suy luận hợp lý từ dữ liệu đã có và vẫn trả JSON đúng schema.");
         if (IsGridMode(config))
         {
             sb.AppendLine($"Chỉ trả về JSON hợp lệ, không markdown. Schema: {{\"durationSeconds\":{config.TargetDurationPerSceneSeconds},\"shots\":[{{\"startSeconds\":0,\"endSeconds\":2,\"description\":\"mô tả hành động và nội dung của cảnh\",\"imagePrompt\":\"mô tả hình của ô tương ứng trong ảnh storyboard\",\"motionPrompt\":\"một chuyển động camera hoặc chủ thể rõ ràng của cảnh\"}}]}}. Đúng {ReferenceImageModes.GridShotCount} shot theo thứ tự đọc trái sang phải, trên xuống dưới; shot đầu bắt đầu từ 0, các shot liên tiếp không hở không chồng, số giây nguyên, endSeconds của shot cuối bằng {config.TargetDurationPerSceneSeconds}. Không thêm giá, giảm giá, chứng nhận, công dụng hay biến thể sản phẩm không có trong dữ liệu đầu vào.");

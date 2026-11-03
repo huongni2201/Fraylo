@@ -548,19 +548,6 @@ export function getRecommendedAction(
       };
     }
 
-    // Nếu đã hết số lần thử tối đa: cấm retry
-    if (
-      job.attempts !== undefined &&
-      job.maxAttempts !== undefined &&
-      job.attempts >= job.maxAttempts
-    ) {
-      return {
-        type: "none",
-        label: "",
-        icon: HelpCircle,
-      };
-    }
-
     // Chỉ khi sideEffectSubmitted xác nhận rõ ràng bằng 0, hoặc render MuseAI hết giờ (chỉ tiếp tục chờ side chat đã lưu): mới cho retry
     const resumableRender = job.reasonCode === "render_timeout" || job.reasonCode === "render_interrupted";
     if (job.sideEffectSubmitted === 0 || (resumableRender && job.state === "Failed")) {

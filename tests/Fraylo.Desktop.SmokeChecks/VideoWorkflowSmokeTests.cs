@@ -113,7 +113,7 @@ public static class VideoWorkflowSmokeTests
         await RunCaseAsync("23. Retry bước: prompt bị loại → dừng đúng bước, retry chỉ tạo lại prompt, ảnh/storyboard giữ nguyên, bấm đúp không nhân đôi",
             TestCase23_RejectedPromptRetryKeepsEarlierStepsAsync);
 
-        await RunCaseAsync("24. Retry bước: ảnh 3×3 lỗi → chạy lại đúng job 3×3, không ghép lại; hết ngân sách thì chặn",
+        await RunCaseAsync("24. Retry bước: ảnh 3×3 lỗi → chạy lại đúng job 3×3, không ghép lại",
             TestCase24_FailedGridImageRetriesSameJobAsync);
 
         await RunCaseAsync("25. Retry bước: job ảnh báo xong nhưng không có ảnh → bị loại, không ghi đè ảnh cảnh, retry giữ nhận diện 3×3",
@@ -2191,7 +2191,7 @@ public static class VideoWorkflowSmokeTests
         finally { CleanupTestEnvironment(run.TempDir); }
     }
 
-    /// <summary>Kịch bản 24: ảnh 3×3 (Mẫu + sản phẩm) Failed → RetryAsync cùng job; ảnh ghép giữ nguyên; hết ngân sách / lý do cần can thiệp thì chặn.</summary>
+    /// <summary>Kịch bản 24: ảnh 3×3 (Mẫu + sản phẩm) Failed → RetryAsync cùng job; ảnh ghép giữ nguyên; lý do cần can thiệp thì chặn.</summary>
     private static async Task TestCase24_FailedGridImageRetriesSameJobAsync()
     {
         var (dbOptions, tempDir, prjId, workflow) = await CreateGridEnvironmentAsync(WorkflowModes.ModelAndProduct, withComposeTemplate: true);
@@ -2246,23 +2246,6 @@ public static class VideoWorkflowSmokeTests
             }
             var running = await workflow.GetWorkflowConfigWithStepsAsync(prjId);
             Assert(running.RunState == WorkflowRunState.Running && StepOf(running, WorkflowStepKinds.Grid).Outcome == WorkflowStepOutcomes.Pending, "Sau retry: Chờ chạy, run Đang chạy.");
-
-            // Hết ngân sách thử: không retry, có lý do.
-            using (var db = new FrayloDbContext(dbOptions))
-            {
-                var job = await db.Jobs.SingleAsync(j => j.Id == gridJobId);
-                job.State = JobState.Failed;
-                job.Attempts = job.MaxAttempts;
-                await db.SaveChangesAsync();
-            }
-            var exhausted = StepOf(await workflow.GetWorkflowConfigWithStepsAsync(prjId), WorkflowStepKinds.Grid);
-            Assert(!exhausted.CanRetry && exhausted.BlockedReason!.Contains("ngân sách"), "Hết ngân sách: không retry, hiện lý do.");
-            try
-            {
-                await workflow.RetryWorkflowStepAsync(new RetryWorkflowStepRequest(prjId, gridJobId, exhausted.JobRevision));
-                Assert(false, "Hết ngân sách phải bị từ chối.");
-            }
-            catch (ProjectWorkflowValidationException) { }
 
             // Lý do cần người dùng can thiệp (đăng nhập): không retry.
             using (var db = new FrayloDbContext(dbOptions))

@@ -132,13 +132,6 @@ public sealed class JobReconciliationService
                         nameof(request.Action));
                 }
 
-                if (job.Attempts >= job.MaxAttempts && !hasCheckpoint)
-                {
-                    throw new JobValidationException(
-                        $"Tác vụ đã vượt quá số lần thử tối đa ({job.Attempts}/{job.MaxAttempts}). Vui lòng tạo tác vụ mới.",
-                        nameof(job.Attempts));
-                }
-
                 // Reset SideEffectSubmitted = 0 nếu không có checkpoint (resubmit từ đầu).
                 // Nếu đã có checkpoint, giữ nguyên SideEffectSubmitted = 1 và ResultText / ResultReference để executor tiếp tục finalize!
                 job.State = JobState.Queued;

@@ -118,6 +118,7 @@ export const bridgeCommandAllowlist = [
 
   "publishing.list",
   "publishing.publish",
+  "publishing.favorite_sounds",
 
   "updates.check",
   "updates.apply",

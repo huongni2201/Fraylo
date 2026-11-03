@@ -20,6 +20,7 @@ export interface PublishRequest {
   caption: string;
   /** Tên sound tìm trong trình chỉnh sửa của TikTok; bỏ trống thì không thêm sound. */
   soundName?: string;
+  favoriteSoundKey?: string;
 }
 
 export interface PublishAttempt {
@@ -37,7 +38,10 @@ export interface PublishAttempt {
 }
 
 export interface PublishingList { videos: PublishVideo[]; attempts: PublishAttempt[] }
-export type PublishingCommand = "publishing.list" | "publishing.publish";
+export interface FavoriteSound { key: string; title: string; author: string; duration: string }
+export interface FavoriteSoundsRequest { projectId: string; assetId: string; accountId: string }
+export interface FavoriteSoundsResponse { accountId: string; sounds: FavoriteSound[]; isComplete: boolean }
+export type PublishingCommand = "publishing.list" | "publishing.publish" | "publishing.favorite_sounds";
 
 // Host truyền bridge đã có allow-list sau khi coordinator hoàn tất tích hợp.
 export type PublishingInvoke = <T>(command: PublishingCommand, payload: unknown, options: { timeoutMs: number }) => Promise<T>;
@@ -45,12 +49,14 @@ export interface PublishingApi {
   list(): Promise<PublishingList>;
   listAccounts(): Promise<TikTokAnalyticsAccount[]>;
   publish(request: PublishRequest): Promise<PublishAttempt>;
+  favoriteSounds(request: FavoriteSoundsRequest): Promise<FavoriteSoundsResponse>;
 }
 
 export function createPublishingApi(invoke: PublishingInvoke): PublishingApi {
   return {
     list: () => invoke("publishing.list", {}, { timeoutMs: 30000 }),
     listAccounts: listTikTokAnalyticsAccounts,
+    favoriteSounds: request => invoke("publishing.favorite_sounds", request, { timeoutMs: 180000 }),
     publish: (request) => invoke("publishing.publish", request, { timeoutMs: 300000 }),
   };
 }

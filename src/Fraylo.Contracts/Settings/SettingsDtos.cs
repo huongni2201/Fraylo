@@ -16,7 +16,8 @@ public sealed record SettingsDto(
     string EffectiveTheme,
     long Revision = 1,
     int MaxOpenBrowsers = 4,
-    int MaxConcurrentJobs = 8
+    int MaxConcurrentJobs = 8,
+    IReadOnlyList<string>? VisibleBrowserProviders = null
 );
 
 public sealed record SettingsSaveRequest(
@@ -29,7 +30,8 @@ public sealed record SettingsSaveRequest(
     long? ExpectedRevision = null,
     int? MaxOpenBrowsers = null,
     int? MaxConcurrentJobs = null,
-    string? ClientRequestId = null
+    string? ClientRequestId = null,
+    IReadOnlyList<string>? VisibleBrowserProviders = null
 );
 
 public sealed record BrowseFolderRequest(

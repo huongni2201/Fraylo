@@ -12,6 +12,7 @@ import type { TikTokAnalyticsAccount } from "../analytics/analyticsApi";
 import { blocksAnotherPublish, publishingError, requestIdFor, type PublishingApi, type PublishingList } from "./publishingApi";
 import { PublishStateBadge, publishStateLabels } from "./PublishStateBadge";
 import { VideoListTab } from "./VideoListTab";
+import { FavoriteSoundPicker } from "./FavoriteSoundPicker";
 
 const selectClass = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 
@@ -31,6 +32,8 @@ export function PublishingPage({ active, api, initialProjectId, selectionRevisio
   const [accountId, setAccountId] = useState("");
   const [caption, setCaption] = useState("");
   const [soundName, setSoundName] = useState("");
+  const [favoriteSoundKey, setFavoriteSoundKey] = useState("");
+  const [soundBusy, setSoundBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +69,7 @@ export function PublishingPage({ active, api, initialProjectId, selectionRevisio
   }, [api, initialProjectId, selectionRevision]);
 
   useEffect(() => { if (active) void load(); }, [active, load]);
+  useEffect(() => { setFavoriteSoundKey(""); setSoundName(""); }, [accountId, assetId]);
   useEffect(() => {
     if (!publishing && !listBusy) return;
     const timer = setInterval(() => {
@@ -79,16 +83,16 @@ export function PublishingPage({ active, api, initialProjectId, selectionRevisio
   const captionLength = Array.from(caption).length;
   const blocking = data.attempts.find(a => a.assetId === assetId && a.accountId === accountId && blocksAnotherPublish(a.state));
   const canPublish = !!video && !!account && account.sessionStatus === "Connected" && caption.trim().length > 0 &&
-    captionLength <= 2200 && soundName.trim().length <= 100 && !blocking && !publishing && !listBusy && !loading;
+    captionLength <= 2200 && soundName.trim().length <= 100 && !blocking && !publishing && !listBusy && !soundBusy && !loading;
 
   const publish = async () => {
     if (!canPublish || !video || !account || busyRef.current) return;
     busyRef.current = true;
     setPublishing(true); setError(null); setMessage(null);
     const sound = soundName.trim();
-    const signature = JSON.stringify([video.projectId, assetId, accountId, caption, sound]);
+    const signature = JSON.stringify([video.projectId, assetId, accountId, caption, sound, favoriteSoundKey]);
     try {
-      const result = await api.publish({ clientRequestId: requestIdFor(requestIds.current, "single", signature), projectId: video.projectId, assetId, accountId, caption, ...(sound && { soundName: sound }) });
+      const result = await api.publish({ clientRequestId: requestIdFor(requestIds.current, "single", signature), projectId: video.projectId, assetId, accountId, caption, ...(sound && { soundName: sound }), ...(favoriteSoundKey && { favoriteSoundKey }) });
       if (!mounted.current) return;
       setData(current => ({ ...current, attempts: [result, ...current.attempts.filter(a => a.attemptId !== result.attemptId)] }));
       setMessage(result.message);
@@ -109,7 +113,7 @@ export function PublishingPage({ active, api, initialProjectId, selectionRevisio
         title="Đăng video"
         description="Chọn video đã tạo, kiểm tra caption và đăng lên tài khoản TikTok của bạn."
         actions={
-          <Button variant="outline" onClick={() => { setError(null); void load(); }} disabled={loading || publishing || listBusy} className="gap-2">
+          <Button variant="outline" onClick={() => { setError(null); void load(); }} disabled={loading || publishing || listBusy || soundBusy} className="gap-2">
             <RefreshCw className="size-4" aria-hidden="true" />Tải lại
           </Button>
         }
@@ -124,7 +128,7 @@ export function PublishingPage({ active, api, initialProjectId, selectionRevisio
         {/* forceMount + ẩn bằng class để giữ caption đang sửa khi đổi tab. */}
         <TabsContent value="list" forceMount className="data-[state=inactive]:hidden">
           <VideoListTab videos={data.videos} attempts={data.attempts} accounts={accounts} api={api}
-            disabled={publishing || loading}
+            disabled={publishing || loading || soundBusy || listBusy}
             onAttempt={result => setData(current => ({ ...current, attempts: [result, ...current.attempts.filter(a => a.attemptId !== result.attemptId)] }))}
             onBusyChange={setListBusy} onSettled={() => { if (mounted.current) void load(); }} onOpenAccounts={onOpenAccounts} />
         </TabsContent>
@@ -142,8 +146,8 @@ export function PublishingPage({ active, api, initialProjectId, selectionRevisio
               />
             </div>
             <Label htmlFor="publish-video">Video</Label>
-            <select id="publish-video" className={selectClass} value={assetId} disabled={publishing || loading} onChange={e => {
-              setAssetId(e.target.value); setCaption(data.videos.find(v => v.assetId === e.target.value)?.caption ?? ""); setMessage(null);
+            <select id="publish-video" className={selectClass} value={assetId} disabled={publishing || loading || soundBusy || listBusy} onChange={e => {
+              setFavoriteSoundKey(""); setSoundName(""); setAssetId(e.target.value); setCaption(data.videos.find(v => v.assetId === e.target.value)?.caption ?? ""); setMessage(null);
             }}><option value="">Chọn video hoàn chỉnh</option>
               {data.videos.map(v => <option key={v.assetId} value={v.assetId}>{v.projectName} · {v.fileName}</option>)}
             </select>
@@ -160,7 +164,7 @@ export function PublishingPage({ active, api, initialProjectId, selectionRevisio
         <Card><CardHeader><CardTitle className="text-base">Nội dung bài đăng</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2"><Label htmlFor="publish-account">Tài khoản TikTok</Label>
-              <select id="publish-account" className={selectClass} value={accountId} disabled={publishing || loading} onChange={e => setAccountId(e.target.value)}>
+              <select id="publish-account" className={selectClass} value={accountId} disabled={publishing || loading || soundBusy || listBusy} onChange={e => { setFavoriteSoundKey(""); setSoundName(""); setAccountId(e.target.value); }}>
                 <option value="">Chọn tài khoản</option>{accounts.map(a => <option key={a.accountId} value={a.accountId}>{a.accountIdentity} · {a.sessionStatus === "Connected" ? "Đã kết nối" : "Cần đăng nhập"}</option>)}
               </select>
               {(!accounts.length || (account && account.sessionStatus !== "Connected")) && <div className="space-y-2">
@@ -173,9 +177,12 @@ export function PublishingPage({ active, api, initialProjectId, selectionRevisio
                 onChange={e => setCaption(e.target.value)} placeholder="Mô tả video và #hashtag…" className="select-text" />
               <p id="publish-caption-length" className={captionLength > 2200 ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>{captionLength}/2.200 ký tự</p>
             </div>
-            <div className="space-y-2"><Label htmlFor="publish-sound">Sound (tùy chọn)</Label>
-              <Input id="publish-sound" value={soundName} disabled={publishing} maxLength={100} placeholder="Tên sound cần tìm trong TikTok"
-                onChange={e => setSoundName(e.target.value)} className="select-text" />
+            <FavoriteSoundPicker key={`${accountId}:${assetId}`} api={api} projectId={video?.projectId ?? ""} assetId={assetId}
+              accountId={accountId} connected={account?.sessionStatus === "Connected"} disabled={publishing || listBusy || loading || soundBusy}
+              value={favoriteSoundKey} onChange={key => { setFavoriteSoundKey(key); if (key) setSoundName(""); }} onBusyChange={setSoundBusy} />
+            <div className="space-y-2"><Label htmlFor="publish-sound">Tìm nhạc theo tên (tùy chọn)</Label>
+              <Input id="publish-sound" value={soundName} disabled={publishing || soundBusy || listBusy} maxLength={100} placeholder="Tên sound cần tìm trong TikTok"
+                onChange={e => { setSoundName(e.target.value); setFavoriteSoundKey(""); }} className="select-text" />
               <p className="text-xs text-muted-foreground">TikTok chọn kết quả đầu tiên khớp tên và tự giới hạn sound theo độ dài video. Không tìm thấy thì ứng dụng dừng, không đăng.</p>
             </div>
             {blocking && <p role="status" className="text-sm text-muted-foreground">{publishStateLabels[blocking.state]}. Kiểm tra lịch sử bên dưới trước khi đăng lại.</p>}

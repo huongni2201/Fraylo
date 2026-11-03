@@ -1,5 +1,6 @@
 using System.IO;
 using Microsoft.EntityFrameworkCore;
+using Fraylo.Contracts.Providers;
 using Fraylo.Contracts.Settings;
 using Fraylo.Infrastructure.Persistence;
 using Fraylo.Infrastructure.Persistence.Entities;
@@ -53,6 +54,11 @@ public sealed class SettingsService
     public const string KeyRevision = "settings.revision";
     public const string KeyMaxOpenBrowsers = "scheduler.max_open_browsers";
     public const string KeyMaxConcurrentJobs = "scheduler.max_concurrent_jobs";
+    /// <summary>Provider key các AI chạy browser hiện cửa sổ (phân cách bằng dấu phẩy); không có thì chạy ẩn.</summary>
+    public const string KeyVisibleBrowserProviders = "browser.visible_providers";
+
+    public static IReadOnlyList<string> ParseVisibleBrowserProviders(string? value) =>
+        (value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     private readonly DbContextOptions<FrayloDbContext> _dbOptions;
     private readonly StorageRootRegistry _rootRegistry;
@@ -82,7 +88,8 @@ public sealed class SettingsService
                         s.Key == KeyVideoPromptProvider ||
                         s.Key == KeyRevision ||
                         s.Key == KeyMaxOpenBrowsers ||
-                        s.Key == KeyMaxConcurrentJobs)
+                        s.Key == KeyMaxConcurrentJobs ||
+                        s.Key == KeyVisibleBrowserProviders)
             .ToDictionaryAsync(s => s.Key, s => s.Value, cancellationToken)
             .ConfigureAwait(false);
 
@@ -121,7 +128,8 @@ public sealed class SettingsService
             EffectiveTheme: effectiveTheme,
             Revision: revision,
             MaxOpenBrowsers: maxOpenBrowsers,
-            MaxConcurrentJobs: maxConcurrentJobs
+            MaxConcurrentJobs: maxConcurrentJobs,
+            VisibleBrowserProviders: ParseVisibleBrowserProviders(settings.GetValueOrDefault(KeyVisibleBrowserProviders))
         );
     }
 
@@ -171,6 +179,11 @@ public sealed class SettingsService
         if (request.MaxConcurrentJobs.HasValue && (request.MaxConcurrentJobs.Value < 1 || request.MaxConcurrentJobs.Value > 64))
         {
             AddError(fieldErrors, "maxConcurrentJobs", "Số tác vụ chạy đồng thời tối đa toàn app phải nằm trong khoảng từ 1 đến 64.");
+        }
+
+        if (request.VisibleBrowserProviders?.Any(p => !ProviderKeys.All.Contains(p, StringComparer.OrdinalIgnoreCase)) == true)
+        {
+            AddError(fieldErrors, "visibleBrowserProviders", "Danh sách AI hiện browser chứa nhà cung cấp không được hỗ trợ.");
         }
 
         if (fieldErrors.Count > 0)
@@ -237,6 +250,11 @@ public sealed class SettingsService
             if (request.MaxConcurrentJobs.HasValue)
             {
                 await UpsertSettingAsync(dbContext, KeyMaxConcurrentJobs, request.MaxConcurrentJobs.Value.ToString(), now, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (request.VisibleBrowserProviders is not null)
+            {
+                await UpsertSettingAsync(dbContext, KeyVisibleBrowserProviders, string.Join(',', request.VisibleBrowserProviders.Select(p => p.Trim().ToLowerInvariant()).Distinct()), now, cancellationToken).ConfigureAwait(false);
             }
 
             // 3. Tăng Revision cài đặt

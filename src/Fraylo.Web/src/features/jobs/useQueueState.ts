@@ -587,18 +587,14 @@ export function useQueueState(options: UseQueueStateOptions = {}): UseQueueState
 
       // 3. Hydrate metadata nếu summary hiện tại chưa có đầy đủ thông tin an toàn
       let sideEffect = job.sideEffectSubmitted;
-      let attempts = job.attempts;
-      let maxAttempts = job.maxAttempts;
       let cancelRequested = job.cancelRequested;
       let hasUnresolved = job.hasUnresolvedSideEffect;
       let currentRevision = job.revision;
 
-      if (sideEffect === undefined || maxAttempts === undefined || currentRevision === undefined) {
+      if (sideEffect === undefined || currentRevision === undefined) {
         try {
           const detail = await jobApi.getStatus(job.id);
           sideEffect = detail.sideEffectSubmitted;
-          attempts = detail.attempts;
-          maxAttempts = detail.maxAttempts;
           cancelRequested = detail.cancelRequested;
           hasUnresolved = detail.hasUnresolvedSideEffect;
           currentRevision = detail.revision;
@@ -626,16 +622,6 @@ export function useQueueState(options: UseQueueStateOptions = {}): UseQueueState
           createErrorDto(
             "UNCERTAIN_RETRY_BLOCKED",
             "Tác vụ có tác dụng phụ chưa xác định (side-effect). Vui lòng sử dụng chức năng Đối soát để xử lý an toàn."
-          )
-        );
-        return false;
-      }
-
-      if (maxAttempts !== undefined && attempts >= maxAttempts) {
-        setError(
-          createErrorDto(
-            "MAX_ATTEMPTS_EXCEEDED",
-            `Tác vụ đã vượt quá số lần thử tối đa (${attempts}/${maxAttempts}). Vui lòng tạo tác vụ mới.`
           )
         );
         return false;

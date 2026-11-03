@@ -15,6 +15,7 @@ export interface SettingsDto {
   revision: number;
   maxOpenBrowsers: number;
   maxConcurrentJobs: number;
+  visibleBrowserProviders?: string[];
 }
 
 export interface AiSettingsSaveRequest {
@@ -25,6 +26,7 @@ export interface AiSettingsSaveRequest {
   videoPromptProvider?: string | null;
   maxOpenBrowsers: number;
   maxConcurrentJobs: number;
+  visibleBrowserProviders?: string[];
   documentsPath?: string;
   imagesPath?: string;
   videosPath?: string;

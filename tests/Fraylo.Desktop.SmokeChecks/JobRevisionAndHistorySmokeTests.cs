@@ -270,8 +270,8 @@ public static class JobRevisionAndHistorySmokeTests
             Assert(threwStale, "Bắt buộc ném JobConcurrencyConflictException khi expectedRevision không khớp");
             Console.WriteLine("PASS");
 
-            // Test 7: RetryAsync rejected when Attempts >= MaxAttempts
-            Console.Write("[RUN] Test 7: job.retry bị từ chối khi attempts >= maxAttempts ... ");
+            // Test 7: RetryAsync is a user action, so Attempts >= MaxAttempts must not block it
+            Console.Write("[RUN] Test 7: job.retry không bị chặn bởi maxAttempts ...");
             string jobIdBudget = Guid.NewGuid().ToString();
             using (var db = new FrayloDbContext(dbOptions))
             {
@@ -296,16 +296,8 @@ public static class JobRevisionAndHistorySmokeTests
                 await db.SaveChangesAsync();
             }
 
-            bool threwBudget = false;
-            try
-            {
-                await jobService.RetryAsync(new JobRetryRequest(jobIdBudget, ExpectedRevision: 4));
-            }
-            catch (JobValidationException)
-            {
-                threwBudget = true;
-            }
-            Assert(threwBudget, "Bắt buộc ném JobValidationException khi attempts đã đạt maxAttempts");
+            var budgetRetry = await jobService.RetryAsync(new JobRetryRequest(jobIdBudget, ExpectedRevision: 4));
+            Assert(budgetRetry.State == JobState.Queued, "Người dùng bấm thử lại phải được phép dù attempts đã đạt maxAttempts");
             Console.WriteLine("PASS");
 
             // Test 8: ListHistory paginated with opaque cursor, only resolved terminal jobs, no active jobs

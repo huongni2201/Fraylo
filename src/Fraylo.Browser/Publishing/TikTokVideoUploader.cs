@@ -1,4 +1,7 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
+using Fraylo.Contracts.Publishing;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using Fraylo.Browser.Abstractions;
@@ -8,11 +11,14 @@ using Fraylo.Contracts.Accounts;
 namespace Fraylo.Browser.Publishing;
 
 public sealed record TikTokUploadInput(
-    string ProfileId, string AccountIdentity, string FilePath, string Caption, string? SoundName = null);
+    string ProfileId, string AccountIdentity, string FilePath, string Caption, string? SoundName = null, string? FavoriteSoundKey = null);
+
+public sealed record FavoriteSoundsResult(IReadOnlyList<FavoriteSoundDto> Sounds, bool IsComplete);
 
 public interface ITikTokVideoUploader
 {
     Task<string?> PublishAsync(TikTokUploadInput input, Func<Task> beforeSubmit, CancellationToken cancellationToken);
+    Task<FavoriteSoundsResult> GetFavoriteSoundsAsync(TikTokUploadInput input, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -57,7 +63,7 @@ public sealed class TikTokVideoUploader(
             var handle = controller.TryGetContext(input.ProfileId);
             if (handle == null)
             {
-                handle = await controller.LaunchVisibleAutomationContextAsync(input.ProfileId, cancellationToken);
+                handle = await controller.LaunchPersistentContextAsync(input.ProfileId, isHeadless: true, cancellationToken: cancellationToken);
                 ownsContext = true;
             }
             if (!ownsContext && !handle.IsHeadless)
@@ -77,9 +83,11 @@ public sealed class TikTokVideoUploader(
             EnsureUploadResponse(response);
             EnsureTikTokUrl(page.Url);
             await UploadAndFillAsync(page, input, cancellationToken);
-            if (!string.IsNullOrWhiteSpace(input.SoundName)) await ApplySoundAsync(page, input.SoundName, cancellationToken);
-            var post = page.GetByRole(AriaRole.Button, new() { NameRegex = new Regex("^(Post|Đăng)$", RegexOptions.IgnoreCase) });
-            await RequireUniqueAsync(post, "nút Đăng");
+            if (!string.IsNullOrWhiteSpace(input.FavoriteSoundKey))
+                await ApplyFavoriteSoundAsync(page, input.FavoriteSoundKey, cancellationToken);
+            else if (!string.IsNullOrWhiteSpace(input.SoundName))
+                await ApplySoundAsync(page, input.SoundName, cancellationToken);
+            var post = await WaitForUploadControlAsync(page, new Regex("^(Post|Đăng)$", RegexOptions.IgnoreCase), "nút Đăng", cancellationToken);
             await Microsoft.Playwright.Assertions.Expect(post).ToBeEnabledAsync(new() { Timeout = 120000 });
             await EnsureNoChallengeAsync(page);
             await VerifyContentAsync(page, input);
@@ -118,6 +126,144 @@ public sealed class TikTokVideoUploader(
             }
             finally { operation.Release(); }
         }
+    }
+
+    public async Task<FavoriteSoundsResult> GetFavoriteSoundsAsync(TikTokUploadInput input, CancellationToken cancellationToken)
+    {
+        var operation = ProfileOperations.GetOrAdd(input.ProfileId, _ => new SemaphoreSlim(1, 1));
+        if (!operation.Wait(0)) throw new InvalidOperationException("Tài khoản đang đăng video hoặc tải nhạc; hãy chờ hoàn tất.");
+        bool ownsContext = false;
+        IPage? page = null;
+        try
+        {
+            var handle = controller.TryGetContext(input.ProfileId);
+            if (handle == null)
+            {
+                handle = await controller.LaunchPersistentContextAsync(input.ProfileId, isHeadless: true, cancellationToken: cancellationToken);
+                ownsContext = true;
+            }
+            if (!ownsContext && !handle.IsHeadless)
+                throw new InvalidOperationException("Hãy hoàn tất đăng nhập và đóng cửa sổ TikTok trong Cài đặt rồi tải nhạc.");
+            var identity = await identityResolver.ResolveProfileIdentityAsync(input.ProfileId, "tiktok", cancellationToken);
+            if (!identity.IsSuccess || identity.SessionStatus != BrowserSessionStatus.Connected ||
+                NormalizeIdentity(input.AccountIdentity).Length == 0 ||
+                NormalizeIdentity(input.AccountIdentity) != NormalizeIdentity(identity.AccountIdentity ?? ""))
+                throw new InvalidOperationException("Phiên TikTok không khớp tài khoản đã chọn; hãy xác minh lại trong Cài đặt.");
+            page = await handle.Context.NewPageAsync();
+            var response = await page.GotoAsync(UploadUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
+            EnsureUploadResponse(response);
+            EnsureTikTokUrl(page.Url);
+            await UploadAndFillAsync(page, input with { Caption = "" }, cancellationToken);
+            return await ReadFavoriteSoundsAsync(page, cancellationToken);
+        }
+        finally
+        {
+            try
+            {
+                if (ownsContext) await controller.CloseContextAsync(input.ProfileId, CancellationToken.None);
+                else if (page != null && !page.IsClosed) await page.CloseAsync();
+            }
+            finally { operation.Release(); }
+        }
+    }
+
+    // Đối chiếu AX TikTok Studio thật 2026-11-03: tab Yêu thích, panel-favorites, listitem tên + mm:ss · tác giả.
+    // shortcut: key dựa trên metadata vì chưa xác minh music ID trong DOM; dùng ID khi đã đối chiếu trên TikTok thật.
+    public static FavoriteSoundDto ParseFavoriteSound(string text)
+    {
+        var normalized = Regex.Replace(text, @"\s+", " ").Trim();
+        var match = Regex.Match(normalized, @"^(?<title>.+?)(?<duration>\d{1,3}:[0-5]\d)\s*·\s*(?<author>.+)$");
+        if (!match.Success || normalized.Length > 2000)
+            throw new InvalidOperationException("Không đọc được thông tin nhạc yêu thích; giao diện TikTok có thể đã thay đổi.");
+        var title = match.Groups["title"].Value.Trim();
+        var duration = match.Groups["duration"].Value;
+        var author = match.Groups["author"].Value.Trim();
+        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{title}\n{duration}\n{author}"))).ToLowerInvariant();
+        return new(key, title, author, duration);
+    }
+
+    public static Task<FavoriteSoundsResult> ReadFavoriteSoundsAsync(IPage page, CancellationToken ct)
+        => VisitFavoriteSoundsAsync(page, null, ct);
+
+    public static async Task ApplyFavoriteSoundAsync(IPage page, string key, CancellationToken ct)
+    {
+        await VisitFavoriteSoundsAsync(page, key, ct);
+        ct.ThrowIfCancellationRequested();
+        var save = page.GetByRole(AriaRole.Button, new() { NameRegex = new Regex("^(Save( edit)?|Lưu( chỉnh sửa)?)$", RegexOptions.IgnoreCase) });
+        await RequireUniqueAsync(save, "nút Lưu chỉnh sửa");
+        await save.ClickAsync(new() { Timeout = 5000 });
+        await page.Locator("#panel-favorites").WaitForAsync(new() { State = WaitForSelectorState.Hidden, Timeout = 30000 });
+    }
+
+    private static async Task<FavoriteSoundsResult> VisitFavoriteSoundsAsync(IPage page, string? selectedKey, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await EnsureNoChallengeAsync(page);
+        var sounds = await WaitForUploadControlAsync(page, new Regex("^(Sounds|Âm thanh)$", RegexOptions.IgnoreCase), "nút Âm thanh", ct);
+        await sounds.ClickAsync(new() { Timeout = 5000 });
+        var gotIt = page.GetByRole(AriaRole.Button, new() { NameRegex = new Regex("^(Got it|Đã hiểu)$", RegexOptions.IgnoreCase) });
+        if (await gotIt.CountAsync() == 1 && await gotIt.IsVisibleAsync()) await gotIt.ClickAsync(new() { Timeout = 2000 });
+        var favorites = page.GetByRole(AriaRole.Tab, new() { NameRegex = new Regex("^(Favorites|Favourites|Yêu thích)$", RegexOptions.IgnoreCase) });
+        await RequireUniqueAsync(favorites, "tab nhạc Yêu thích");
+        await favorites.ClickAsync(new() { Timeout = 5000 });
+        var panel = page.Locator("#panel-favorites");
+        await RequireUniqueAsync(panel, "danh sách nhạc Yêu thích");
+        await page.WaitForFunctionAsync("""
+            () => {
+                const p = document.getElementById('panel-favorites');
+                return p && (p.querySelector('li, [role="listitem"]') || /no (favorites|favourites|sounds|results)|chưa có|không có/i.test(p.innerText));
+            }
+            """, null, new() { Timeout = 15000 });
+        var found = new Dictionary<string, FavoriteSoundDto>(StringComparer.Ordinal);
+        bool complete = false;
+        // shortcut: giới hạn 40 lượt cuộn/500 bài để không giữ profile vô hạn; UI báo rõ danh sách chưa đầy đủ.
+        for (int turn = 0; turn < 40 && found.Count < 500; turn++)
+        {
+            ct.ThrowIfCancellationRequested();
+            await EnsureNoChallengeAsync(page);
+            var rows = panel.GetByRole(AriaRole.Listitem);
+            var texts = await rows.AllInnerTextsAsync();
+            var parsed = texts.Select(ParseFavoriteSound).ToArray();
+            foreach (var sound in parsed) found.TryAdd(sound.Key, sound);
+            if (selectedKey != null)
+            {
+                var indexes = parsed.Select((sound, index) => (sound, index)).Where(x => x.sound.Key == selectedKey).ToArray();
+                if (indexes.Length > 1) throw new InvalidOperationException("Nhiều âm thanh yêu thích có cùng thông tin; chưa chọn để tránh nhầm bài.");
+                if (indexes.Length == 1)
+                {
+
+                    var add = rows.Nth(indexes[0].index).GetByRole(AriaRole.Button);
+                    await RequireUniqueAsync(add, "nút thêm nhạc yêu thích");
+                    await add.ClickAsync(new() { Timeout = 5000 });
+                    return new(found.Values.ToArray(), false);
+                }
+            }
+            var before = string.Join("\n", texts);
+            var atBottom = await panel.EvaluateAsync<bool>("""
+                p => {
+                    const row = p.querySelector('li, [role="listitem"]');
+                    let s = row?.parentElement ?? p;
+                    while (s && s !== document.body && (s.scrollHeight <= s.clientHeight + 1 || !/auto|scroll|overlay/.test(getComputedStyle(s).overflowY))) s = s.parentElement;
+                    if (!s || s === document.body) return true;
+                    s.scrollTop += Math.max(100, s.clientHeight * .8);
+                    return s.scrollTop + s.clientHeight >= s.scrollHeight - 2;
+                }
+                """);
+            bool changed = true;
+            try
+            {
+                await page.WaitForFunctionAsync("""
+                    before => {
+                        const p = document.getElementById('panel-favorites');
+                        return p && [...p.querySelectorAll('li, [role="listitem"]')].map(e => e.innerText).join('\n') !== before;
+                    }
+                    """, before, new() { Timeout = 2000 });
+            }
+            catch (TimeoutException) { changed = false; }
+            if (atBottom && !changed) { complete = true; break; }
+        }
+        if (selectedKey != null) throw new InvalidOperationException("Bài đã chọn không còn trong Yêu thích của tài khoản này hoặc chưa tải được; hãy tải lại danh sách nhạc.");
+        return new(found.Values.ToArray(), complete);
     }
 
     public static bool IsPostUrlForIdentity(string url, string identity)
@@ -160,8 +306,7 @@ public sealed class TikTokVideoUploader(
         await EnsureNoChallengeAsync(page);
         // Cấu trúc đối chiếu với TikTok Studio thật (EN) ngày 2026-10-30: nút "Sounds" dưới bản xem trước mở trình dựng
         // có ô "Search sounds", kết quả là role=listitem với một nút "+" không tên, và Save/Cancel ở thanh trên.
-        var sounds = page.GetByRole(AriaRole.Button, new() { NameRegex = new Regex("^(Sounds|Âm thanh)$", RegexOptions.IgnoreCase) });
-        await RequireUniqueAsync(sounds, "nút Sounds");
+        var sounds = await WaitForUploadControlAsync(page, new Regex("^(Sounds|Âm thanh)$", RegexOptions.IgnoreCase), "nút Sounds", cancellationToken);
         await sounds.ClickAsync(new() { Timeout = 5000 });
 
         var search = page.GetByPlaceholder(new Regex("Search sounds?|Tìm (kiếm )?(sound|âm thanh)", RegexOptions.IgnoreCase));
@@ -207,6 +352,47 @@ public sealed class TikTokVideoUploader(
     }
 
     private static string NormalizeCaption(string text) => Regex.Replace(text.Replace('\u00a0', ' '), @"\s+", " ").Trim();
+
+    // Đối chiếu TikTok Studio thật 2026-11-03: account mới có notice che toàn bộ control upload khỏi AX tree.
+    private static async Task<ILocator> WaitForUploadControlAsync(IPage page, Regex name, string description, CancellationToken ct)
+    {
+        var control = page.GetByRole(AriaRole.Button, new() { NameRegex = name });
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        do
+        {
+            ct.ThrowIfCancellationRequested();
+            await EnsureNoChallengeAsync(page);
+            var checks = page.GetByRole(AriaRole.Dialog).Filter(new()
+            {
+                HasTextRegex = new Regex(@"Turn on automatic content checks\?", RegexOptions.IgnoreCase)
+            });
+            if (await checks.CountAsync() > 0 && await checks.First.IsVisibleAsync())
+            {
+                var cancel = checks.GetByRole(AriaRole.Button, new() { Name = "Cancel", Exact = true });
+                await RequireUniqueAsync(cancel, "nút Cancel của lời mời kiểm tra tự động");
+                await cancel.ClickAsync(new() { Timeout = 5000 });
+                await Task.Delay(100, ct);
+                continue;
+            }
+            var introduction = page.Locator(".tutorial-tooltip").Filter(new()
+            {
+                HasTextRegex = new Regex("New editing features added", RegexOptions.IgnoreCase)
+            });
+            if (await introduction.CountAsync() > 0 && await introduction.First.IsVisibleAsync())
+            {
+                var gotIt = introduction.GetByRole(AriaRole.Button, new() { Name = "Got it", Exact = true });
+                await RequireUniqueAsync(gotIt, "nút Got it của giới thiệu editor");
+                await gotIt.ClickAsync(new() { Timeout = 5000 });
+                await Task.Delay(100, ct);
+                continue;
+            }
+            var count = await control.CountAsync();
+            if (count > 1) throw new InvalidOperationException($"Giao diện TikTok không khớp: {description} không duy nhất.");
+            if (count == 1 && await control.IsVisibleAsync()) return control;
+            await Task.Delay(200, ct);
+        } while (clock.Elapsed < TimeSpan.FromSeconds(30));
+        throw new InvalidOperationException($"Giao diện TikTok không khớp: không thấy {description}.");
+    }
 
     private static async Task RequireUniqueAsync(ILocator locator, string name, bool attached = false)
     {

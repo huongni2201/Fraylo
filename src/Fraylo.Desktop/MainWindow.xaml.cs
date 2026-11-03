@@ -262,7 +262,17 @@ public partial class MainWindow : Window
                 () => new FrayloDbContext(dbOptions));
             _sessionCheckpointCoordinator = sessionCheckpointCoordinator;
 
-            var browserGatekeeper = new HostBrowserGatekeeper(profileRegistry, loginCoordinator, tabPool, processController, sessionCheckpointCoordinator, new JobActivityLog(dbOptions));
+            var browserGatekeeper = new HostBrowserGatekeeper(profileRegistry, loginCoordinator, tabPool, processController, sessionCheckpointCoordinator, new JobActivityLog(dbOptions),
+                isBrowserVisible: providerKey =>
+                {
+                    try
+                    {
+                        using var db = new FrayloDbContext(dbOptions);
+                        var value = db.AppSettings.AsNoTracking().Where(s => s.Key == SettingsService.KeyVisibleBrowserProviders).Select(s => s.Value).FirstOrDefault();
+                        return providerKey != null && SettingsService.ParseVisibleBrowserProviders(value).Contains(providerKey, StringComparer.OrdinalIgnoreCase);
+                    }
+                    catch { return false; }
+                });
             _browserGatekeeper = browserGatekeeper;
 
             _profileStateChangedHandler = async payload =>

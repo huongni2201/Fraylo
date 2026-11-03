@@ -665,13 +665,6 @@ public sealed class JobService
                 nameof(job.ReasonCode));
         }
 
-        if (job.Attempts >= job.MaxAttempts)
-        {
-            return new JobValidationException(
-                $"Tác vụ đã vượt quá ngân sách số lần thử tối đa ({job.Attempts}/{job.MaxAttempts}). Hết ngân sách muốn chạy lại phải tạo tác vụ mới có chủ ý.",
-                nameof(job.Attempts));
-        }
-
         return null;
     }
     /// <summary>

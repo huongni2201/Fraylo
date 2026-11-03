@@ -102,7 +102,25 @@ public sealed class GeminiPlaywrightAutomation
             await beforeSubmit().ConfigureAwait(false);
             await _activity.WriteAsync(job.JobId, "submit", "Đã ghi checkpoint trước khi gửi.", ct).ConfigureAwait(false);
             submitted = true; // The checkpoint is durable before the click; an uncertain click must never be retried blindly.
-            await send.ClickAsync().WaitAsync(ct).ConfigureAwait(false);
+            // A click can be swallowed (button re-rendering, upload still settling); Gemini clears the composer only once the prompt is really sent.
+            for (var attempt = 1; ; attempt++)
+            {
+                await send.ClickAsync().WaitAsync(ct).ConfigureAwait(false);
+                try
+                {
+                    await page.WaitForFunctionAsync("() => !(document.querySelector('rich-textarea [contenteditable=true], [role=textbox][contenteditable=true]')?.innerText ?? '').trim()",
+                        null, new() { Timeout = 5000 }).WaitAsync(ct).ConfigureAwait(false);
+                    break;
+                }
+                catch (TimeoutException) when (attempt < 3)
+                {
+                    await _activity.WriteAsync(job.JobId, "submit", $"Gemini chưa nhận lệnh gửi, thử bấm lại (lần {attempt + 1}).", ct).ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                    throw new InvalidOperationException("Đã bấm gửi nhưng Gemini không nhận prompt (ô nhập vẫn còn nội dung).");
+                }
+            }
             await _activity.WriteAsync(job.JobId, "submit", "Đã bấm gửi trên Gemini.", ct).ConfigureAwait(false);
             if (progress is not null) await progress(50, "Đang chờ Gemini trả lời").ConfigureAwait(false);
 
@@ -202,19 +220,19 @@ public sealed class GeminiPlaywrightAutomation
         catch (PlaywrightException ex)
         {
             await RecordFailureAsync(job.JobId, submitted ? $"Lỗi sau khi gửi: {ex.Message.Split((char)10)[0]}" : "Lỗi thao tác browser trước khi gửi.").ConfigureAwait(false);
-            return new(false, ReasonCode: submitted ? "execution_failed" : "automation_blocked",
+            return new(false, ReasonCode: "execution_failed",
                 ErrorMessage: $"Không thể hoàn tất thao tác Gemini Web: {ex.Message}", SideEffectSubmitted: submitted);
         }
         catch (TimeoutException ex)
         {
             await RecordFailureAsync(job.JobId, submitted ? $"Hết thời gian sau khi gửi: {ex.Message.Split((char)10)[0]}" : "Hết thời gian trước khi gửi.").ConfigureAwait(false);
-            return new(false, ReasonCode: submitted ? "execution_failed" : "automation_blocked",
+            return new(false, ReasonCode: "execution_failed",
                 ErrorMessage: $"Quá thời gian chờ Gemini Web: {ex.Message}", SideEffectSubmitted: submitted);
         }
         catch (Exception ex)
         {
             await RecordFailureAsync(job.JobId, submitted ? $"Tác vụ lỗi sau khi gửi: {ex.Message.Split((char)10)[0]}" : $"Tác vụ lỗi trước khi gửi: {ex.Message.Split((char)10)[0]}").ConfigureAwait(false);
-            return new(false, ReasonCode: submitted ? "execution_failed" : "automation_blocked",
+            return new(false, ReasonCode: "execution_failed",
                 ErrorMessage: $"Không hoàn tất được tác vụ Gemini Web: {ex.Message}", SideEffectSubmitted: submitted);
         }
         finally

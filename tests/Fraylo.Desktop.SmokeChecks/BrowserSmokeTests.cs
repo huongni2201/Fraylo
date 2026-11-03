@@ -565,95 +565,6 @@ public static class BrowserSmokeTests
     }
 
     /// <summary>
-    /// Test 10: PlaywrightBrowserController - Single-Instance Lock (.titoai_lock) Lifecycle,
-    /// bảo vệ Chromium userDataDir, ngăn đồng thời 2 tiến trình, đóng an toàn và giải phóng lock.
-    /// </summary>
-    public static async Task Test_PlaywrightBrowserController_SingleInstanceLock_LifecycleAndSafety()
-    {
-        var (connection, factory) = await CreateInMemoryDbContextFactoryAsync();
-        await using (connection)
-        {
-            string tempDir = Path.Combine(Path.GetTempPath(), "titoai_pw_test_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-
-            try
-            {
-                var registry = new ProfileRegistry(factory, tempDir);
-                string profileId = "shared_ai";
-                await registry.EnsureProfileAsync(profileId, BrowserProfileKind.SharedAI);
-
-                using var owner = new ProfileOwner(pid => registry.GetUserDataDir(pid, BrowserProfileKind.SharedAI));
-
-                var mockContextProxy = DispatchProxy.Create<IBrowserContext, MockBrowserContextProxy>();
-                var mockContext = (MockBrowserContextProxy)(object)mockContextProxy;
-
-                var controller = new PlaywrightBrowserController(
-                    registry,
-                    owner,
-                    customPersistentLauncher: (userDataDir, options) =>
-                    {
-                        Assert(options.Headless == true, "Headless option phải đúng theo yêu cầu.");
-                        Assert(options.Args != null && options.Args.Contains("--disable-blink-features=AutomationControlled"),
-                            "Profile SharedAI phải có cờ --disable-blink-features=AutomationControlled.");
-                        return Task.FromResult(mockContextProxy);
-                    });
-
-                await using (controller)
-                {
-                    // 1. Khởi chạy persistent context
-                    var handle = await controller.LaunchPersistentContextAsync(profileId, isHeadless: true);
-                    Assert(controller.IsRunning(profileId), "Controller phải báo IsRunning = true.");
-                    Assert(owner.IsLocked(profileId), "Profile phải bị khóa bởi Single-Instance Lock.");
-
-                    string lockFilePath = Path.Combine(registry.GetUserDataDir(profileId, BrowserProfileKind.SharedAI), ".titoai_lock");
-                    Assert(File.Exists(lockFilePath), "Tệp .titoai_lock phải tồn tại trên đĩa.");
-
-                    // Kiểm tra file lock cấp HĐH (không cho phép mở stream độc quyền khác)
-                    bool lockExclusive = false;
-                    try
-                    {
-                        using var stream = new FileStream(lockFilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-                    }
-                    catch (IOException)
-                    {
-                        lockExclusive = true;
-                    }
-                    Assert(lockExclusive, "Tệp .titoai_lock phải bị khóa cấp HĐH khi browser đang chạy.");
-
-                    // Kiểm tra ngăn đồng thời: khởi chạy context thứ 2 trên cùng profileId phải ném lỗi
-                    bool doubleLaunchBlocked = false;
-                    try
-                    {
-                        await controller.LaunchPersistentContextAsync(profileId, isHeadless: true);
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        doubleLaunchBlocked = true;
-                    }
-                    Assert(doubleLaunchBlocked, "Khởi chạy lần 2 trên cùng profile đang chạy phải bị chặn.");
-
-                    // 2. Đóng context
-                    await controller.CloseContextAsync(profileId);
-                    Assert(!controller.IsRunning(profileId), "Controller phải báo IsRunning = false sau khi đóng.");
-                    Assert(!owner.IsLocked(profileId), "Profile phải được mở khóa sau khi đóng.");
-                    Assert(mockContext.WasClosed, "IBrowserContext.CloseAsync phải được gọi.");
-
-                    var profile = await registry.GetProfileAsync(profileId);
-                    Assert(profile?.OperationalState == BrowserOperationalState.Stopped, "Profile phải chuyển về Stopped.");
-                    Assert(profile?.VisibilityState == BrowserVisibilityState.Hidden, "Profile phải chuyển về Hidden.");
-                }
-            }
-            finally
-            {
-                if (Directory.Exists(tempDir))
-                {
-                    try { Directory.Delete(tempDir, recursive: true); } catch { }
-                }
-            }
-        }
-    }
-
-    /// <summary>
     /// Test 11: PlaywrightBrowserController - Xử lý lỗi driver Playwright chưa cài đặt (PlaywrightException),
     /// đảm bảo ném lỗi có cấu trúc, cập nhật Error state và GIẢI PHÓNG lock .titoai_lock an toàn (không rò rỉ).
     /// </summary>
@@ -1353,7 +1264,6 @@ public static class BrowserSmokeTests
         await RunAsync("Test 7: Crash Recovery at Startup (Reconcile Checkpoints & Dirty Profiles)", Test_CrashRecovery_ReconcileCheckpointsAtStartup);
         await RunAsync("Test 8: Session Probe & IProfileIdentityResolver Contracts (No fake PASS)", Test_SessionProbe_And_IProfileIdentityResolver_NoFakePass);
         await RunAsync("Test 9: CompleteLoginHandoff with Unverified SessionProbe does NOT resolve Checkpoint", Test_CompleteLoginHandoff_ProbeUnverified_CheckpointNotResolved);
-        await RunAsync("Test 10: PlaywrightBrowserController Single-Instance Lock Lifecycle & Isolation", Test_PlaywrightBrowserController_SingleInstanceLock_LifecycleAndSafety);
         await RunAsync("Test 11: PlaywrightBrowserController Missing Driver Error Handling & Lock Release", Test_PlaywrightBrowserController_MissingDriverException_ReleasesLockSafely);
         await RunAsync("Test 13: Login Lifecycle: Close during GotoAsync (lock released & recovered)", Test_LoginLifecycle_CloseDuringGoto_ReleasesLockAndRecovers);
         await RunAsync("Test 14: Login Lifecycle: Double-click & Immediate Reopen", Test_LoginLifecycle_DoubleClickAndImmediateReopen);

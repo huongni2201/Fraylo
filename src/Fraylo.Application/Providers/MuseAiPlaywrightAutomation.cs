@@ -159,7 +159,7 @@ public sealed class MuseAiPlaywrightAutomation
         catch (PlaywrightException ex)
         {
             await RecordFailureAsync(job.JobId, submitted ? "Lỗi sau khi gửi." : "Lỗi thao tác browser trước khi gửi.").ConfigureAwait(false);
-            return new(false, ReasonCode: PostSubmitFailureReason(submitted, threadSaved, "automation_blocked"),
+            return new(false, ReasonCode: PostSubmitFailureReason(submitted, threadSaved, "execution_failed"),
                 ErrorMessage: $"Không thể hoàn tất thao tác MuseAI: {ex.Message}", SideEffectSubmitted: submitted);
         }
         catch (TimeoutException ex)
@@ -172,7 +172,7 @@ public sealed class MuseAiPlaywrightAutomation
         catch (Exception ex)
         {
             await RecordFailureAsync(job.JobId, submitted ? "Tác vụ lỗi sau khi gửi." : "Tác vụ lỗi trước khi gửi.").ConfigureAwait(false);
-            return new(false, ReasonCode: PostSubmitFailureReason(submitted, threadSaved, "automation_blocked"),
+            return new(false, ReasonCode: PostSubmitFailureReason(submitted, threadSaved, "execution_failed"),
                 ErrorMessage: $"Không hoàn tất được render MuseAI: {ex.Message}", SideEffectSubmitted: submitted);
         }
         finally

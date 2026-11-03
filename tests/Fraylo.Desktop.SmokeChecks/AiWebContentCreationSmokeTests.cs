@@ -235,6 +235,15 @@ public static class AiWebContentCreationSmokeTests
             throw new InvalidOperationException("Kỳ vọng văn bản thường không có video_prompt hợp lệ, giữ rawText để người dùng sửa.");
         }
 
+        // 5. innerText khối code Gemini: nhãn "JSON" trước, không có ```; chỉ có video_prompt + tiktok_content
+        const string geminiCodeBlock = "JSON\n{\n  \"video_prompt\": \"A 9:16 fashion video.\",\n  \"tiktok_content\": \"Gợi ý set\\n\\n#setdetkim\"\n}\nCopy";
+        var geminiRes = ContentCandidateParser.ParseVideoContent(geminiCodeBlock, "project-1", "scene-1", 1, null);
+        if (!geminiRes.IsCompliant || geminiRes.Candidate?.VideoPrompt != "A 9:16 fashion video."
+            || geminiRes.Candidate.TikTokContent != "Gợi ý set\n\n#setdetkim")
+        {
+            throw new InvalidOperationException("Kỳ vọng parse được JSON video_prompt/tiktok_content từ innerText khối code Gemini.");
+        }
+
         Console.WriteLine("PASS");
     }
 

@@ -8,7 +8,7 @@ namespace Fraylo.Desktop.Bridge.Handlers;
 public sealed class PublishingHandlers(TikTokPublishingService service)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    public static readonly string[] Commands = ["publishing.list", "publishing.publish"];
+    public static readonly string[] Commands = ["publishing.list", "publishing.publish", "publishing.favorite_sounds"];
 
     public void Register(IBridgeDispatcher dispatcher)
     {
@@ -31,6 +31,7 @@ public sealed class PublishingHandlers(TikTokPublishingService service)
             object result = request.Command switch
             {
                 "publishing.list" => await service.ListAsync(ct),
+                "publishing.favorite_sounds" => await service.GetFavoriteSoundsAsync(Parse<FavoriteSoundsRequest>(request), ct),
                 "publishing.publish" => await service.PublishAsync(Parse<PublishVideoRequest>(request), ct),
                 _ => throw new ArgumentException("Lệnh đăng video không được hỗ trợ.")
             };

@@ -23,7 +23,7 @@ Yêu cầu người dùng 2026-10-28: ChatGPT hoặc Gemini lập kịch bản t
 - `MuseAiPlaywrightAutomation` (mới): mỗi job mở `https://muse.ai/thread/new` trong profile MuseAI, đính kèm ảnh theo thứ tự `ImageAssetIds`, điền prompt kèm dòng `Thời lượng yêu cầu`, ghi checkpoint trước khi bấm `Send`, chờ URL `/thread/<uuid>`, chờ tin trợ lý có `<video>` và hết `Assistant is typing`, bấm `Open animated video` rồi `Download`, lưu MP4 thành Asset kiểu `Video`.
 - Lỗi sau khi gửi trả `reconcile_required` kèm URL side chat để đối soát; không gửi lại tự động.
 - URL side chat được lưu trong AppSettings `job.museai.thread.<jobId>` ngay sau khi gửi. Lệnh `job.recover_output` (nút "Tải lại video từ phiên MuseAI đã lưu" trong đối soát) mở lại đúng side chat, chờ video, tải về, lưu Asset rồi đánh dấu tác vụ Succeeded và áp dụng kết quả. Không gửi lại prompt. Chưa kiểm chứng trên muse.ai thật.
-- `MuseAiVideoAdapter` nhận automation tùy chọn; `MuseAiTrialMode.Enabled = true` đưa `VideoRender` về `Trial`. Khi không có automation, adapter vẫn trả `automation_blocked` như trước.
+- `MuseAiVideoAdapter` nhận automation tùy chọn; `VideoRender` của MuseAI là `Verified` khi có automation. Khi không có automation, adapter vẫn trả `automation_blocked` như trước.
 - `JobMediaSnapshotDto.ImageAssetIds` (mới): danh sách ảnh có thứ tự; được kiểm tra scope và hash như các ảnh snapshot khác. `CreateSceneVideoAsync` hiện chỉ truyền một ảnh.
 - `AssetService.SaveVideoAssetAsync` (mới): kiểm tra MP4 bằng chữ ký `ftyp`, lưu vào thư mục Videos của Project.
 - `MuseAiVideoAdapter` đăng ký trong `MainWindow.xaml.cs` với automation mới. Capability Muse thêm thời lượng 30 giây.

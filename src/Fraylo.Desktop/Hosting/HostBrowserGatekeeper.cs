@@ -26,6 +26,7 @@ public sealed class HostBrowserGatekeeper : IBrowserGatekeeper, IDisposable
     private readonly IBrowserProcessController? _processController;
     private readonly BrowserSessionCheckpointCoordinator? _checkpointCoordinator;
     private readonly JobActivityLog? _activity;
+    private readonly Func<string?, bool>? _isBrowserVisible;
 
     private readonly ConcurrentDictionary<string, string> _profileVisibility = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, string> _profileOperational = new(StringComparer.OrdinalIgnoreCase);
@@ -39,8 +40,10 @@ public sealed class HostBrowserGatekeeper : IBrowserGatekeeper, IDisposable
         ITabPool tabPool,
         IBrowserProcessController? processController = null,
         BrowserSessionCheckpointCoordinator? checkpointCoordinator = null,
-        JobActivityLog? activity = null)
+        JobActivityLog? activity = null,
+        Func<string?, bool>? isBrowserVisible = null)
     {
+        _isBrowserVisible = isBrowserVisible;
         _profileRegistry = profileRegistry ?? throw new ArgumentNullException(nameof(profileRegistry));
         _loginCoordinator = loginCoordinator ?? throw new ArgumentNullException(nameof(loginCoordinator));
         _tabPool = tabPool ?? throw new ArgumentNullException(nameof(tabPool));
@@ -123,19 +126,14 @@ public sealed class HostBrowserGatekeeper : IBrowserGatekeeper, IDisposable
         await launchLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            // User-requested trial: show ChatGPT jobs so their browser actions can be inspected.
             if (_processController != null && !_processController.IsRunning(profileId))
             {
                 try
                 {
                     if (_activity != null)
                         await _activity.WriteAsync(jobId, "browser", "Đang khởi động browser cho tác vụ.", cancellationToken).ConfigureAwait(false);
-                    var profile = await _profileRegistry.GetProfileAsync(profileId, cancellationToken).ConfigureAwait(false);
-                    // User-requested trial: show the browser for Gemini text jobs and the MuseAI render. ChatGPT runs hidden.
-                    var visibleTrial = (GeminiTrialMode.Enabled && profile?.ProviderKey == ProviderKeys.GeminiWeb &&
-                        role is JobTaskType.Script or JobTaskType.Image or JobTaskType.VideoPrompt) ||
-                        (MuseAiTrialMode.Enabled && profile?.ProviderKey == ProviderKeys.MuseAI && role == JobTaskType.VideoRender);
-                    if (visibleTrial)
+                    var profile = _isBrowserVisible == null ? null : await _profileRegistry.GetProfileAsync(profileId, cancellationToken).ConfigureAwait(false);
+                    if (profile != null && _isBrowserVisible!(profile.ProviderKey))
                         await _processController.LaunchVisibleAutomationContextAsync(profileId, cancellationToken).ConfigureAwait(false);
                     else
                         await _processController.LaunchPersistentContextAsync(profileId, isHeadless: true, cancellationToken: cancellationToken).ConfigureAwait(false);

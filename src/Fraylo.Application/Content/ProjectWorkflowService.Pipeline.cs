@@ -671,7 +671,7 @@ public sealed partial class ProjectWorkflowService
     /// </summary>
     public async Task<int> RunAutoRenderRecoverySweepAsync(CancellationToken cancellationToken = default)
     {
-        if (!MuseAiTrialMode.Enabled || _jobService == null) return 0;
+        if (_jobService == null) return 0;
 
         await using var dbContext = new FrayloDbContext(_dbOptions);
         var configKeys = await dbContext.AppSettings.AsNoTracking()
@@ -711,7 +711,7 @@ public sealed partial class ProjectWorkflowService
     /// </summary>
     private async Task TryAutoEnqueueVideoRenderForProjectAsync(string projectId, string runId, string? logJobId, CancellationToken cancellationToken, int attempt = 0)
     {
-        if (!MuseAiTrialMode.Enabled || _jobService == null) return;
+        if (_jobService == null) return;
 
         // Callback retry có thể đến sau khi run đã kết thúc hoặc đã chuyển sang run khác: không tạo render mới.
         var config = await GetStoredWorkflowConfigAsync(projectId, cancellationToken).ConfigureAwait(false);

@@ -175,19 +175,19 @@ public sealed class ChatGptPlaywrightAutomation
         catch (PlaywrightException ex)
         {
             await RecordFailureAsync(job.JobId, submitted ? $"Lỗi sau khi gửi: {ex.Message.Split((char)10)[0]}" : "Lỗi thao tác browser trước khi gửi.").ConfigureAwait(false);
-            return new(false, ReasonCode: submitted ? "execution_failed" : "automation_blocked",
+            return new(false, ReasonCode: "execution_failed",
                 ErrorMessage: $"Không thể hoàn tất thao tác ChatGPT Web: {ex.Message}", SideEffectSubmitted: submitted);
         }
         catch (TimeoutException ex)
         {
             await RecordFailureAsync(job.JobId, submitted ? $"Hết thời gian sau khi gửi: {ex.Message.Split((char)10)[0]}" : "Hết thời gian trước khi gửi.").ConfigureAwait(false);
-            return new(false, ReasonCode: submitted ? "execution_failed" : "automation_blocked",
+            return new(false, ReasonCode: "execution_failed",
                 ErrorMessage: $"Quá thời gian chờ ChatGPT Web: {ex.Message}", SideEffectSubmitted: submitted);
         }
         catch (Exception ex)
         {
             await RecordFailureAsync(job.JobId, submitted ? $"Tác vụ lỗi sau khi gửi: {ex.Message.Split((char)10)[0]}" : $"Tác vụ lỗi trước khi gửi: {ex.Message.Split((char)10)[0]}").ConfigureAwait(false);
-            return new(false, ReasonCode: submitted ? "execution_failed" : "automation_blocked",
+            return new(false, ReasonCode: "execution_failed",
                 ErrorMessage: $"Không hoàn tất được tác vụ ChatGPT Web: {ex.Message}", SideEffectSubmitted: submitted);
         }
         finally
