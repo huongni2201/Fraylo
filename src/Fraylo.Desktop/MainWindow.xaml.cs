@@ -175,7 +175,7 @@ public partial class MainWindow : Window
             // 1. Dọn dẹp handlers cũ nếu đang thử lại (retry) để tránh nhân đôi listener
             CleanupG2Handlers();
 
-            // 2. Khởi tạo bất đồng bộ SQLite Database & chạy EF Core Migrations (T04)
+            // 2. Khởi tạo bất đồng bộ SQLite Database theo final-schema.sql (T04)
             var bootstrapper = new SqliteDatabaseBootstrapper();
             var bootstrapResult = await bootstrapper.BootstrapAsync(
                 databasePath: RuntimePaths.DatabasePath,

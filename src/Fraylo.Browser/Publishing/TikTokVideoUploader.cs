@@ -103,7 +103,11 @@ public sealed class TikTokVideoUploader(
             {
                 HasTextRegex = new Regex("Your video has been posted|Video (published|posted)|Đã đăng video|Video đã được đăng", RegexOptions.IgnoreCase)
             });
-            await success.First.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30000 });
+            // TikTok có thể chỉ chuyển khỏi trang tải lên (không hiện toast role=alert/status); coi đó cũng là đã đăng.
+            await page.WaitForFunctionAsync(
+                "re => !location.pathname.startsWith('/tiktokstudio/upload') || new RegExp(re, 'i').test(document.body.innerText)",
+                "Your video has been posted|Video (published|posted)|Đã đăng video|Video đã được đăng",
+                new() { Timeout = 30000 });
             published = true;
             var links = await success.Locator("a[href]").EvaluateAllAsync<string[]>("els => els.map(e => e.href)");
             return links.FirstOrDefault(url => IsPostUrlForIdentity(url, expected));
@@ -384,6 +388,14 @@ public sealed class TikTokVideoUploader(
                 await RequireUniqueAsync(gotIt, "nút Got it của giới thiệu editor");
                 await gotIt.ClickAsync(new() { Timeout = 5000 });
                 await Task.Delay(100, ct);
+                continue;
+            }
+            // Tour react-joyride của editor phủ overlay chặn click; đóng bằng nút chính của bước hiện tại (không phụ thuộc chữ).
+            var tour = page.Locator("[id^='react-joyride-step-'] button[data-type='primary']");
+            if (await tour.CountAsync() > 0 && await tour.First.IsVisibleAsync())
+            {
+                await tour.First.ClickAsync(new() { Timeout = 5000 });
+                await Task.Delay(300, ct);
                 continue;
             }
             var count = await control.CountAsync();
