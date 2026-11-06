@@ -1,3 +1,4 @@
+import { UpdateNotification } from "./features/updates/UpdateNotification";
 import { lazy, Suspense, useEffect, useState, useCallback, type ReactNode } from "react";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { bridgeClient } from "./services/bridgeClient";
@@ -331,6 +332,7 @@ function AppContent() {
       <div
         className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background"
       >
+        <UpdateNotification />
         {/* VÙNG NỘI DUNG CHÍNH (BẢO TOÀN DRAFT KHI ĐỔI VIEW/ROUTE) */}
         <main className="flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-[1400px] px-6 py-6 lg:px-8 lg:py-8">
