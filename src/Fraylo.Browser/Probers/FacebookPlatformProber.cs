@@ -41,9 +41,16 @@ public sealed class FacebookPlatformProber : IPlatformSessionProber
     }
 
     /// <summary>Trang đăng nhập hoặc checkpoint nghĩa là phiên chưa dùng được.</summary>
-    public static bool IsLoginOrCheckpointUrl(string url) =>
-        url.Contains("/login", StringComparison.OrdinalIgnoreCase) ||
-        url.Contains("/checkpoint", StringComparison.OrdinalIgnoreCase);
+    public static bool IsLoginOrCheckpointUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
+        var path = uri.AbsolutePath.TrimEnd('/');
+        return path.Equals("/login", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("/login.php", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/login/", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("/checkpoint", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/checkpoint/", StringComparison.OrdinalIgnoreCase);
+    }
 
     public async Task<ProfileIdentityResolutionResult> ProbeAsync(
         BrowserProfileInfo profile,

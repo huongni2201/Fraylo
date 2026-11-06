@@ -10,6 +10,7 @@ using Fraylo.Application.Analytics;
 using Fraylo.Application.Assets;
 using Fraylo.Application.Content;
 using Fraylo.Application.Documents;
+using Fraylo.Application.Facebook;
 using Fraylo.Application.Jobs;
 using Fraylo.Application.Projects;
 using Fraylo.Application.Prompts;
@@ -47,6 +48,9 @@ public partial class MainWindow : Window
     private WorkflowHandlers? _workflowHandlers;
     private AnalyticsHandlers? _analyticsHandlers;
     private PublishingHandlers? _publishingHandlers;
+    private FacebookHandlers? _facebookHandlers;
+    private CancellationTokenSource? _facebookQueueCts;
+    private Task? _facebookQueueTask;
     private UpdateHandlers? _updateHandlers;
     private BrowserHandlers? _browserHandlers;
     private SettingsHandlers? _settingsHandlers;
@@ -293,6 +297,7 @@ public partial class MainWindow : Window
 
             var providerAccountService = new ProviderAccountService(dbOptions, sessionProbe, async (pid, ct) =>
             {
+                using var operation = FacebookGroupBrowser.AcquireProfileOperation(pid);
                 await processController.CloseContextAsync(pid, ct);
                 await profileRegistry.DeleteUserDataAsync(pid, ct);
             });
@@ -359,6 +364,18 @@ public partial class MainWindow : Window
                 new TikTokVideoUploader(processController, sessionProbe));
             _publishingHandlers = new PublishingHandlers(publishingService);
             _publishingHandlers.Register(DispatcherInstance);
+            var facebookService = new FacebookPublishingService(dbOptions, rootRegistry, profileRegistry,
+                new FacebookGroupBrowser(processController), processController);
+            _facebookHandlers = new FacebookHandlers(facebookService);
+            _facebookHandlers.Register(DispatcherInstance);
+            var facebookQueueCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            _facebookQueueCts = facebookQueueCts;
+            _facebookQueueTask = Task.Run(async () =>
+            {
+                try { await facebookService.RunQueueAsync(facebookQueueCts.Token).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (facebookQueueCts.IsCancellationRequested) { }
+                catch (Exception ex) { Trace.TraceError("Facebook queue stopped: {0}", ex.GetType().Name); }
+            });
 
             _updateHandlers = new UpdateHandlers(new AppUpdateService(() => Dispatcher.BeginInvoke(() => System.Windows.Application.Current.Shutdown())));
             _updateHandlers.Register(DispatcherInstance);
@@ -508,8 +525,22 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task StopFacebookQueueAsync()
+    {
+        var cts = _facebookQueueCts;
+        var task = _facebookQueueTask;
+        _facebookQueueCts = null;
+        _facebookQueueTask = null;
+        if (cts == null) return;
+        await cts.CancelAsync().ConfigureAwait(false);
+        try { if (task != null) await task.ConfigureAwait(false); }
+        finally { cts.Dispose(); }
+    }
     private void CleanupG2Handlers()
     {
+        _ = StopFacebookQueueAsync();
+        _facebookHandlers?.Unregister(DispatcherInstance);
+        _facebookHandlers = null;
         if (_profileRegistry != null && _profileStateChangedHandler != null)
         {
             _profileRegistry.ProfileStateChanged -= _profileStateChangedHandler;
@@ -632,6 +663,9 @@ public partial class MainWindow : Window
 
     private async Task CleanupG2HandlersAsync()
     {
+        await StopFacebookQueueAsync().ConfigureAwait(true);
+        _facebookHandlers?.Unregister(DispatcherInstance);
+        _facebookHandlers = null;
         if (_providerAccountHandlers != null)
         {
             _providerAccountHandlers.Unregister(DispatcherInstance);

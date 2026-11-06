@@ -179,16 +179,16 @@
       "fraylo.application": {
         "type": "Project",
         "dependencies": {
-          "Fraylo.Browser": "[1.0.0, )",
-          "Fraylo.Contracts": "[1.0.0, )",
-          "Fraylo.Infrastructure": "[1.0.0, )"
+          "Fraylo.Browser": "[1.0.4, )",
+          "Fraylo.Contracts": "[1.0.4, )",
+          "Fraylo.Infrastructure": "[1.0.4, )"
         }
       },
       "fraylo.browser": {
         "type": "Project",
         "dependencies": {
-          "Fraylo.Contracts": "[1.0.0, )",
-          "Fraylo.Infrastructure": "[1.0.0, )",
+          "Fraylo.Contracts": "[1.0.4, )",
+          "Fraylo.Infrastructure": "[1.0.4, )",
           "Microsoft.Playwright": "[1.64.1, )"
         }
       },
@@ -198,7 +198,7 @@
       "fraylo.infrastructure": {
         "type": "Project",
         "dependencies": {
-          "Fraylo.Contracts": "[1.0.0, )",
+          "Fraylo.Contracts": "[1.0.4, )",
           "Microsoft.EntityFrameworkCore.Sqlite": "[10.0.13, )",
           "SQLitePCLRaw.bundle_e_sqlite3": "[3.0.5, )"
         }
@@ -237,6 +237,19 @@
           "SQLite": "3.53.4",
           "SQLitePCLRaw.config.e_sqlite3": "3.0.5"
         }
+      }
+    },
+    "net10.0-windows7.0/win-x64": {
+      "Microsoft.Web.WebView2": {
+        "type": "Direct",
+        "requested": "[1.0.4314.35, )",
+        "resolved": "1.0.4314.35",
+        "contentHash": "x5MFf2W03xueU1mMNvivXfHSsQ+ODo7vJ36qw/dLtU5Gs+8d7+7N7zzmNNDoT3ffosmcvZNBtUnlzyiDUuBkSQ=="
+      },
+      "SQLite": {
+        "type": "Transitive",
+        "resolved": "3.53.4",
+        "contentHash": "KN7jeWqgUPeBRe1FlcpZURzxomuKKEKHmBBQfg+Nx7NkY1LjKhzHvH+3ASkNvhayESE34nMBinL9CV21JfPRJw=="
       }
     }
   }

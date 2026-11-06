@@ -27,6 +27,11 @@ public class FrayloDbContext : DbContext
     public DbSet<VideoRevision> VideoRevisions => Set<VideoRevision>();
     public DbSet<PublishRecord> PublishRecords => Set<PublishRecord>();
 
+    public DbSet<FacebookTarget> FacebookTargets => Set<FacebookTarget>();
+    public DbSet<FacebookPostBatch> FacebookPostBatches => Set<FacebookPostBatch>();
+    public DbSet<FacebookPostTask> FacebookPostTasks => Set<FacebookPostTask>();
+    public DbSet<FacebookPostTaskMedia> FacebookPostTaskMedia => Set<FacebookPostTaskMedia>();
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         base.OnConfiguring(optionsBuilder);

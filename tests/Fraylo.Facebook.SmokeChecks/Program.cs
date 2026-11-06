@@ -143,6 +143,8 @@ public static class Program
             var empty = await RunAsync(browser, Fixture(), Input(""));
             Check(empty.Error is ArgumentException, "Bài rỗng bị từ chối");
 
+            await GroupChecks.RunAsync(browser, image, Check);
+
             Console.WriteLine($"Facebook adapter smoke: {_passed} PASS (fixture, live NOT_RUN)");
             return 0;
         }

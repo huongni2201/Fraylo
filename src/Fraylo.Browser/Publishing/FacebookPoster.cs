@@ -41,7 +41,7 @@ public interface IFacebookPoster
 /// </summary>
 public sealed class FacebookPoster(IBrowserProcessController controller) : IFacebookPoster
 {
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> ProfileOperations = new(StringComparer.OrdinalIgnoreCase);
+    internal static readonly ConcurrentDictionary<string, SemaphoreSlim> ProfileOperations = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Regex ComposerEntry = new("What's on your mind|Bạn đang nghĩ gì", RegexOptions.IgnoreCase);
     private static readonly Regex PublishedText = new("Your post has been published", RegexOptions.IgnoreCase);
     private static readonly Regex PendingText = new("pending|awaiting.*approv|waiting for.*approv", RegexOptions.IgnoreCase);

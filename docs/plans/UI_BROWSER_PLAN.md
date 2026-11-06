@@ -9,6 +9,8 @@
 - Màn Đăng video yêu cầu người dùng chủ động chọn video, account và xác nhận; chỉ báo Published khi có xác nhận phù hợp. Chi tiết và giới hạn live tại [publishing](TIKTOK_PUBLISHING_HANDOFF.md).
 - Giữ form chưa lưu khi đổi trang; không áp response cũ sai Project/account. Hiển thị dữ liệu, tiến trình và lỗi thực tế, không dùng số liệu mẫu làm dữ liệu thật.
 
+- Facebook có khu nhóm/soạn bài/hàng đợi/lịch sử riêng, tải nhóm theo tài khoản và tạo lô sau xác nhận. Browser chạy ẩn; trạng thái chưa rõ không tự retry. Phạm vi và bằng chứng: [handoff nhóm Facebook](FACEBOOK_GROUPS_HANDOFF.md).
+
 ## 4. Hệ thiết kế và khả năng sử dụng
 
 Đây là palette khởi điểm rút từ ảnh, cần kiểm tra tương phản trên UI thật; không phải màu đo chính xác từ ảnh. Mọi màu được dùng qua token ngữ nghĩa của UI_THEME_PLAN, không hardcode từng component.

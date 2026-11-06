@@ -9,7 +9,7 @@ namespace Fraylo.Infrastructure.Persistence;
 
 public sealed class SqliteDatabaseBootstrapper : ISqliteDatabaseBootstrapper
 {
-    private const int CurrentSchemaVersion = 7;
+    private const int CurrentSchemaVersion = 8;
     private const string SchemaResourceName = "Fraylo.Infrastructure.Persistence.Sql.final-schema.sql";
     private readonly ILogger<SqliteDatabaseBootstrapper>? _logger;
 
@@ -40,7 +40,13 @@ public sealed class SqliteDatabaseBootstrapper : ISqliteDatabaseBootstrapper
                 throw new InvalidOperationException($"Database schema version {schemaVersion} is not supported; expected {CurrentSchemaVersion}.");
             }
 
-            if (schemaVersion < CurrentSchemaVersion)
+            if (schemaVersion == 7)
+            {
+                var backupPath = CreateSchemaBackup(dbPath, connectionString, "pre-facebook", cancellationToken);
+                _logger?.LogInformation("Created pre-Facebook SQLite backup at {BackupPath}", backupPath);
+                await UpgradeFacebookSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
+            }
+            else if (schemaVersion < CurrentSchemaVersion)
             {
                 // Không còn chuỗi nâng cấp: schema cũ được sao lưu rồi tạo lại từ final-schema.sql (dữ liệu rỗng).
                 var tables = await ListUserTablesAsync(connection, cancellationToken).ConfigureAwait(false);
@@ -107,6 +113,21 @@ public sealed class SqliteDatabaseBootstrapper : ISqliteDatabaseBootstrapper
             SchemaVersion: CurrentSchemaVersion,
             DatabaseReset: databaseReset,
             IsBootstrapSuccessful: isSuccess);
+    }
+
+    private static async Task UpgradeFacebookSchemaAsync(SqliteConnection connection, CancellationToken ct)
+    {
+        await using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(
+            "Fraylo.Infrastructure.Persistence.Sql.facebook-v8.sql")
+            ?? throw new InvalidOperationException("Facebook schema resource was not found.");
+        using var reader = new StreamReader(stream);
+        var sql = await reader.ReadToEndAsync(ct).ConfigureAwait(false);
+        await using var transaction = connection.BeginTransaction();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql + "\nPRAGMA user_version = 8;";
+        await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await transaction.CommitAsync(ct).ConfigureAwait(false);
     }
 
     private static async Task ExecuteFinalSchemaAsync(SqliteConnection connection, CancellationToken cancellationToken)

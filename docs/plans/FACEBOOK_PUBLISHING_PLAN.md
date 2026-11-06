@@ -1,12 +1,16 @@
 # Fraylo — Đăng bài Facebook (Page, Group, trang cá nhân)
 
-Ngày: 2026-11-06. Trạng thái: **ĐỀ XUẤT — chưa triển khai, chưa thử đăng thật.** Plan này không cấp quyền thực thi; mỗi giai đoạn cần lệnh trực tiếp của người dùng. Thay thế bản nháp plan Facebook gửi trong chat; phần khác bản nháp nằm ở [§3](#3-khác-bản-nháp-ban-đầu-và-lý-do).
+Ngày: 2026-11-06. Trạng thái: **ĐÃ TRIỂN KHAI CỤC BỘ luồng đăng nhóm chữ/ảnh; chưa nghiệm thu đăng thật vào nhóm.** Plan này không cấp quyền thực thi; mỗi giai đoạn cần lệnh trực tiếp của người dùng. Thay thế bản nháp plan Facebook gửi trong chat; phần khác bản nháp nằm ở [§3](#3-khác-bản-nháp-ban-đầu-và-lý-do).
 
 **Mục tiêu:** đăng bài chữ/link, ảnh, video lên Page, Group và trang cá nhân bằng Playwright, nhiều đích một lần, đăng ngay hoặc hẹn giờ, kết quả từng đích độc lập, không đăng trùng.
 
 **Kiến trúc:** khu vực Facebook riêng (chọn nền tảng ở sidebar), dữ liệu và luồng đăng riêng (bảng SQLite mới, scheduler riêng); dùng lại browser/profile, Asset/Library, SQLite bootstrap, bridge và mẫu CAS/lease của Fraylo. Không sửa `TikTokVideoUploader` thành bộ đăng chung.
 
 **Công nghệ:** C#/.NET, EF Core SQLite, Playwright .NET (không thêm dependency), React/TypeScript. Quy tắc nền: [ENGINEERING_RULES](../agents/ENGINEERING_RULES.md), [UI_BROWSER_PLAN](UI_BROWSER_PLAN.md) §5–6, [UI_THEME_PLAN](UI_THEME_PLAN.md), mẫu tham chiếu [TIKTOK_PUBLISHING_HANDOFF](TIKTOK_PUBLISHING_HANDOFF.md).
+
+## Phạm vi đã triển khai theo yêu cầu 2026-11-06
+
+Người dùng ưu tiên Nhóm Facebook và yêu cầu tải tất cả nhóm đã tham gia, chọn cụ thể/ngẫu nhiên N/tất cả để tạo lô. Luồng nhóm, UI, bridge và hàng đợi đã triển khai; [handoff nhóm](FACEBOOK_GROUPS_HANDOFF.md) ghi hành vi và giới hạn. Page/video/hẹn giờ/nháp lưu bền trong bản kế hoạch dưới đây vẫn chưa triển khai. Schema v8 hiện có Target, PostBatch, PostTask, PostTaskMedia; chưa có bảng nháp. Quyết định recovery hiện hành: không tự retry, queued sau restart chờ người dùng Tiếp tục.
 
 ## Ràng buộc chung (áp dụng cho mọi giai đoạn)
 

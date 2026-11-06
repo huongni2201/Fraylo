@@ -39,6 +39,8 @@ let publishingListCalls = 0;
       } else if (req.command === "publishing.list") {
         publishingListCalls++;
         payloadData = { videos: [{ projectId: "prj_video", projectName: "Video đã tạo", assetId: "ast_video", fileName: "output.mp4", byteSize: 1024, caption: "Caption đã lưu #test" }], attempts: [] };
+      } else if (req.command === "facebook.list") {
+        payloadData = { accounts: [], groups: [], tasks: [] };
       } else if (req.command === "analytics.list_tiktok_accounts") {
         payloadData = { accounts: [] };
       }
@@ -147,6 +149,18 @@ async function runTests() {
   await act(async () => { promptTab.click(); publishingTab.click(); await new Promise(r => setTimeout(r, 50)); });
   assert.equal(container.querySelector<HTMLSelectElement>("#publish-video")!.value, "ast_video", "Chuyển route giữ video đã chọn.");
   assert.equal(container.querySelector<HTMLTextAreaElement>("#publish-caption")!.value, "Caption đã lưu #test", "Chuyển route giữ caption.");
+  const platformButton = (name: string) => Array.from(container.querySelectorAll<HTMLButtonElement>('[aria-label="Chọn nền tảng"] button')).find(button => button.textContent === name)!;
+  assert.equal(platformButton("TikTok").getAttribute("aria-pressed"), "true");
+  await act(async () => { platformButton("Facebook").click(); await new Promise(r => setTimeout(r, 100)); });
+  const composeRoute = Array.from(container.querySelectorAll<HTMLButtonElement>("nav button")).find(button => button.textContent === "Soạn bài")!;
+  await act(async () => composeRoute.click());
+  assert.equal(composeRoute.getAttribute("aria-current"), "page");
+  await act(async () => { platformButton("TikTok").click(); await new Promise(r => setTimeout(r, 50)); });
+  assert.equal(publishingTab.getAttribute("aria-current"), "page", "Nhớ route TikTok trước khi chuyển nền tảng.");
+  assert.equal(container.querySelector<HTMLTextAreaElement>("#publish-caption")!.value, "Caption đã lưu #test", "Chuyển Facebook không làm mất nháp TikTok.");
+  await act(async () => platformButton("Facebook").click());
+  assert.equal(composeRoute.getAttribute("aria-current"), "page", "Nhớ route Facebook trước khi chuyển nền tảng.");
+  await act(async () => platformButton("TikTok").click());
   const accountSettings = Array.from(container.querySelectorAll("button")).find(b => b.textContent?.trim() === "Cài đặt tài khoản")!;
   await act(async () => { accountSettings.click(); });
   assert.equal(Array.from(container.querySelectorAll("nav button")).find(b => b.textContent?.trim() === "Cài đặt")?.getAttribute("aria-current"), "page");

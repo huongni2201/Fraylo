@@ -1,6 +1,6 @@
 # Fraylo — bằng chứng giao diện Facebook (Giai đoạn A)
 
-Ngày: 2026-11-06. Thuộc [FACEBOOK_PUBLISHING_PLAN](FACEBOOK_PUBLISHING_PLAN.md) §9-A. Trạng thái: **ĐANG LÀM — trang cá nhân có đủ luồng ảnh + chữ, từ composer tới kết quả `Published`; chưa có Page, Group, video, `PendingApproval`, bản tiếng Việt.** Đã đăng đúng **một** bài thử `Only me` theo chỉ định của người dùng và đã chuyển vào thùng rác (E11–E14). Tên người dùng, ID, tên nhóm và URL cá nhân đã được ẩn.
+Ngày: 2026-11-06. Thuộc [FACEBOOK_PUBLISHING_PLAN](FACEBOOK_PUBLISHING_PLAN.md) §9-A. Trạng thái: **ĐANG LÀM — trang cá nhân có đủ luồng ảnh + chữ, từ composer tới kết quả `Published`; đã bổ sung tải nhóm và composer nhóm công khai qua dry-run G1–G4 bên dưới; chưa đăng thật vào nhóm, chưa có Page, video, `PendingApproval` live hoặc bản tiếng Việt.** Đã đăng đúng **một** bài thử `Only me` theo chỉ định của người dùng và đã chuyển vào thùng rác (E11–E14). Tên người dùng, ID, tên nhóm và URL cá nhân đã được ẩn.
 
 ## Cách thu thập
 
@@ -32,14 +32,14 @@ Ngày: 2026-11-06. Thuộc [FACEBOOK_PUBLISHING_PLAN](FACEBOOK_PUBLISHING_PLAN.m
 
 | Điều kiện | Trạng thái |
 |---|---|
-| (1) Chạy ẩn qua đường launch Fraylo tới composer của cả ba loại đích | **Một phần:** trang cá nhân ĐẠT (E1–E8). Page, Group: chưa thử — cần URL đích test. |
+| (1) Chạy ẩn qua đường launch Fraylo tới composer của cả ba loại đích | **Một phần:** trang cá nhân ĐẠT (E1–E8). Nhóm công khai: dry-run chữ/ảnh ĐẠT (G1–G4). Page/nhóm riêng tư chưa thử. |
 | (2) Phân biệt `Published` / `PendingApproval` / lỗi | **Một phần:** `Published` ở trang cá nhân có bằng chứng (E12). Chưa có `PendingApproval` (cần Group bật phê duyệt bài), chưa có thông báo lỗi từ chối, chưa có bản VI. |
-| (3) Đọc actor để so với đích | **Một phần:** trang cá nhân đọc được (E5). Page cần xem cách chuyển danh tính. |
+| (3) Đọc actor để so với đích | **Một phần:** trang cá nhân đọc được (E5); nhóm công khai đối chiếu link actor với /me (G3). Page cần xem cách chuyển danh tính. |
 
 ## Việc còn lại của Giai đoạn A
 
 1. Page test: mở trang, quan sát cách đăng với tư cách Page (chuyển danh tính hay composer riêng), đọc actor, đính ảnh, dừng trước `Post`.
-2. Group test (đã bật phê duyệt bài): mở composer, đọc tên nhóm/đối tượng xem, đính ảnh, dừng trước `Post`.
+2. Group: dry-run nhóm công khai đã xong (G2–G4). Còn nhóm riêng tư và kết quả chờ duyệt thật trên nhóm test do người dùng chỉ định.
 3. Video: đính một video ngắn ở từng loại đích, quan sát trạng thái upload/xử lý và khi nào `Post` enabled.
 4. Với sự đồng ý riêng cho từng bài: bài thử thật ở Page và Group — ghi thông báo thành công, thông báo chờ duyệt, dạng URL bài, thời gian. (Trang cá nhân + ảnh đã xong; còn bài chỉ chữ và bài video nếu cần.)
 5. Bằng chứng tiếng Việt (đổi ngôn ngữ tài khoản test) và bằng chứng nhiều ảnh một bài.
@@ -48,3 +48,15 @@ Ngày: 2026-11-06. Thuộc [FACEBOOK_PUBLISHING_PLAN](FACEBOOK_PUBLISHING_PLAN.m
 
 - **Đối tượng xem (audience):** E5 cho thấy composer dùng mặc định của tài khoản. Đề xuất cho bản đầu: adapter **đọc** đối tượng xem và hiển thị trong hộp xác nhận lô; chỉ đăng khi người dùng chấp nhận (không tự đổi). Cần người dùng xác nhận.
 - Giới hạn ký tự, số ảnh tối đa một bài, kích thước video tối đa: chưa đo.
+
+## Nhóm đã tham gia — 2026-11-06
+
+G1: Cùng profile/đường launch headless Fraylo, trang groups/joins có navigation List of groups và vùng role=main lồng nhau. Heading All groups you've joined (153); danh sách nằm trong div role=main, không phải thẻ main. Mỗi nhóm có link tên/ảnh/View group trùng URL; chỉ lấy link tên, gộp URL, cuộn danh sách. Adapter đã đọc đủ 153 URL duy nhất và IsComplete=true; không ghi tên/ID nhóm cá nhân vào tài liệu.
+
+G2: Một nhóm công khai đã tham gia có heading cấp1 tên nhóm, nút Joined, nút Write something... và Anonymous post riêng. Chỉ mở Write something...; composer Create post lồng một dialog tiêu đề như trang cá nhân.
+
+G3: Composer có switch Post anonymously (aria-checked=false), link <tên>'s Timeline trỏ về cùng URL sau redirect /me, nút Edit privacy. Sharing with Public group. bị disabled, textbox Create a public post…, Photo/video và Post. Phải so URL actor, không dựa vào tên trùng nhau; không chọn Anonymous post/Add groups.
+
+G4: Dry-run qua adapter mới: chữ tiếng Việt + emoji + xuống dòng và 1 ảnh, input[type=file] duy nhất bên trong composer (toàn page có 6 input), Attached media img=1 và Post enabled. Chưa click Post. Escape đóng composer trực tiếp, không hỏi Delete draft. Đã thử riêng bài chữ không ảnh, cũng đọc lại đúng và không đăng.
+
+G5: Chưa có bằng chứng live kết quả đăng nhóm/chờ duyệt. Published/PendingApproval hiện chỉ được kiểm bằng fixture với thông báo cụ thể; thiếu thông báo sau gửi phải Unknown. Nhóm riêng tư và Facebook locale VI: NOT_RUN. [Handoff hiện hành](FACEBOOK_GROUPS_HANDOFF.md).

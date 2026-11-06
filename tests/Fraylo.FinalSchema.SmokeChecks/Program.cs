@@ -2,6 +2,14 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Fraylo.Infrastructure.Persistence;
 
+if (args.Length == 2 && args[0] == "--emit-final-schema")
+{
+    var options = new DbContextOptionsBuilder<FrayloDbContext>().UseSqlite("Data Source=:memory:").Options;
+    await using var db = new FrayloDbContext(options);
+    await File.WriteAllTextAsync(args[1], db.Database.GenerateCreateScript() + Environment.NewLine + "PRAGMA user_version = 8;" + Environment.NewLine);
+    return 0;
+}
+
 var root = Path.Combine(Path.GetTempPath(), "Fraylo_final_schema_" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 
@@ -12,23 +20,23 @@ try
     var bootstrapper = new SqliteDatabaseBootstrapper();
     var freshPath = Path.Combine(root, "fresh.db");
     var fresh = await bootstrapper.BootstrapAsync(freshPath);
-    Assert(fresh.IsBootstrapSuccessful && fresh.SchemaVersion == 7 && !fresh.DatabaseReset,
-        "A fresh database must initialize directly from schema version 7.");
+    Assert(fresh.IsBootstrapSuccessful && fresh.SchemaVersion == 8 && !fresh.DatabaseReset,
+        "A fresh database must initialize directly from schema version 8.");
     await VerifyFinalSchemaAsync(freshPath);
 
     var legacyPath = Path.Combine(root, "legacy.db");
     await CreateLegacyFixtureAsync(legacyPath);
     var reset = await bootstrapper.BootstrapAsync(legacyPath);
-    Assert(reset.IsBootstrapSuccessful && reset.SchemaVersion == 7 && reset.DatabaseReset,
-        "A legacy database must be backed up and reset to schema version 7.");
+    Assert(reset.IsBootstrapSuccessful && reset.SchemaVersion == 8 && reset.DatabaseReset,
+        "A legacy database must be backed up and reset to schema version 8.");
     await VerifyFinalSchemaAsync(legacyPath);
     await VerifyBackupAsync(root, "legacy.db", "LegacyTable", "legacy-test-row");
 
     var previousPath = Path.Combine(root, "previous.db");
     await CreateVersion6FixtureAsync(previousPath);
     var previous = await bootstrapper.BootstrapAsync(previousPath);
-    Assert(previous.IsBootstrapSuccessful && previous.SchemaVersion == 7 && previous.DatabaseReset,
-        "A version 6 database must be backed up and reset to schema version 7 (no upgrade chain).");
+    Assert(previous.IsBootstrapSuccessful && previous.SchemaVersion == 8 && previous.DatabaseReset,
+        "A version 6 database must be backed up and reset to schema version 8 (no upgrade chain).");
     await VerifyFinalSchemaAsync(previousPath);
     await using (var connection = new SqliteConnection(DatabasePathHelper.BuildConnectionString(previousPath)))
     {
@@ -39,6 +47,11 @@ try
     }
     await VerifyBackupAsync(root, "previous.db", "Project", "old-project");
 
+    await VerifyFacebookUpgradeAsync(root, bootstrapper, freshPath);
+    await VerifyFacebookRollbackAsync(root, bootstrapper);
+    await VerifyFutureVersionAsync(root, bootstrapper);
+
+    Console.WriteLine("Facebook v7 upgrade preservation/parity/backup/rollback/future-version: PASS");
     Console.WriteLine("Final SQL/model parity, fresh bootstrap, legacy reset, version 6 reset, and backups: PASS");
     return 0;
 }
@@ -55,7 +68,7 @@ static async Task VerifySavedSqlMatchesEfModelAsync()
     var savedSql = await File.ReadAllTextAsync(sqlPath);
     var options = new DbContextOptionsBuilder<FrayloDbContext>().UseSqlite("Data Source=:memory:").Options;
     await using var db = new FrayloDbContext(options);
-    var generatedSql = db.Database.GenerateCreateScript() + Environment.NewLine + "PRAGMA user_version = 7;" + Environment.NewLine;
+    var generatedSql = db.Database.GenerateCreateScript() + Environment.NewLine + "PRAGMA user_version = 8;" + Environment.NewLine;
     var saved = NormalizeSql(savedSql).Split('\n');
     var generated = NormalizeSql(generatedSql).Split('\n');
     var difference = Enumerable.Range(0, Math.Min(saved.Length, generated.Length)).FirstOrDefault(i => saved[i] != generated[i], -1);
@@ -71,7 +84,7 @@ static async Task VerifyFinalSchemaAsync(string path)
     await using (var versionCommand = connection.CreateCommand())
     {
         versionCommand.CommandText = "PRAGMA user_version;";
-        Assert(Convert.ToInt32(await versionCommand.ExecuteScalarAsync()) == 7, "Database schema version must equal 7.");
+        Assert(Convert.ToInt32(await versionCommand.ExecuteScalarAsync()) == 8, "Database schema version must equal 8.");
     }
 
     await using (var legacyTablesCommand = connection.CreateCommand())
@@ -80,7 +93,7 @@ static async Task VerifyFinalSchemaAsync(string path)
         Assert(Convert.ToInt32(await legacyTablesCommand.ExecuteScalarAsync()) == 0, "EF migration history must be absent.");
     }
 
-    foreach (var table in new[] { "Project", "Scene", "Asset", "Job", "ProviderAccount", "VideoRevision", "PublishRecord" })
+    foreach (var table in new[] { "Project", "Scene", "Asset", "Job", "ProviderAccount", "VideoRevision", "PublishRecord", "FacebookTarget", "FacebookPostBatch", "FacebookPostTask", "FacebookPostTaskMedia" })
     {
         await using var command = connection.CreateCommand();
         command.CommandText = $"PRAGMA table_info(\"{table}\");";
@@ -98,7 +111,7 @@ static async Task VerifyFinalSchemaAsync(string path)
 static async Task CreateVersion6FixtureAsync(string path)
 {
     var sql = (await File.ReadAllTextAsync(Path.Combine(Directory.GetCurrentDirectory(), "src", "Fraylo.Infrastructure", "Persistence", "Sql", "final-schema.sql")))
-        .Replace("PRAGMA user_version = 7;", "PRAGMA user_version = 6;", StringComparison.Ordinal);
+        .Replace("PRAGMA user_version = 8;", "PRAGMA user_version = 6;", StringComparison.Ordinal);
     await using var connection = new SqliteConnection(DatabasePathHelper.BuildConnectionString(path));
     await connection.OpenAsync();
     await using var command = connection.CreateCommand();
@@ -132,4 +145,116 @@ static string NormalizeSql(string sql)
 static void Assert(bool condition, string message)
 {
     if (!condition) throw new InvalidOperationException(message);
+}
+
+static async Task<string> Version7SqlAsync()
+{
+    var sql = await File.ReadAllTextAsync(Path.Combine(Directory.GetCurrentDirectory(), "src", "Fraylo.Infrastructure", "Persistence", "Sql", "final-schema.sql"));
+    var migration = await File.ReadAllTextAsync(Path.Combine(Directory.GetCurrentDirectory(), "src", "Fraylo.Infrastructure", "Persistence", "Sql", "facebook-v8.sql"));
+    foreach (var statement in migration.Split(';', StringSplitOptions.RemoveEmptyEntries).Where(s => !string.IsNullOrWhiteSpace(s))) sql = sql.Replace(statement.Trim() + ";", "", StringComparison.Ordinal);
+    return sql.Replace("PRAGMA user_version = 8;", "PRAGMA user_version = 7;", StringComparison.Ordinal);
+}
+
+static async Task SeedVersion7Async(string path)
+{
+    await using var connection = new SqliteConnection(DatabasePathHelper.BuildConnectionString(path));
+    await connection.OpenAsync();
+    await using var command = connection.CreateCommand();
+    command.CommandText = await Version7SqlAsync() + """
+        INSERT INTO Project (id,title,brief,status,created_at_utc,updated_at_utc,revision) VALUES ('kept-project','Giữ nguyên dự án','brief','Draft','now','now',1);
+        INSERT INTO BrowserProfile (id,kind,account_identity,visibility_state,session_status,operational_state,provider_key,display_name,lifecycle,revision,created_at_utc,updated_at_utc)
+        VALUES ('kept-profile','Facebook','Facebook (123)','Hidden','Connected','Stopped','facebook','Tài khoản giữ nguyên','Active',4,'now','now');
+        INSERT INTO ProviderAccount (id,provider_key,profile_id,display_name,verified_identity,enabled,lifecycle,revision,created_at_utc,updated_at_utc)
+        VALUES ('kept-account','facebook','kept-profile','Giữ tài khoản','Facebook (123)',1,'Active',5,'now','now');
+        INSERT INTO AppSettings (key,value,updated_at_utc) VALUES ('keep-setting','keep-value','now');
+        """;
+    await command.ExecuteNonQueryAsync();
+}
+
+static async Task<Dictionary<string, string>> ReadSchemaObjectsAsync(string path)
+{
+    await using var connection = new SqliteConnection(DatabasePathHelper.BuildConnectionString(path));
+    await connection.OpenAsync();
+    await using var command = connection.CreateCommand();
+    command.CommandText = "SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY name;";
+    await using var reader = await command.ExecuteReaderAsync();
+    var result = new Dictionary<string, string>();
+    while (await reader.ReadAsync()) result.Add(reader.GetString(0), NormalizeSql(reader.GetString(1)));
+    return result;
+}
+
+static async Task VerifyFacebookUpgradeAsync(string root, SqliteDatabaseBootstrapper bootstrapper, string freshPath)
+{
+    var path = Path.Combine(root, "v7.db");
+    await SeedVersion7Async(path);
+    var result = await bootstrapper.BootstrapAsync(path);
+    Assert(result.SchemaVersion == 8 && !result.DatabaseReset, "Facebook upgrade must never reset version 7 data.");
+    await using (var connection = new SqliteConnection(DatabasePathHelper.BuildConnectionString(path)))
+    {
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT title FROM Project WHERE id='kept-project';";
+        Assert((string?)await command.ExecuteScalarAsync() == "Giữ nguyên dự án", "Project data must survive Facebook upgrade.");
+        command.CommandText = "SELECT account_identity || ':' || session_status || ':' || revision FROM BrowserProfile WHERE id='kept-profile';";
+        Assert((string?)await command.ExecuteScalarAsync() == "Facebook (123):Connected:4", "Account identity/session/revision must survive Facebook upgrade.");
+        command.CommandText = "SELECT verified_identity || ':' || enabled || ':' || revision FROM ProviderAccount WHERE id='kept-account';";
+        Assert((string?)await command.ExecuteScalarAsync() == "Facebook (123):1:5", "Provider account identity/enabled/revision must survive Facebook upgrade.");
+        command.CommandText = "SELECT value FROM AppSettings WHERE key='keep-setting';";
+        Assert((string?)await command.ExecuteScalarAsync() == "keep-value", "Settings must survive Facebook upgrade.");
+    }
+    var upgraded = await ReadSchemaObjectsAsync(path);
+    var fresh = await ReadSchemaObjectsAsync(freshPath);
+    Assert(upgraded.Count == fresh.Count && fresh.All(p => upgraded.TryGetValue(p.Key, out var value) && value == p.Value), "Upgraded and fresh schemas must have identical objects.");
+    var backups = Directory.GetFiles(root, "v7.db.pre-facebook-*.bak");
+    Assert(backups.Length == 1, "Exactly one backup must precede version 7 upgrade.");
+    await using var backup = new SqliteConnection(DatabasePathHelper.BuildConnectionString(backups[0]));
+    await backup.OpenAsync();
+    await using var check = backup.CreateCommand();
+    check.CommandText = "PRAGMA user_version;";
+    Assert(Convert.ToInt32(await check.ExecuteScalarAsync()) == 7, "Backup must preserve original version 7.");
+    check.CommandText = "SELECT title FROM Project WHERE id='kept-project';";
+    Assert((string?)await check.ExecuteScalarAsync() == "Giữ nguyên dự án", "Backup must contain pre-upgrade project data.");
+    var second = await bootstrapper.BootstrapAsync(path);
+    Assert(!second.DatabaseReset && Directory.GetFiles(root, "v7.db.pre-facebook-*.bak").Length == 1, "Opening version 8 again must not upgrade or backup twice.");
+}
+
+static async Task VerifyFacebookRollbackAsync(string root, SqliteDatabaseBootstrapper bootstrapper)
+{
+    var path = Path.Combine(root, "broken-v7.db");
+    await SeedVersion7Async(path);
+    await using (var connection = new SqliteConnection(DatabasePathHelper.BuildConnectionString(path)))
+    {
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "CREATE TABLE FacebookPostTask(id TEXT PRIMARY KEY); INSERT INTO FacebookPostTask VALUES('conflict');";
+        await command.ExecuteNonQueryAsync();
+    }
+    var original = await ReadSchemaObjectsAsync(path);
+    var failed = false;
+    try { await bootstrapper.BootstrapAsync(path); } catch (SqliteException) { failed = true; }
+    Assert(failed, "Conflicting upgrade must fail.");
+    var after = await ReadSchemaObjectsAsync(path);
+    Assert(original.Count == after.Count && original.All(p => after.TryGetValue(p.Key, out var value) && value == p.Value), "Failed upgrade must roll back every CREATE before the failure.");
+    await using var check = new SqliteConnection(DatabasePathHelper.BuildConnectionString(path));
+    await check.OpenAsync();
+    await using var query = check.CreateCommand();
+    query.CommandText = "PRAGMA user_version;";
+    Assert(Convert.ToInt32(await query.ExecuteScalarAsync()) == 7, "Failed upgrade must remain version 7.");
+    query.CommandText = "SELECT title FROM Project WHERE id='kept-project';";
+    Assert((string?)await query.ExecuteScalarAsync() == "Giữ nguyên dự án", "Failed upgrade must preserve existing data.");
+}
+
+static async Task VerifyFutureVersionAsync(string root, SqliteDatabaseBootstrapper bootstrapper)
+{
+    var path = Path.Combine(root, "future.db");
+    await using var connection = new SqliteConnection(DatabasePathHelper.BuildConnectionString(path));
+    await connection.OpenAsync();
+    await using var command = connection.CreateCommand();
+    command.CommandText = "PRAGMA user_version=9; CREATE TABLE FutureData(id TEXT); INSERT INTO FutureData VALUES('kept');";
+    await command.ExecuteNonQueryAsync();
+    var failed = false;
+    try { await bootstrapper.BootstrapAsync(path); } catch (InvalidOperationException) { failed = true; }
+    Assert(failed, "Schema version 9 must be rejected.");
+    command.CommandText = "SELECT id FROM FutureData;";
+    Assert((string?)await command.ExecuteScalarAsync() == "kept", "Rejected future schema must preserve data.");
 }

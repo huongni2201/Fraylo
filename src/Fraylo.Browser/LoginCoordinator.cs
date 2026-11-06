@@ -89,6 +89,8 @@ public sealed class LoginCoordinator : ILoginCoordinator, IDisposable
 
         try
         {
+            // Chia sẻ khóa với automation Facebook: login không được đóng context đang soạn/gửi bài.
+            using var facebookOperation = Publishing.FacebookGroupBrowser.AcquireProfileOperation(profileId);
             // Tự động giải quyết URL nếu caller chưa chỉ định
             if (string.IsNullOrWhiteSpace(targetUrl) && _profileRegistry != null)
             {
@@ -233,6 +235,7 @@ public sealed class LoginCoordinator : ILoginCoordinator, IDisposable
         await profileLock.WaitAsync(cancellationToken);
         try
         {
+            using var facebookOperation = Publishing.FacebookGroupBrowser.AcquireProfileOperation(profileId);
             // Đóng persistent browser context qua controller nếu đang chạy
             if (_processController != null && _processController.IsRunning(profileId))
             {

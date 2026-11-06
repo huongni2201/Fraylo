@@ -6,6 +6,11 @@ export const maxBridgeEnvelopeBytes = 4 * 1024 * 1024;
  * Danh mục lệnh được phép trên Bridge (bao gồm Gate G1 và G2 Core Business)
  */
 export const bridgeCommandAllowlist = [
+  "facebook.list",
+  "facebook.groups.sync",
+  "facebook.tasks.create",
+  "facebook.tasks.cancel",
+  "facebook.tasks.resume",
   // Gate G1 — Foundation
   "settings.get",
   "settings.save",

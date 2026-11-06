@@ -12,6 +12,8 @@ import {
   Sparkles,
   Images,
   BarChart3,
+  FilePenLine,
+  History,
   type LucideIcon,
 } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
@@ -24,6 +26,7 @@ import { PublishingNavItem } from "./features/publishing/PublishingNavItem";
 import { createPublishingApi } from "./features/publishing/publishingApi";
 import { projectApi } from "./features/projects/projectApi";
 import { cn } from "@/lib/utils";
+import type { FacebookView } from "./features/facebook/FacebookPage";
 import type { ThemePreference } from "./contracts/dtos";
 
 export type ActiveRoute =
@@ -33,6 +36,9 @@ export type ActiveRoute =
   | "library"
   | "analytics"
   | "publishing"
+  | "facebook-compose"
+  | "facebook-queue"
+  | "facebook-history"
   | "job-progress"
   | "settings";
 
@@ -46,6 +52,8 @@ const LibraryPage = lazy(() => import("./features/library/LibraryPage").then(m =
 const SettingsPage = lazy(() => import("./features/settings/SettingsPage").then(m => ({ default: m.SettingsPage })));
 const AnalyticsPage = lazy(() => import("./features/analytics/AnalyticsPage").then(m => ({ default: m.AnalyticsPage })));
 const PublishingPage = lazy(() => import("./features/publishing/PublishingPage").then(m => ({ default: m.PublishingPage })));
+
+const FacebookPage = lazy(() => import("./features/facebook/FacebookPage").then(m => ({ default: m.FacebookPage })));
 
 const THEME_OPTIONS: { value: ThemePreference; label: string; icon: LucideIcon }[] = [
   { value: "system", label: "Theo hệ thống", icon: Monitor },
@@ -120,6 +128,20 @@ function ThemeSwitch() {
 
 function AppContent() {
   const [activeRoute, setActiveRoute] = useState<ActiveRoute>("projects");
+  const [platform, setPlatform] = useState<"tiktok" | "facebook">(() => {
+    try { return localStorage.getItem("fraylo.platform") === "facebook" ? "facebook" : "tiktok"; } catch { return "tiktok"; }
+  });
+  const [lastTikTokRoute, setLastTikTokRoute] = useState<ActiveRoute>("publishing");
+  const [lastFacebookRoute, setLastFacebookRoute] = useState<ActiveRoute>("facebook-compose");
+  const [facebookPendingCount, setFacebookPendingCount] = useState(0);
+  useEffect(() => {
+    if (activeRoute === "publishing" || activeRoute === "analytics") {
+      setLastTikTokRoute(activeRoute); setPlatform("tiktok");
+    } else if (activeRoute.startsWith("facebook-")) {
+      setLastFacebookRoute(activeRoute); setPlatform("facebook");
+    }
+  }, [activeRoute]);
+  useEffect(() => { try { localStorage.setItem("fraylo.platform", platform); } catch { /* Lựa chọn chỉ lưu trong phiên khi storage không dùng được. */ } }, [platform]);
   // Đã mở một lần thì giữ mounted (ẩn bằng class) để bảo toàn bản nháp, như trước khi lazy-load.
   const [loadedRoutes, setLoadedRoutes] = useState<ReadonlySet<ActiveRoute>>(() => new Set());
   useEffect(() => {
@@ -242,14 +264,24 @@ function AppContent() {
             <NavItem active={isLibraryActive} icon={Images} label="Tài nguyên" onClick={() => handleNavigate("library")} />
           </NavGroup>
 
-          <NavGroup label="Đăng & phân tích">
-            <NavItem
-              active={isAnalyticsActive}
-              icon={BarChart3}
-              label="TikTok Analytics"
-              onClick={() => handleNavigate("analytics")}
-            />
-            <PublishingNavItem active={activeRoute === "publishing"} onClick={() => handleNavigate("publishing")} />
+          <NavGroup label="Nền tảng">
+            <div role="group" aria-label="Chọn nền tảng" className="mb-2 grid grid-cols-2 gap-1 rounded-lg border border-sidebar-border p-1">
+              {(["tiktok", "facebook"] as const).map(value => <button key={value} type="button" aria-pressed={platform === value}
+                className={cn("h-9 rounded-md text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", platform === value ? "bg-primary/15 text-primary-text" : "text-muted-foreground hover:bg-muted")}
+                onClick={() => { setPlatform(value); handleNavigate(value === "tiktok" ? lastTikTokRoute : lastFacebookRoute); }}>{value === "tiktok" ? "TikTok" : "Facebook"}</button>)}
+            </div>
+            <div className={platform === "tiktok" ? "contents" : "hidden"}>
+              <NavItem active={isAnalyticsActive} icon={BarChart3} label="TikTok Analytics" onClick={() => handleNavigate("analytics")} />
+              <PublishingNavItem active={activeRoute === "publishing"} onClick={() => handleNavigate("publishing")} />
+            </div>
+            <div className={platform === "facebook" ? "contents" : "hidden"}>
+              <NavItem active={activeRoute === "facebook-compose"} icon={FilePenLine} label="Soạn bài" onClick={() => handleNavigate("facebook-compose")} />
+              <button type="button" className={navItemClass(activeRoute === "facebook-queue")} onClick={() => handleNavigate("facebook-queue")} aria-current={activeRoute === "facebook-queue" ? "page" : undefined}>
+                <ListOrdered className="size-4 shrink-0" aria-hidden="true" /><span className="truncate">Hàng đợi</span>
+                {facebookPendingCount > 0 && <span className="ml-auto rounded-full bg-primary px-2 py-0.5 text-[11px] text-primary-foreground" aria-label={facebookPendingCount + " tác vụ Facebook đang chờ"}>{facebookPendingCount > 99 ? "99+" : facebookPendingCount}</span>}
+              </button>
+              <NavItem active={activeRoute === "facebook-history"} icon={History} label="Lịch sử" onClick={() => handleNavigate("facebook-history")} />
+            </div>
           </NavGroup>
 
           <NavGroup label="Hệ thống">
@@ -376,6 +408,13 @@ function AppContent() {
                   />
                 </Suspense>
               )}
+            </div>
+
+            <div className={activeRoute.startsWith("facebook-") ? "block" : "hidden"}>
+              {(["facebook-compose", "facebook-queue", "facebook-history"] as ActiveRoute[]).some(isLoaded) && <Suspense fallback={null}>
+                <FacebookPage active={activeRoute.startsWith("facebook-")} view={(activeRoute.startsWith("facebook-") ? activeRoute.slice(9) : lastFacebookRoute.slice(9)) as FacebookView}
+                  onNavigate={view => handleNavigate(("facebook-" + view) as ActiveRoute)} onOpenAccounts={handleNavigateToSettingsAccounts} onPendingCount={setFacebookPendingCount} />
+              </Suspense>}
             </div>
 
             <div className={isJobProgressActive ? "block" : "hidden"}>
