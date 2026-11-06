@@ -9,7 +9,7 @@ namespace Fraylo.Infrastructure.Persistence;
 
 public sealed class SqliteDatabaseBootstrapper : ISqliteDatabaseBootstrapper
 {
-    private const int CurrentSchemaVersion = 6;
+    private const int CurrentSchemaVersion = 7;
     private const string SchemaResourceName = "Fraylo.Infrastructure.Persistence.Sql.final-schema.sql";
     private readonly ILogger<SqliteDatabaseBootstrapper>? _logger;
 

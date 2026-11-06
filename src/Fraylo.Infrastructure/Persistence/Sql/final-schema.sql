@@ -350,4 +350,4 @@ CREATE UNIQUE INDEX "uq_video_revision_project_revision" ON "VideoRevision" ("pr
 
 
 
-PRAGMA user_version = 6;
+PRAGMA user_version = 7;

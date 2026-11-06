@@ -12,7 +12,7 @@ public static class VideoFirstSmokeRunner
         {
             var options = new DbContextOptionsBuilder<FrayloDbContext>().UseSqlite("Data Source=:memory:").Options;
             await using var db = new FrayloDbContext(options);
-            await File.WriteAllTextAsync(args[1], db.Database.GenerateCreateScript() + Environment.NewLine + "PRAGMA user_version = 6;" + Environment.NewLine);
+            await File.WriteAllTextAsync(args[1], db.Database.GenerateCreateScript() + Environment.NewLine + "PRAGMA user_version = 7;" + Environment.NewLine);
             return 0;
         }
 

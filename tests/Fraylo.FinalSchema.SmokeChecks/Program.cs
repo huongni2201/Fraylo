@@ -12,23 +12,23 @@ try
     var bootstrapper = new SqliteDatabaseBootstrapper();
     var freshPath = Path.Combine(root, "fresh.db");
     var fresh = await bootstrapper.BootstrapAsync(freshPath);
-    Assert(fresh.IsBootstrapSuccessful && fresh.SchemaVersion == 6 && !fresh.DatabaseReset,
-        "A fresh database must initialize directly from schema version 6.");
+    Assert(fresh.IsBootstrapSuccessful && fresh.SchemaVersion == 7 && !fresh.DatabaseReset,
+        "A fresh database must initialize directly from schema version 7.");
     await VerifyFinalSchemaAsync(freshPath);
 
     var legacyPath = Path.Combine(root, "legacy.db");
     await CreateLegacyFixtureAsync(legacyPath);
     var reset = await bootstrapper.BootstrapAsync(legacyPath);
-    Assert(reset.IsBootstrapSuccessful && reset.SchemaVersion == 6 && reset.DatabaseReset,
-        "A legacy database must be backed up and reset to schema version 6.");
+    Assert(reset.IsBootstrapSuccessful && reset.SchemaVersion == 7 && reset.DatabaseReset,
+        "A legacy database must be backed up and reset to schema version 7.");
     await VerifyFinalSchemaAsync(legacyPath);
     await VerifyBackupAsync(root, "legacy.db", "LegacyTable", "legacy-test-row");
 
     var previousPath = Path.Combine(root, "previous.db");
-    await CreateVersion5FixtureAsync(previousPath);
+    await CreateVersion6FixtureAsync(previousPath);
     var previous = await bootstrapper.BootstrapAsync(previousPath);
-    Assert(previous.IsBootstrapSuccessful && previous.SchemaVersion == 6 && previous.DatabaseReset,
-        "A version 5 database must be backed up and reset to schema version 6 (no upgrade chain).");
+    Assert(previous.IsBootstrapSuccessful && previous.SchemaVersion == 7 && previous.DatabaseReset,
+        "A version 6 database must be backed up and reset to schema version 7 (no upgrade chain).");
     await VerifyFinalSchemaAsync(previousPath);
     await using (var connection = new SqliteConnection(DatabasePathHelper.BuildConnectionString(previousPath)))
     {
@@ -39,7 +39,7 @@ try
     }
     await VerifyBackupAsync(root, "previous.db", "Project", "old-project");
 
-    Console.WriteLine("Final SQL/model parity, fresh bootstrap, legacy reset, version 5 reset, and backups: PASS");
+    Console.WriteLine("Final SQL/model parity, fresh bootstrap, legacy reset, version 6 reset, and backups: PASS");
     return 0;
 }
 finally
@@ -55,7 +55,7 @@ static async Task VerifySavedSqlMatchesEfModelAsync()
     var savedSql = await File.ReadAllTextAsync(sqlPath);
     var options = new DbContextOptionsBuilder<FrayloDbContext>().UseSqlite("Data Source=:memory:").Options;
     await using var db = new FrayloDbContext(options);
-    var generatedSql = db.Database.GenerateCreateScript() + Environment.NewLine + "PRAGMA user_version = 6;" + Environment.NewLine;
+    var generatedSql = db.Database.GenerateCreateScript() + Environment.NewLine + "PRAGMA user_version = 7;" + Environment.NewLine;
     var saved = NormalizeSql(savedSql).Split('\n');
     var generated = NormalizeSql(generatedSql).Split('\n');
     var difference = Enumerable.Range(0, Math.Min(saved.Length, generated.Length)).FirstOrDefault(i => saved[i] != generated[i], -1);
@@ -71,7 +71,7 @@ static async Task VerifyFinalSchemaAsync(string path)
     await using (var versionCommand = connection.CreateCommand())
     {
         versionCommand.CommandText = "PRAGMA user_version;";
-        Assert(Convert.ToInt32(await versionCommand.ExecuteScalarAsync()) == 6, "Database schema version must equal 6.");
+        Assert(Convert.ToInt32(await versionCommand.ExecuteScalarAsync()) == 7, "Database schema version must equal 7.");
     }
 
     await using (var legacyTablesCommand = connection.CreateCommand())
@@ -94,11 +94,11 @@ static async Task VerifyFinalSchemaAsync(string path)
     }
 }
 
-// Schema 5 là bản trước khi gộp; có dữ liệu để kiểm tra việc sao lưu trước khi tạo lại.
-static async Task CreateVersion5FixtureAsync(string path)
+// Schema 6 là bản trước khi bỏ Nhóm dự án; có dữ liệu để kiểm tra việc sao lưu trước khi tạo lại.
+static async Task CreateVersion6FixtureAsync(string path)
 {
     var sql = (await File.ReadAllTextAsync(Path.Combine(Directory.GetCurrentDirectory(), "src", "Fraylo.Infrastructure", "Persistence", "Sql", "final-schema.sql")))
-        .Replace("PRAGMA user_version = 6;", "PRAGMA user_version = 5;", StringComparison.Ordinal);
+        .Replace("PRAGMA user_version = 7;", "PRAGMA user_version = 6;", StringComparison.Ordinal);
     await using var connection = new SqliteConnection(DatabasePathHelper.BuildConnectionString(path));
     await connection.OpenAsync();
     await using var command = connection.CreateCommand();

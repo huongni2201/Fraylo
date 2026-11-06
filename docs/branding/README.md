@@ -19,4 +19,4 @@ Thư mục dự án là `D:\workspace\Fraylo`, solution `Fraylo.sln`, thư mục
 
 ## Repo GitHub
 
-Sau khi push main, người dùng đổi tên repo GitHub từ `huongni2201/TitoAI` thành `huongni2201/Fraylo` tại Settings → General → Repository name. GitHub chuyển hướng URL Git cũ; nên cập nhật origin bằng `git remote set-url origin https://github.com/huongni2201/Fraylo.git` sau khi rename. Updater hiện dùng endpoint repo cũ và HttpClient theo redirect; không tái sử dụng tên repo cũ cho repo khác. Không đổi tên kho dữ liệu khi rename repo.
+Repo GitHub đã đổi tên từ `huongni2201/TitoAI` thành `huongni2201/Fraylo`; origin đã trỏ về `https://github.com/huongni2201/Fraylo.git`. Mã nguồn không hard-code tên repo: URL cập nhật lấy từ biến build `UPDATE_BASE_URL` (xem `AppUpdateService`), nên bản build mới cần đặt biến này sang URL release của repo Fraylo; bản đã cài dùng URL nhúng lúc build và chỉ đổi khi cài bản mới.
