@@ -96,7 +96,7 @@ public sealed class WebView2HostManager : IDisposable
         );
 
         _assetService = assetService;
-        coreWebView2.AddWebResourceRequestedFilter("https://media.Fraylo.local/media/*", CoreWebView2WebResourceContext.All);
+        coreWebView2.AddWebResourceRequestedFilter("https://media.fraylo.local/media/*", CoreWebView2WebResourceContext.All);
         coreWebView2.WebResourceRequested -= OnWebResourceRequested;
         coreWebView2.WebResourceRequested += OnWebResourceRequested;
 

@@ -2,7 +2,7 @@ import { useState } from "react";
 
 export function AssetMediaPreview({ assetId, assetType, fileName, heightClass = "h-36" }: { assetId: string; assetType: string; fileName: string; heightClass?: string }) {
   const [failed, setFailed] = useState(false);
-  const src = `https://media.Fraylo.local/media/${encodeURIComponent(assetId)}`;
+  const src = `https://media.fraylo.local/media/${encodeURIComponent(assetId)}`;
   const type = assetType.toLowerCase();
 
   if (failed || !["image", "audio", "video"].includes(type)) {

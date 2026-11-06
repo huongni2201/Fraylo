@@ -83,6 +83,7 @@ public sealed class MuseAiPlaywrightAutomation
         IPage? page = null;
         var submitted = false;
         var threadSaved = false;
+        var step = "mở trang chat MuseAI";
         try
         {
             ct.ThrowIfCancellationRequested();
@@ -90,6 +91,7 @@ public sealed class MuseAiPlaywrightAutomation
             await page.GotoAsync(NewChatUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 }).WaitAsync(ct).ConfigureAwait(false);
 
             var composer = page.Locator("textarea[placeholder='Message']");
+            step = "chờ ô nhập prompt";
             await composer.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 20000 }).WaitAsync(ct).ConfigureAwait(false);
             // Muse uploads attachments asynchronously; sending before the upload finishes drops the image, so track in-flight write requests.
             // A set (not a counter) so a request that began before we subscribed cannot drive the count negative and hide a real upload.
@@ -99,7 +101,9 @@ public sealed class MuseAiPlaywrightAutomation
             page.Request += UploadStarted;
             page.RequestFinished += UploadEnded;
             page.RequestFailed += UploadEnded;
+            step = "đính kèm ảnh";
             await page.Locator("input[type='file']").First.SetInputFilesAsync(imagePaths.ToArray()).WaitAsync(ct).ConfigureAwait(false);
+            step = "chờ ảnh xem trước";
             try
             {
                 await page.WaitForFunctionAsync("n => document.querySelectorAll('img[src^=\"blob:\"]').length >= n",
@@ -138,14 +142,18 @@ public sealed class MuseAiPlaywrightAutomation
             }
             await _activity.WriteAsync(job.JobId, "media", $"Đã đính kèm {imagePaths.Count} ảnh theo thứ tự.", ct).ConfigureAwait(false);
 
+            step = "điền prompt";
             await composer.FillAsync(fullPrompt).WaitAsync(ct).ConfigureAwait(false);
+            step = "chờ nút Gửi bật";
             await page.WaitForFunctionAsync("() => { const b = document.querySelector(\"button[aria-label='Send']\"); return !!b && !b.disabled; }",
                 null, new() { Timeout = 60000 }).WaitAsync(ct).ConfigureAwait(false);
 
             await beforeSubmit().ConfigureAwait(false);
             await _activity.WriteAsync(job.JobId, "submit", "Đã ghi checkpoint trước khi gửi.", ct).ConfigureAwait(false);
             submitted = true; // Once the checkpoint is durable, a failed click must be reconciled, never blindly resent.
+            step = "bấm Gửi";
             await page.Locator("button[aria-label='Send']").ClickAsync().WaitAsync(ct).ConfigureAwait(false);
+            step = "chờ chuyển sang side chat";
             await page.WaitForURLAsync(ThreadUrl, new() { Timeout = 30000 }).WaitAsync(ct).ConfigureAwait(false);
             await SaveThreadUrlAsync(job.JobId, page.Url, ct).ConfigureAwait(false);
             threadSaved = true;
@@ -165,9 +173,10 @@ public sealed class MuseAiPlaywrightAutomation
         catch (TimeoutException ex)
         {
             // Trước khi gửi: an toàn để thử lại từ đầu. Chưa lưu side chat sau khi gửi: chưa rõ đã gửi hay chưa, phải đối soát.
+            await _activity.WriteAsync(job.JobId, "timeout", $"Hết thời gian ở bước '{step}': {ex.Message}", CancellationToken.None).ConfigureAwait(false);
             await RecordFailureAsync(job.JobId, submitted ? "Hết thời gian sau khi gửi." : "Hết thời gian trước khi gửi; tác vụ thất bại, có thể thử lại.").ConfigureAwait(false);
             return new(false, ReasonCode: PostSubmitFailureReason(submitted, threadSaved, JobReasonCode.RenderTimeout),
-                ErrorMessage: $"Quá thời gian chờ MuseAI: {ex.Message}", SideEffectSubmitted: submitted);
+                ErrorMessage: $"Quá thời gian chờ MuseAI ở bước '{step}': {ex.Message}", SideEffectSubmitted: submitted);
         }
         catch (Exception ex)
         {
@@ -361,6 +370,7 @@ public sealed class MuseAiPlaywrightAutomation
         }
         catch (TimeoutException ex)
         {
+            await _activity.WriteAsync(jobId, "timeout", $"Hết thời gian ở bước 'chờ video': {ex.Message}", CancellationToken.None).ConfigureAwait(false);
             await RecordFailureAsync(jobId, "Hết thời gian chờ video MuseAI; tác vụ thất bại, có thể thử lại từ bước chờ.").ConfigureAwait(false);
             return new(false, ReasonCode: JobReasonCode.RenderTimeout, ErrorMessage: $"Quá thời gian chờ MuseAI tạo video: {ex.Message}", SideEffectSubmitted: true);
         }
