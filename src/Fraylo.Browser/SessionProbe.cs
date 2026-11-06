@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -22,6 +23,7 @@ public sealed class SessionProbe : ISessionProbe, IProfileIdentityResolver
     private readonly Func<string, string, CancellationToken, Task<ProfileIdentityResolutionResult?>>? _externalAdapter;
     private readonly Func<string, CancellationToken, Task<BrowserCheckSessionResponseData?>>? _sessionCheckAdapter;
     private readonly IReadOnlyList<IPlatformSessionProber> _probers;
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _probeGates = new();
 
     public SessionProbe(
         IProfileRegistry profileRegistry,
@@ -115,16 +117,26 @@ public sealed class SessionProbe : ISessionProbe, IProfileIdentityResolver
         // 2. Thực hiện probe thực tế cho từng Provider nếu có IBrowserProcessController
         if (_processController != null)
         {
-            // Cửa sổ đăng nhập thủ công đang giữ .Fraylo_lock: đóng để probe mở được profile
-            if (_processController.IsLoginWindowOpen(profileId))
+            // Đóng cửa sổ đăng nhập phát sự kiện đóng → coordinator probe lại cùng profile; hai probe song song tranh context Playwright và treo.
+            var probeGate = _probeGates.GetOrAdd(profileId, _ => new SemaphoreSlim(1, 1));
+            await probeGate.WaitAsync(cancellationToken);
+            try
             {
-                await _processController.CloseContextAsync(profileId, cancellationToken);
-            }
+                // Cửa sổ đăng nhập thủ công đang giữ .Fraylo_lock: đóng để probe mở được profile
+                if (_processController.IsLoginWindowOpen(profileId))
+                {
+                    await _processController.CloseContextAsync(profileId, cancellationToken);
+                }
 
-            var prober = _probers.FirstOrDefault(p => p.SupportsPlatform(normalizedProvider));
-            if (prober != null)
+                var prober = _probers.FirstOrDefault(p => p.SupportsPlatform(normalizedProvider));
+                if (prober != null)
+                {
+                    return await prober.ProbeAsync(profile, _processController, cancellationToken);
+                }
+            }
+            finally
             {
-                return await prober.ProbeAsync(profile, _processController, cancellationToken);
+                probeGate.Release();
             }
         }
 
