@@ -33,6 +33,19 @@ CREATE TABLE "BrowserProfile" (
 );
 
 
+CREATE TABLE "FacebookDraft" (
+    "id" TEXT NOT NULL CONSTRAINT "PK_FacebookDraft" PRIMARY KEY,
+    "name" TEXT NOT NULL,
+    "profile_id" TEXT NOT NULL,
+    "text" TEXT NOT NULL,
+    "target_ids_json" TEXT NOT NULL,
+    "image_asset_ids_json" TEXT NOT NULL,
+    "revision" INTEGER NOT NULL,
+    "created_at_utc" TEXT NOT NULL,
+    "updated_at_utc" TEXT NOT NULL
+);
+
+
 CREATE TABLE "PromptTemplate" (
     "id" TEXT NOT NULL CONSTRAINT "PK_PromptTemplate" PRIMARY KEY,
     "purpose" TEXT NOT NULL,
@@ -159,6 +172,13 @@ CREATE TABLE "FacebookPostTask" (
     CONSTRAINT "ck_facebook_task_state" CHECK (state IN ('Queued','Preparing','Submitting','Published','PendingApproval','Failed','Unknown','NeedsUser','Canceled')),
     CONSTRAINT "FK_FacebookPostTask_FacebookPostBatch_batch_id" FOREIGN KEY ("batch_id") REFERENCES "FacebookPostBatch" ("id") ON DELETE RESTRICT,
     CONSTRAINT "FK_FacebookPostTask_FacebookTarget_target_id_profile_id" FOREIGN KEY ("target_id", "profile_id") REFERENCES "FacebookTarget" ("id", "profile_id") ON DELETE RESTRICT
+);
+
+
+CREATE TABLE "FacebookTaskSchedule" (
+    "task_id" TEXT NOT NULL CONSTRAINT "PK_FacebookTaskSchedule" PRIMARY KEY,
+    "due_at_utc" TEXT NOT NULL,
+    CONSTRAINT "FK_FacebookTaskSchedule_FacebookPostTask_task_id" FOREIGN KEY ("task_id") REFERENCES "FacebookPostTask" ("id") ON DELETE CASCADE
 );
 
 
@@ -335,6 +355,9 @@ CREATE INDEX "ix_execution_binding_account_slot" ON "ExecutionBinding" ("provide
 CREATE INDEX "ix_execution_binding_profile" ON "ExecutionBinding" ("profile_id");
 
 
+CREATE INDEX "ix_facebook_draft_updated" ON "FacebookDraft" ("updated_at_utc");
+
+
 CREATE INDEX "IX_FacebookPostBatch_profile_id" ON "FacebookPostBatch" ("profile_id");
 
 
@@ -432,4 +455,4 @@ CREATE UNIQUE INDEX "uq_video_revision_project_revision" ON "VideoRevision" ("pr
 
 
 
-PRAGMA user_version = 8;
+PRAGMA user_version = 9;

@@ -11,6 +11,10 @@ export const bridgeCommandAllowlist = [
   "facebook.tasks.create",
   "facebook.tasks.cancel",
   "facebook.tasks.resume",
+  "facebook.tasks.post_now",
+  "facebook.tasks.reschedule",
+  "facebook.drafts.save",
+  "facebook.drafts.delete",
   // Gate G1 — Foundation
   "settings.get",
   "settings.save",

@@ -29,6 +29,7 @@ public sealed class FacebookPublishingService(
     private readonly string _owner = $"{Environment.ProcessId}:{Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks}:{Guid.NewGuid():N}";
     private readonly string _startedAt = Now();
     private static readonly string[] ActiveStates = ["Queued", "Preparing", "Submitting", "NeedsUser"];
+    private const int MaxDrafts = 50;
     private static string Now() => DateTimeOffset.UtcNow.ToString("O");
 
     public async Task<FacebookListResponse> ListAsync(CancellationToken ct = default)
@@ -39,7 +40,47 @@ public sealed class FacebookPublishingService(
         var groups = await db.FacebookTargets.AsNoTracking().Where(t => t.Lifecycle == "Active").OrderBy(t => t.Name).ToListAsync(ct);
         var active = await db.FacebookPostTasks.AsNoTracking().Where(t => ActiveStates.Contains(t.State)).OrderBy(t => t.CreatedAtUtc).ToListAsync(ct);
         var history = await db.FacebookPostTasks.AsNoTracking().Where(t => !ActiveStates.Contains(t.State)).OrderByDescending(t => t.UpdatedAtUtc).Take(200).ToListAsync(ct);
-        return new(accounts, groups.Select(GroupDto).ToArray(), active.Concat(history).Select(TaskDto).ToArray());
+        var drafts = await db.FacebookDrafts.AsNoTracking().OrderByDescending(d => d.UpdatedAtUtc).Take(MaxDrafts).ToListAsync(ct);
+        return new(accounts, groups.Select(GroupDto).ToArray(), await TaskDtosAsync(db, active.Concat(history), ct), drafts.Select(DraftDto).ToArray());
+    }
+
+    public async Task<FacebookDraftDto> SaveDraftAsync(FacebookSaveDraftRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var name = request.Name?.Trim() ?? string.Empty;
+        if (name.Length == 0 || name.Length > 80) throw new ArgumentException("Tên nháp cần từ 1 đến 80 ký tự.");
+        if (string.IsNullOrWhiteSpace(request.AccountId)) throw new ArgumentException("Cần chọn tài khoản cho nháp.");
+        if (request.Text == null || request.Text.EnumerateRunes().Count() > 10000) throw new ArgumentException("Nội dung nháp tối đa 10.000 ký tự.");
+        if (request.TargetIds == null || request.TargetIds.Count > 5000 || request.TargetIds.Any(string.IsNullOrWhiteSpace) || request.TargetIds.Distinct(StringComparer.Ordinal).Count() != request.TargetIds.Count)
+            throw new ArgumentException("Danh sách nhóm của nháp không hợp lệ.");
+        if (request.ImageAssetIds == null || request.ImageAssetIds.Count > 10 || request.ImageAssetIds.Any(string.IsNullOrWhiteSpace) || request.ImageAssetIds.Distinct(StringComparer.Ordinal).Count() != request.ImageAssetIds.Count)
+            throw new ArgumentException("Nháp chứa tối đa 10 ảnh khác nhau.");
+        await using var db = new FrayloDbContext(dbOptions);
+        var now = Now();
+        FacebookDraft draft;
+        if (string.IsNullOrWhiteSpace(request.DraftId))
+        {
+            if (await db.FacebookDrafts.CountAsync(ct) >= MaxDrafts) throw new InvalidOperationException($"Tối đa {MaxDrafts} nháp; hãy xóa bớt nháp cũ.");
+            draft = new() { Id = Guid.NewGuid().ToString("N"), CreatedAtUtc = now };
+            db.FacebookDrafts.Add(draft);
+        }
+        else
+        {
+            draft = await db.FacebookDrafts.SingleOrDefaultAsync(d => d.Id == request.DraftId, ct) ?? throw new KeyNotFoundException("Không tìm thấy nháp.");
+            draft.Revision++;
+        }
+        draft.Name = name; draft.ProfileId = request.AccountId; draft.Text = request.Text;
+        draft.TargetIdsJson = JsonSerializer.Serialize(request.TargetIds); draft.ImageAssetIdsJson = JsonSerializer.Serialize(request.ImageAssetIds);
+        draft.UpdatedAtUtc = now;
+        await db.SaveChangesAsync(ct);
+        return DraftDto(draft);
+    }
+
+    public async Task DeleteDraftAsync(FacebookDraftRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        await using var db = new FrayloDbContext(dbOptions);
+        if (await db.FacebookDrafts.Where(d => d.Id == request.DraftId).ExecuteDeleteAsync(ct) != 1) throw new KeyNotFoundException("Không tìm thấy nháp.");
     }
 
     public async Task<FacebookSyncResponse> SyncGroupsAsync(FacebookSyncRequest request, CancellationToken ct = default)
@@ -109,12 +150,14 @@ public sealed class FacebookPublishingService(
         if (request.Text == null || request.Text.EnumerateRunes().Count() > 10000 || (string.IsNullOrWhiteSpace(request.Text) && request.ImageAssetIds.Count == 0))
             throw new ArgumentException("Bài cần có chữ hoặc ảnh, tối đa 10.000 ký tự.");
         var batchId = batchGuid.ToString("N");
+        var due = ParseDueAt(request.DueAtUtc);
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
         {
             request.AccountId,
             request.Text,
             TargetIds = request.TargetIds.OrderBy(id => id, StringComparer.Ordinal).ToArray(),
-            request.ImageAssetIds
+            request.ImageAssetIds,
+            DueAtUtc = due?.ToString("O")
         }))));
         await _changes.WaitAsync(ct);
         try
@@ -125,7 +168,7 @@ public sealed class FacebookPublishingService(
             if (prior != null)
             {
                 if (prior.RequestHash != hash) throw new ArgumentException("Mã lô đã được dùng với nội dung hoặc danh sách nhóm khác.");
-                return (await db.FacebookPostTasks.AsNoTracking().Where(t => t.BatchId == batchId).OrderBy(t => t.CreatedAtUtc).ToListAsync(ct)).Select(TaskDto).ToArray();
+                return await TaskDtosAsync(db, await db.FacebookPostTasks.AsNoTracking().Where(t => t.BatchId == batchId).OrderBy(t => t.CreatedAtUtc).ToListAsync(ct), ct);
             }
             var profile = await ConnectedProfileAsync(request.AccountId, ct);
             var targets = await db.FacebookTargets.AsNoTracking().Where(t => request.TargetIds.Contains(t.Id) && t.ProfileId == request.AccountId && t.Lifecycle == "Active").ToListAsync(ct);
@@ -149,11 +192,12 @@ public sealed class FacebookPublishingService(
                     GroupUrlSnapshot = target.Url,
                     TextSnapshot = request.Text,
                     State = "Queued",
-                    Message = "Đang chờ đăng; mỗi tài khoản cách ít nhất 5 phút, tối đa 20 bài/24 giờ.",
+                    Message = due == null ? "Đang chờ đăng; mỗi tài khoản cách ít nhất 5 phút, tối đa 20 bài/24 giờ." : ScheduledMessage(due.Value),
                     CreatedAtUtc = now,
                     UpdatedAtUtc = now
                 };
                 tasks.Add(task); db.FacebookPostTasks.Add(task);
+                if (due != null) db.FacebookTaskSchedules.Add(new() { TaskId = task.Id, DueAtUtc = due.Value.ToString("O") });
                 for (var i = 0; i < request.ImageAssetIds.Count; i++)
                 {
                     var asset = assets.Single(a => a.Id == request.ImageAssetIds[i]);
@@ -162,7 +206,7 @@ public sealed class FacebookPublishingService(
             }
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
-            return tasks.Select(TaskDto).ToArray();
+            return await TaskDtosAsync(db, tasks, ct);
         }
         finally { _changes.Release(); }
     }
@@ -190,6 +234,44 @@ public sealed class FacebookPublishingService(
         await db.FacebookPostTasks.Where(t => t.Id == task.Id && t.State == "NeedsUser" && t.SubmittedAtUtc == null)
             .ExecuteUpdateAsync(s => s.SetProperty(t => t.State, "Queued").SetProperty(t => t.ReasonCode, (string?)null)
                 .SetProperty(t => t.Message, "Đã xác nhận tiếp tục; đang chờ lượt đăng.").SetProperty(t => t.UpdatedAtUtc, now).SetProperty(t => t.Revision, t => t.Revision + 1), ct);
+        return await ReadTaskAsync(db, task.Id, ct);
+    }
+
+    /// <summary>Đăng ngay một bài đã hẹn giờ: bỏ giờ hẹn, tác vụ vào lượt đăng theo giãn cách thường.</summary>
+    public async Task<FacebookTaskDto> PostNowAsync(FacebookTaskRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        await using var db = new FrayloDbContext(dbOptions);
+        var stateOk = await db.FacebookPostTasks.AsNoTracking().AnyAsync(t => t.Id == request.TaskId && t.State == "Queued", ct);
+        if (!stateOk || await db.FacebookTaskSchedules.Where(s => s.TaskId == request.TaskId).ExecuteDeleteAsync(ct) != 1)
+            throw new InvalidOperationException("Chỉ đăng ngay được bài đang hẹn giờ và chưa bắt đầu gửi.");
+        await db.FacebookPostTasks.Where(t => t.Id == request.TaskId && t.State == "Queued")
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.Message, "Đăng ngay; đang chờ lượt đăng.").SetProperty(t => t.UpdatedAtUtc, Now()).SetProperty(t => t.Revision, t => t.Revision + 1), ct);
+        return await ReadTaskAsync(db, request.TaskId, ct);
+    }
+
+    /// <summary>Đổi giờ hẹn của bài chưa gửi (đang hẹn hoặc đã lỡ lịch / chờ người dùng); nội dung vẫn là bản chụp.</summary>
+    public async Task<FacebookTaskDto> RescheduleAsync(FacebookRescheduleRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var due = ParseDueAt(request.DueAtUtc) ?? throw new ArgumentException("Cần chọn giờ hẹn.");
+        await using var db = new FrayloDbContext(dbOptions);
+        var task = await db.FacebookPostTasks.AsNoTracking().SingleOrDefaultAsync(t => t.Id == request.TaskId, ct) ?? throw new KeyNotFoundException("Không tìm thấy bài đăng.");
+        if (task.SubmittedAtUtc != null || task.State is not ("Queued" or "NeedsUser")) throw new InvalidOperationException("Chỉ đổi giờ được bài chưa gửi đang chờ.");
+        if (task.State == "NeedsUser")
+        {
+            var profile = await ConnectedProfileAsync(task.ProfileId, ct);
+            if (profile.AccountIdentity != task.AccountIdentitySnapshot) throw new InvalidOperationException("Danh tính tài khoản đã thay đổi; hãy tạo lô mới.");
+        }
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var changed = await db.FacebookPostTasks.Where(t => t.Id == task.Id && t.SubmittedAtUtc == null && (t.State == "Queued" || t.State == "NeedsUser"))
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.State, "Queued").SetProperty(t => t.ReasonCode, (string?)null)
+                .SetProperty(t => t.Message, ScheduledMessage(due)).SetProperty(t => t.UpdatedAtUtc, Now()).SetProperty(t => t.Revision, t => t.Revision + 1), ct);
+        if (changed != 1) throw new InvalidOperationException("Bài đã bắt đầu xử lý nên không đổi giờ được.");
+        await db.FacebookTaskSchedules.Where(s => s.TaskId == task.Id).ExecuteDeleteAsync(ct);
+        db.FacebookTaskSchedules.Add(new() { TaskId = task.Id, DueAtUtc = due.ToString("O") });
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return await ReadTaskAsync(db, task.Id, ct);
     }
 
@@ -227,8 +309,14 @@ public sealed class FacebookPublishingService(
             if (task.State == "Queued")
             {
                 if (string.CompareOrdinal(task.CreatedAtUtc, _startedAt) >= 0) continue;
-                task.State = "NeedsUser"; task.ReasonCode = "app_restarted";
-                task.Message = "Ứng dụng đã khởi động lại; kiểm tra nội dung rồi chọn Tiếp tục nếu vẫn muốn đăng.";
+                var scheduled = await db.FacebookTaskSchedules.AsNoTracking().Where(s => s.TaskId == task.Id).Select(s => s.DueAtUtc).SingleOrDefaultAsync(ct);
+                // Bài hẹn giờ còn trong tương lai vẫn chờ giờ hẹn; đã quá giờ lúc ứng dụng tắt thì không đăng muộn.
+                if (scheduled != null && DateTimeOffset.Parse(scheduled) > DateTimeOffset.UtcNow) continue;
+                task.State = "NeedsUser";
+                task.ReasonCode = scheduled != null ? "schedule_missed" : "app_restarted";
+                task.Message = scheduled != null
+                    ? "Đã lỡ giờ hẹn vì ứng dụng không chạy. Chọn Đăng ngay, Đổi giờ hoặc Hủy."
+                    : "Ứng dụng đã khởi động lại; kiểm tra nội dung rồi chọn Tiếp tục nếu vẫn muốn đăng.";
             }
             else
             {
@@ -255,9 +343,12 @@ public sealed class FacebookPublishingService(
             var candidates = await db.FacebookPostTasks.AsNoTracking().Where(t => t.State == "Queued").OrderBy(t => t.CreatedAtUtc).ThenBy(t => t.Id).ToListAsync(ct);
             var allProfiles = await profiles.ListProfilesAsync(ct);
             var enabledProfiles = await db.ProviderAccounts.AsNoTracking().Where(a => a.ProviderKey == "facebook" && a.Lifecycle == "Active" && a.Enabled).Select(a => a.ProfileId).ToListAsync(ct);
+            var schedules = await db.FacebookTaskSchedules.AsNoTracking().ToDictionaryAsync(s => s.TaskId, s => DateTimeOffset.Parse(s.DueAtUtc), ct);
             foreach (var task in candidates)
             {
                 ct.ThrowIfCancellationRequested();
+                // Chưa tới giờ hẹn thì chưa kiểm phiên hay mở browser.
+                if (schedules.TryGetValue(task.Id, out var dueAt) && dueAt > DateTimeOffset.UtcNow) continue;
                 var profile = allProfiles.SingleOrDefault(p => p.ProfileId == task.ProfileId);
                 if (profile == null || profile.Kind != "Facebook" || profile.Lifecycle != "Active" || profile.SessionStatus != "Connected" || profile.AccountIdentity != task.AccountIdentitySnapshot || !enabledProfiles.Contains(task.ProfileId))
                 {
@@ -443,7 +534,34 @@ public sealed class FacebookPublishingService(
         db.FacebookPostTasks.Where(t => t.Id == id && t.State == "Queued" && t.Message != message).ExecuteUpdateAsync(s => s
             .SetProperty(t => t.State, state).SetProperty(t => t.ReasonCode, reason).SetProperty(t => t.Message, message).SetProperty(t => t.UpdatedAtUtc, Now()).SetProperty(t => t.Revision, t => t.Revision + 1), ct);
     private static async Task<FacebookTaskDto> ReadTaskAsync(FrayloDbContext db, string id, CancellationToken ct) =>
-        TaskDto(await db.FacebookPostTasks.AsNoTracking().SingleOrDefaultAsync(t => t.Id == id, ct) ?? throw new KeyNotFoundException("Không tìm thấy bài đăng."));
+        (await TaskDtosAsync(db, [await db.FacebookPostTasks.AsNoTracking().SingleOrDefaultAsync(t => t.Id == id, ct) ?? throw new KeyNotFoundException("Không tìm thấy bài đăng.")], ct))[0];
     private static FacebookGroupDto GroupDto(FacebookTarget t) => new(t.Id, t.ProfileId, t.Name, t.Url);
-    private static FacebookTaskDto TaskDto(FacebookPostTask t) => new(t.Id, t.BatchId, t.ProfileId, t.TargetId, t.GroupNameSnapshot, t.GroupUrlSnapshot, t.TextSnapshot, t.State, t.Message, t.CreatedAtUtc, t.UpdatedAtUtc, t.SubmittedAtUtc);
+
+    private static async Task<IReadOnlyList<FacebookTaskDto>> TaskDtosAsync(FrayloDbContext db, IEnumerable<FacebookPostTask> source, CancellationToken ct)
+    {
+        var tasks = source.ToList();
+        var ids = tasks.Select(t => t.Id).ToList();
+        var due = await db.FacebookTaskSchedules.AsNoTracking().Where(s => ids.Contains(s.TaskId)).ToDictionaryAsync(s => s.TaskId, s => s.DueAtUtc, ct);
+        var media = (await db.FacebookPostTaskMedia.AsNoTracking().Where(m => ids.Contains(m.TaskId)).OrderBy(m => m.SortOrder).ToListAsync(ct))
+            .GroupBy(m => m.TaskId).ToDictionary(g => g.Key, g => (IReadOnlyList<string>)g.Select(m => m.AssetId).ToArray());
+        return tasks.Select(t => new FacebookTaskDto(t.Id, t.BatchId, t.ProfileId, t.TargetId, t.GroupNameSnapshot, t.GroupUrlSnapshot, t.TextSnapshot, t.State, t.Message,
+            t.CreatedAtUtc, t.UpdatedAtUtc, t.SubmittedAtUtc, t.ReasonCode, due.GetValueOrDefault(t.Id), media.GetValueOrDefault(t.Id) ?? [])).ToArray();
+    }
+
+    private static FacebookDraftDto DraftDto(FacebookDraft d) => new(d.Id, d.Name, d.ProfileId, d.Text,
+        JsonSerializer.Deserialize<string[]>(d.TargetIdsJson) ?? [], JsonSerializer.Deserialize<string[]>(d.ImageAssetIdsJson) ?? [], d.UpdatedAtUtc);
+
+    // Giờ hẹn phải ở tương lai và không quá 1 năm; lưu UTC.
+    private static DateTimeOffset? ParseDueAt(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (!DateTimeOffset.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var due))
+            throw new ArgumentException("Giờ hẹn không hợp lệ.");
+        due = due.ToUniversalTime();
+        if (due <= DateTimeOffset.UtcNow) throw new ArgumentException("Giờ hẹn phải ở tương lai.");
+        if (due > DateTimeOffset.UtcNow.AddDays(365)) throw new ArgumentException("Giờ hẹn tối đa 365 ngày tới.");
+        return due;
+    }
+
+    private static string ScheduledMessage(DateTimeOffset due) => $"Đã hẹn giờ đăng lúc {due.ToLocalTime():HH:mm dd/MM/yyyy}. Giữ Fraylo và máy hoạt động đến giờ hẹn.";
 }

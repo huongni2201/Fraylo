@@ -21,7 +21,7 @@ internal static class GroupChecks
           <div contenteditable="true" role="textbox" id="text"></div>
           <button id="attach">Photo/video</button><div id="media"></div>
           <button id="post">Post</button></div>`;
-          document.getElementById('attach').onclick=()=>{const i=document.createElement('input');i.type='file';i.multiple=true;i.hidden=true;document.querySelector('#root [role=dialog]').appendChild(i);i.onchange=()=>{const g=document.getElementById('media');g.setAttribute('role','group');g.setAttribute('aria-label','Attached media');g.innerHTML=[...i.files].map(f=>`<img alt="${f.name}">`).join('');};};
+          document.getElementById('attach').onclick=()=>{const i=document.createElement('input');i.type='file';i.multiple=true;i.hidden=true;document.querySelector('#root [role=dialog]').appendChild(i);i.onchange=()=>{const g=document.getElementById('media');g.setAttribute('role','group');g.setAttribute('aria-label','Attached media');g.innerHTML=[...i.files].slice(0,5).map(f=>`<img alt="${f.name}">`).join("")+(i.files.length>5?"<span>+"+(i.files.length-4)+"</span>":"");};};
           document.getElementById('post').onclick=()=>{fetch('/test-post');const a=document.createElement('div');a.setAttribute('role','alert');a.textContent='Your post has been published';document.body.appendChild(a);};
           document.addEventListener('keydown',e=>{if(e.key==='Escape')document.getElementById('root').innerHTML='';});
         }
@@ -89,6 +89,30 @@ internal static class GroupChecks
         }
         await using (var context = await browser.NewContextAsync())
         {
+            // Tên accessible tiếng Việt lấy từ ARIA snapshot live; 6 ảnh hiện 5 ô + "+2" như Facebook.
+            var viHtml = Html.Replace("__ACTOR__", "tester").Replace("__ANON__", "false")
+                .Replace("Joined", "Đã tham gia").Replace("Write something...", "Bạn viết gì đi...").Replace("Create post", "Tạo bài viết")
+                .Replace("Post anonymously", "Đăng ẩn danh").Replace("Test's Timeline", "Dòng thời gian của Test")
+                .Replace("Edit privacy. Sharing with Public group.", "Chỉnh sửa quyền riêng tư. Đang chia sẻ với Nhóm công khai.")
+                .Replace("Photo/video", "Ảnh/video").Replace("Attached media", "File phương tiện đính kèm").Replace(">Post<", ">Đăng<");
+            await context.RouteAsync("**/*", r => r.FulfillAsync(new() { ContentType = "text/html; charset=utf-8", Body = viHtml }));
+            var page = await context.NewPageAsync(); await page.GotoAsync("https://www.facebook.com/groups/test/");
+            var images = Enumerable.Repeat(image, 6).ToArray();
+            var dialog = await FacebookGroupBrowser.PrepareGroupOnPageAsync(page, new("p", "Facebook (1)", page.Url, "Test group", "Tiếng Việt 🎬\nDòng hai", images), "https://www.facebook.com/tester/", CancellationToken.None);
+            check(await dialog.GetByRole(AriaRole.Button, new() { Name = "Đăng", Exact = true }).IsEnabledAsync(), "Composer nhóm giao diện tiếng Việt chuẩn bị đủ 6 ảnh (5 ô + \"+2\"), chữ, actor, đối tượng; nút Đăng sẵn sàng");
+        }
+        await using (var context = await browser.NewContextAsync())
+        {
+            var anonymousHtml = Html.Replace("__ACTOR__", "tester").Replace("__ANON__", "true").Replace("Joined", "Đã tham gia").Replace("Write something...", "Bạn viết gì đi...")
+                .Replace("Create post", "Tạo bài viết").Replace("Post anonymously", "Đăng ẩn danh").Replace("Test's Timeline", "Dòng thời gian của Test");
+            await context.RouteAsync("**/*", r => r.FulfillAsync(new() { ContentType = "text/html; charset=utf-8", Body = anonymousHtml }));
+            var page = await context.NewPageAsync(); await page.GotoAsync("https://www.facebook.com/groups/test/");
+            try { await FacebookGroupBrowser.PrepareGroupOnPageAsync(page, new("p", "Facebook (1)", page.Url, "Test group", "x", []), "https://www.facebook.com/tester/", CancellationToken.None); throw new Exception("Expected rejection"); }
+            catch (FacebookPostException ex) when (ex.ReasonCode == "identity_mismatch") { }
+            check(true, "Giao diện tiếng Việt từ chối đăng ẩn danh");
+        }
+        await using (var context = await browser.NewContextAsync())
+        {
             await context.RouteAsync("**/*", r => r.FulfillAsync(new() { ContentType = "text/html", Body = "<div role='main'><h2>All groups you've joined (2)</h2><ul><li><a href='/groups/a/'>Group A</a><a href='/groups/a/'>View group</a></li><li><a href='https://web.facebook.com/groups/b/?ref=x'>Group B</a></li><li><a href='https://evil.test/groups/c/'>Evil</a></li></ul></div>" }));
             var page = await context.NewPageAsync(); await page.GotoAsync("https://www.facebook.com/groups/joins/");
             var groups = await FacebookGroupBrowser.ReadJoinedGroupsOnPageAsync(page, CancellationToken.None);
@@ -96,6 +120,17 @@ internal static class GroupChecks
             await page.GetByRole(AriaRole.Heading).EvaluateAsync("e => e.textContent=\"All groups you've joined (3)\"");
             var partial = await FacebookGroupBrowser.ReadJoinedGroupsOnPageAsync(page, CancellationToken.None);
             check(!partial.IsComplete && partial.Groups.Count == 2, "Facebook dừng tải trước tổng số: giữ danh sách một phần, không báo đã kéo hết");
+        }
+        await using (var context = await browser.NewContextAsync())
+        {
+            // Cấu trúc theo ARIA snapshot tiếng Việt đã quan sát: heading cấp 2 kèm tổng, mỗi nhóm có link tên, link tên (ảnh) và "Xem nhóm".
+            await context.RouteAsync("**/*", r => r.FulfillAsync(new() { ContentType = "text/html; charset=utf-8", Body = "<div role='main'><h2>Nhóm bạn đã tham gia</h2><h2>Yêu cầu tham gia nhóm đang chờ (3)</h2><h2>Tất cả các nhóm bạn đã tham gia (2)</h2><ul><li><a href='/groups/a/'>Nhóm Một</a><a href='/groups/a/'>Nhóm Một</a><a href='/groups/a/'>Xem nhóm</a></li><li><a href='https://web.facebook.com/groups/b/'>Nhóm Hai</a><a href='/groups/b/'>Xem nhóm</a></li></ul></div>" }));
+            var page = await context.NewPageAsync(); await page.GotoAsync("https://www.facebook.com/groups/joins/");
+            var groups = await FacebookGroupBrowser.ReadJoinedGroupsOnPageAsync(page, CancellationToken.None);
+            check(groups.IsComplete && groups.Groups.Count == 2 && groups.Groups.Select(g => g.Name).Order().SequenceEqual(["Nhóm Hai", "Nhóm Một"]), "Danh sách nhóm giao diện tiếng Việt: nhận heading VI, bỏ link Xem nhóm, không nhầm heading chờ duyệt");
+            await page.GetByRole(AriaRole.Heading, new() { NameRegex = new("^Tất cả") }).EvaluateAsync("e => e.textContent='Tất cả các nhóm bạn đã tham gia (1.475)'");
+            var partial = await FacebookGroupBrowser.ReadJoinedGroupsOnPageAsync(page, CancellationToken.None);
+            check(!partial.IsComplete && partial.Message.Contains("/1475"), "Tổng số nhóm tiếng Việt có dấu chấm ngăn cách nghìn vẫn đọc đúng");
         }
         await using (var context = await browser.NewContextAsync())
         {
@@ -113,6 +148,19 @@ internal static class GroupChecks
                 catch (FacebookUnknownOutcomeException) { }
             }
             check(true, "Không nhận pending chung chung, thông báo ẩn hoặc xác nhận cũ làm kết quả bài mới");
+
+            // Giao diện VI: chỉ có trạng thái "Đang đăng", bài hiện trong nhóm. Chữ trong hộp soạn bài và bài cũ không được tính.
+            var viText = "🌙 THÁI BÌNH CỔ TRẤN VỀ ĐÊM – ĐẸP NHƯ BƯỚC RA TỪ PHIM! ✨\nDòng hai";
+            var probe = FacebookGroupBrowser.FeedProbeText(viText)!;
+            check(probe == "THÁI BÌNH CỔ TRẤN VỀ ĐÊM – ĐẸP NHƯ BƯỚC RA TỪ PHIM" && FacebookGroupBrowser.FeedProbeText("Ngắn 🎬") == null, "Đoạn chữ nhận diện bài: bỏ emoji hai đầu, từ chối chữ quá ngắn");
+            await page.SetContentAsync($"<div role='dialog'><div role='textbox'>{probe}</div></div><div role='status'>Đang đăng</div><div id='feed'>{probe} (bài cũ)</div>");
+            var before = await FacebookGroupBrowser.CountFeedMatchesAsync(page, probe);
+            check(before == 1, "Chữ trong hộp soạn bài bị loại khỏi phép đếm, bài cũ trong nhóm được đếm");
+            try { await FacebookGroupBrowser.WaitForGroupResultAsync(page, TimeSpan.FromMilliseconds(300), new HashSet<string>(), probe, before); throw new Exception("Expected Unknown"); }
+            catch (FacebookUnknownOutcomeException) { }
+            await page.EvaluateAsync($"setTimeout(() => {{ document.querySelector('[role=dialog]').remove(); document.getElementById('feed').insertAdjacentHTML('beforebegin', '<article><span>{probe}</span></article>'); }}, 200)");
+            var viResult = await FacebookGroupBrowser.WaitForGroupResultAsync(page, TimeSpan.FromSeconds(5), new HashSet<string>(), probe, before);
+            check(viResult.Outcome == FacebookPostOutcome.Published, "Giao diện VI: bài mới xuất hiện trong nhóm sau khi đóng composer → Published; chưa xuất hiện → Unknown");
         }
     }
 

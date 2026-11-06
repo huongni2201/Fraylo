@@ -31,6 +31,8 @@ public class FrayloDbContext : DbContext
     public DbSet<FacebookPostBatch> FacebookPostBatches => Set<FacebookPostBatch>();
     public DbSet<FacebookPostTask> FacebookPostTasks => Set<FacebookPostTask>();
     public DbSet<FacebookPostTaskMedia> FacebookPostTaskMedia => Set<FacebookPostTaskMedia>();
+    public DbSet<FacebookTaskSchedule> FacebookTaskSchedules => Set<FacebookTaskSchedule>();
+    public DbSet<FacebookDraft> FacebookDrafts => Set<FacebookDraft>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {

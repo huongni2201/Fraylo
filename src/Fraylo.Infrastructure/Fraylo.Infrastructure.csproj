@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Persistence\Sql\facebook-v8.sql" LogicalName="Fraylo.Infrastructure.Persistence.Sql.facebook-v8.sql" />
+    <EmbeddedResource Include="Persistence\Sql\facebook-v9.sql" LogicalName="Fraylo.Infrastructure.Persistence.Sql.facebook-v9.sql" />
     <EmbeddedResource Include="Persistence\Sql\final-schema.sql" LogicalName="Fraylo.Infrastructure.Persistence.Sql.final-schema.sql" />
   </ItemGroup>
 

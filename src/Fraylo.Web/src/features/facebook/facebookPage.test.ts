@@ -7,6 +7,8 @@ const { createRoot } = await import("react-dom/client");
 const { FacebookPage } = await import("./FacebookPage");
 const { randomGroupIds } = await import("./facebookApi");
 const groups: FacebookGroup[] = Array.from({ length: 4 }, (_, index) => ({ targetId: `a${index}`, accountId: "a", name: `Nhóm ${index}`, url: `https://www.facebook.com/groups/${index + 1}/` }));
+const unused = async (): Promise<never> => { throw new Error("unused"); };
+const unusedApi = { postNow: unused, reschedule: unused, saveDraft: unused, deleteDraft: unused };
 
 test("Chọn ngẫu nhiên không lặp, không vượt danh sách và từ chối số sai", () => {
   assert.deepEqual(randomGroupIds(groups, 4, () => 0).sort(), groups.map(group => group.targetId).sort());
@@ -23,7 +25,7 @@ test("Lô nhóm phải xác nhận, giữ mã lô khi timeout, không áp nhóm 
     list: async () => data,
     sync: async () => new Promise(resolve => { releaseSync = resolve; }),
     create: async request => { requests.push(request); throw new Error("Mất kết nối"); },
-    cancel: async () => { throw new Error("Không được hủy"); }, resume: async () => { throw new Error("Không được tiếp tục"); },
+    cancel: async () => { throw new Error("Không được hủy"); }, resume: async () => { throw new Error("Không được tiếp tục"); }, ...unusedApi,
   };
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
   const render = (view: "compose", active = true) => React.createElement(FacebookPage, { active, view, api, onNavigate: next => { navigated = next; }, onOpenAccounts: () => {} });
@@ -77,7 +79,7 @@ test("Mở lại trang dùng nhóm đã lưu, chỉ tải từ Facebook khi bấ
   const api: FacebookApi = {
     list: async () => data,
     sync: async () => { syncCalls++; return { groups, isComplete: true, message: "Đã lưu nhóm" }; },
-    create: async () => [], cancel: async () => { throw new Error("unused"); }, resume: async () => { throw new Error("unused"); },
+    create: async () => [], cancel: unused, resume: unused, ...unusedApi,
   };
   for (let opening = 0; opening < 2; opening++) {
     const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);

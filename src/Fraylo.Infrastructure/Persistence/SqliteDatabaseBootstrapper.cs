@@ -9,7 +9,7 @@ namespace Fraylo.Infrastructure.Persistence;
 
 public sealed class SqliteDatabaseBootstrapper : ISqliteDatabaseBootstrapper
 {
-    private const int CurrentSchemaVersion = 8;
+    private const int CurrentSchemaVersion = 9;
     private const string SchemaResourceName = "Fraylo.Infrastructure.Persistence.Sql.final-schema.sql";
     private readonly ILogger<SqliteDatabaseBootstrapper>? _logger;
 
@@ -40,11 +40,12 @@ public sealed class SqliteDatabaseBootstrapper : ISqliteDatabaseBootstrapper
                 throw new InvalidOperationException($"Database schema version {schemaVersion} is not supported; expected {CurrentSchemaVersion}.");
             }
 
-            if (schemaVersion == 7)
+            if (schemaVersion is 7 or 8)
             {
-                var backupPath = CreateSchemaBackup(dbPath, connectionString, "pre-facebook", cancellationToken);
-                _logger?.LogInformation("Created pre-Facebook SQLite backup at {BackupPath}", backupPath);
-                await UpgradeFacebookSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
+                var backupPath = CreateSchemaBackup(dbPath, connectionString, schemaVersion == 7 ? "pre-facebook" : "pre-facebook-v9", cancellationToken);
+                _logger?.LogInformation("Created pre-upgrade SQLite backup at {BackupPath}", backupPath);
+                if (schemaVersion == 7) await UpgradeSchemaAsync(connection, "facebook-v8.sql", 8, cancellationToken).ConfigureAwait(false);
+                await UpgradeSchemaAsync(connection, "facebook-v9.sql", 9, cancellationToken).ConfigureAwait(false);
             }
             else if (schemaVersion < CurrentSchemaVersion)
             {
@@ -115,17 +116,18 @@ public sealed class SqliteDatabaseBootstrapper : ISqliteDatabaseBootstrapper
             IsBootstrapSuccessful: isSuccess);
     }
 
-    private static async Task UpgradeFacebookSchemaAsync(SqliteConnection connection, CancellationToken ct)
+    // Nâng cấp cộng thêm bảng: mỗi bước một transaction, giữ nguyên dữ liệu hiện có.
+    private static async Task UpgradeSchemaAsync(SqliteConnection connection, string resource, int toVersion, CancellationToken ct)
     {
         await using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(
-            "Fraylo.Infrastructure.Persistence.Sql.facebook-v8.sql")
-            ?? throw new InvalidOperationException("Facebook schema resource was not found.");
+            "Fraylo.Infrastructure.Persistence.Sql." + resource)
+            ?? throw new InvalidOperationException($"Schema upgrade resource {resource} was not found.");
         using var reader = new StreamReader(stream);
         var sql = await reader.ReadToEndAsync(ct).ConfigureAwait(false);
         await using var transaction = connection.BeginTransaction();
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = sql + "\nPRAGMA user_version = 8;";
+        command.CommandText = sql + $"\nPRAGMA user_version = {toVersion};";
         await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         await transaction.CommitAsync(ct).ConfigureAwait(false);
     }

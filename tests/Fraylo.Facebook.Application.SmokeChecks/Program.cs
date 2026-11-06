@@ -34,7 +34,7 @@ async Task<FacebookTaskDto> TaskById(string id) => (await service.ListAsync()).T
 async Task ResetWork()
 {
     await using var db = new FrayloDbContext(options);
-    await db.FacebookPostTaskMedia.ExecuteDeleteAsync(); await db.FacebookPostTasks.ExecuteDeleteAsync(); await db.FacebookPostBatches.ExecuteDeleteAsync();
+    await db.FacebookTaskSchedules.ExecuteDeleteAsync(); await db.FacebookPostTaskMedia.ExecuteDeleteAsync(); await db.FacebookPostTasks.ExecuteDeleteAsync(); await db.FacebookPostBatches.ExecuteDeleteAsync();
     await db.BrowserProfiles.ExecuteUpdateAsync(s => s.SetProperty(p => p.SessionStatus, "Connected").SetProperty(p => p.OperationalState, "Stopped"));
     await db.AppSettings.Where(s => s.Key == "scheduler.max_open_browsers").ExecuteDeleteAsync();
     await db.ProviderAccounts.ExecuteUpdateAsync(s => s.SetProperty(a => a.Enabled, true));
@@ -193,6 +193,87 @@ try
     var syncExpired = false;
     try { await service.SyncGroupsAsync(new("p1")); } catch (FacebookNeedsUserException) { syncExpired = true; }
     Check(syncExpired && (await registry.GetProfileAsync("p1"))!.SessionStatus == "Unverified", "Sync hết phiên đổi account sang Unverified để hiện nút đăng nhập");
+
+    // ===== Hẹn giờ =====
+    string Due(TimeSpan offset) => DateTimeOffset.UtcNow.Add(offset).ToString("O");
+    async Task SetDue(string taskId, TimeSpan offset) { await using var d = new FrayloDbContext(options); await d.FacebookTaskSchedules.Where(s => s.TaskId == taskId).ExecuteUpdateAsync(s => s.SetProperty(x => x.DueAtUtc, Due(offset))); }
+
+    await ResetWork();
+    await Throws(async () => { await service.CreateBatchAsync(Request("p1", [p1[0].TargetId]) with { DueAtUtc = Due(TimeSpan.FromMinutes(-1)) }); }, "Giờ hẹn trong quá khứ bị từ chối");
+    await Throws(async () => { await service.CreateBatchAsync(Request("p1", [p1[0].TargetId]) with { DueAtUtc = Due(TimeSpan.FromDays(400)) }); }, "Giờ hẹn quá 365 ngày bị từ chối");
+    await Throws(async () => { await service.CreateBatchAsync(Request("p1", [p1[0].TargetId]) with { DueAtUtc = "không phải giờ" }); }, "Giờ hẹn sai định dạng bị từ chối");
+    var scheduledRequest = Request("p1", [p1[0].TargetId]) with { DueAtUtc = Due(TimeSpan.FromHours(1)) };
+    var scheduled = (await service.CreateBatchAsync(scheduledRequest))[0];
+    Check(scheduled.State == "Queued" && scheduled.DueAtUtc != null && scheduled.Message.Contains("hẹn giờ"), "Tạo lô hẹn giờ: Queued kèm DueAtUtc");
+    Check((await service.CreateBatchAsync(scheduledRequest))[0].TaskId == scheduled.TaskId, "Replay lô hẹn giờ cùng giờ trả lô cũ");
+    await Throws(async () => { await service.CreateBatchAsync(scheduledRequest with { DueAtUtc = Due(TimeSpan.FromHours(2)) }); }, "Replay khác giờ hẹn bị chặn");
+    Check(!await service.ProcessNextAsync() && browser.Calls == 0 && (await TaskById(scheduled.TaskId)).State == "Queued", "Chưa tới giờ hẹn thì không mở Facebook");
+    await registry.UpdateProfileStateAsync("p1", sessionStatus: "Unverified");
+    await service.ProcessNextAsync();
+    Check((await TaskById(scheduled.TaskId)).State == "Queued", "Chưa tới giờ hẹn thì chưa kiểm phiên, không chuyển NeedsUser");
+    await registry.UpdateProfileStateAsync("p1", sessionStatus: "Connected");
+    await SetDue(scheduled.TaskId, TimeSpan.FromSeconds(-1));
+    Check(await service.ProcessNextAsync() && browser.Calls == 1 && (await TaskById(scheduled.TaskId)).State == "Published", "Tới giờ hẹn thì đăng");
+
+    await ResetWork();
+    var postNow = (await service.CreateBatchAsync(Request("p1", [p1[0].TargetId]) with { DueAtUtc = Due(TimeSpan.FromHours(3)) }))[0];
+    var nowResult = await service.PostNowAsync(new(postNow.TaskId));
+    Check(nowResult.DueAtUtc == null && nowResult.State == "Queued", "Đăng ngay bỏ giờ hẹn");
+    Check(await service.ProcessNextAsync() && (await TaskById(postNow.TaskId)).State == "Published", "Bài đăng ngay được xử lý");
+    await Throws(async () => { await service.PostNowAsync(new(postNow.TaskId)); }, "Không Đăng ngay bài đã xử lý");
+
+    await ResetWork();
+    var moving = (await service.CreateBatchAsync(Request("p1", [p1[0].TargetId]) with { DueAtUtc = Due(TimeSpan.FromHours(1)) }))[0];
+    var newDue = Due(TimeSpan.FromHours(5));
+    var moved = await service.RescheduleAsync(new(moving.TaskId, newDue));
+    Check(moved.State == "Queued" && DateTimeOffset.Parse(moved.DueAtUtc!) > DateTimeOffset.UtcNow.AddHours(4), "Đổi giờ hẹn cập nhật DueAtUtc");
+    await Throws(async () => { await service.RescheduleAsync(new(moving.TaskId, Due(TimeSpan.FromMinutes(-5)))); }, "Đổi giờ về quá khứ bị từ chối");
+    var immediate = (await service.CreateBatchAsync(Request("p1", [p1[1].TargetId])))[0];
+    Check((await service.RescheduleAsync(new(immediate.TaskId, Due(TimeSpan.FromHours(2))))).DueAtUtc != null, "Bài xếp hàng ngay có thể chuyển sang hẹn giờ");
+    await service.CancelAsync(new(moving.TaskId));
+    await Throws(async () => { await service.RescheduleAsync(new(moving.TaskId, Due(TimeSpan.FromHours(2)))); }, "Không đổi giờ bài đã hủy");
+
+    await ResetWork();
+    var future = (await service.CreateBatchAsync(Request("p1", [p1[0].TargetId]) with { DueAtUtc = Due(TimeSpan.FromHours(4)) }))[0];
+    var overdue = (await service.CreateBatchAsync(Request("p1", [p1[1].TargetId]) with { DueAtUtc = Due(TimeSpan.FromHours(1)) }))[0];
+    await SetDue(overdue.TaskId, TimeSpan.FromMinutes(-30));
+    var afterRestart = new FacebookPublishingService(options, roots, registry, browser, controller);
+    await afterRestart.RecoverInterruptedAsync();
+    var recovered2 = (await afterRestart.ListAsync()).Tasks.ToDictionary(t => t.TaskId);
+    Check(recovered2[future.TaskId].State == "Queued" && recovered2[overdue.TaskId].State == "NeedsUser" && recovered2[overdue.TaskId].ReasonCode == "schedule_missed", "Khởi động lại: hẹn giờ tương lai giữ nguyên, quá hạn thành lỡ lịch, không đăng muộn");
+    var rescheduledMissed = await afterRestart.RescheduleAsync(new(overdue.TaskId, Due(TimeSpan.FromHours(6))));
+    Check(rescheduledMissed.State == "Queued" && rescheduledMissed.ReasonCode == null && rescheduledMissed.DueAtUtc != null, "Lỡ lịch: Đổi giờ đưa về hàng đợi");
+    await SetDue(overdue.TaskId, TimeSpan.FromMinutes(-30));
+    var secondRestart = new FacebookPublishingService(options, roots, registry, browser, controller);
+    await secondRestart.RecoverInterruptedAsync();
+    var missedAgain = await secondRestart.ResumeAsync(new(overdue.TaskId));
+    Check(missedAgain.State == "Queued", "Lỡ lịch: Đăng ngay (Tiếp tục) đưa về hàng đợi");
+    Check(browser.Calls == 0, "Recovery và đổi giờ không gọi Facebook");
+
+    // ===== Hình ảnh trong DTO =====
+    await ResetWork();
+    var withImage = (await service.CreateBatchAsync(Request("p1", [p1[0].TargetId], images: ["image1"])))[0];
+    Check(withImage.ImageAssetIds!.SequenceEqual(["image1"]) && (await TaskById(withImage.TaskId)).ImageAssetIds!.SequenceEqual(["image1"]), "DTO trả danh sách ảnh để đăng lại");
+
+    // ===== Nháp =====
+    await using (var db = new FrayloDbContext(options)) await db.FacebookDrafts.ExecuteDeleteAsync();
+    var draft = await service.SaveDraftAsync(new(null, "  Nháp 1  ", "p1", "Nội dung 😀", [p1[0].TargetId, p1[1].TargetId], ["image1"]));
+    Check(draft.Name == "Nháp 1" && draft.TargetIds.Count == 2 && draft.ImageAssetIds.SequenceEqual(["image1"]) && (await service.ListAsync()).Drafts!.Count == 1, "Lưu nháp bền");
+    var edited = await service.SaveDraftAsync(new(draft.DraftId, "Nháp 1", "p1", "Sửa", [p1[0].TargetId], []));
+    var listed = (await service.ListAsync()).Drafts!;
+    Check(listed.Count == 1 && listed[0].Text == "Sửa" && listed[0].TargetIds.Count == 1 && edited.DraftId == draft.DraftId, "Sửa nháp ghi đè, không tạo thêm");
+    await Throws(async () => { await service.SaveDraftAsync(new(null, "", "p1", "x", [], [])); }, "Nháp thiếu tên bị từ chối");
+    await Throws(async () => { await service.SaveDraftAsync(new(null, "n", "p1", "x", ["a", "a"], [])); }, "Nháp lặp nhóm bị từ chối");
+    await Throws(async () => { await service.SaveDraftAsync(new(null, "n", "p1", "x", [], Enumerable.Range(0, 11).Select(i => "i" + i).ToArray())); }, "Nháp quá 10 ảnh bị từ chối");
+    var restartedForDrafts = new FacebookPublishingService(options, roots, registry, browser, controller);
+    Check((await restartedForDrafts.ListAsync()).Drafts!.Single().Text == "Sửa", "Nháp còn sau khi khởi động lại (SQLite)");
+    for (var i = 0; i < 49; i++) await service.SaveDraftAsync(new(null, "n" + i, "p1", "x", [], []));
+    await Throws(async () => { await service.SaveDraftAsync(new(null, "dư", "p1", "x", [], [])); }, "Tối đa 50 nháp");
+    await service.DeleteDraftAsync(new(draft.DraftId));
+    Check((await service.ListAsync()).Drafts!.Count == 49, "Xóa nháp");
+    var missingDelete = false;
+    try { await service.DeleteDraftAsync(new(draft.DraftId)); } catch (KeyNotFoundException) { missingDelete = true; }
+    Check(missingDelete, "Xóa nháp không tồn tại báo lỗi");
 
     Console.WriteLine($"Facebook application smoke: {passed} PASS; SQLite thật, browser giả, live NOT_RUN");
     return 0;

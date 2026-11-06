@@ -10,7 +10,7 @@ Ngày: 2026-11-06. Trạng thái: **ĐÃ TRIỂN KHAI CỤC BỘ luồng đăng 
 
 ## Phạm vi đã triển khai theo yêu cầu 2026-11-06
 
-Người dùng ưu tiên Nhóm Facebook và yêu cầu tải tất cả nhóm đã tham gia, chọn cụ thể/ngẫu nhiên N/tất cả để tạo lô. Luồng nhóm, UI, bridge và hàng đợi đã triển khai; [handoff nhóm](FACEBOOK_GROUPS_HANDOFF.md) ghi hành vi và giới hạn. Page/video/hẹn giờ/nháp lưu bền trong bản kế hoạch dưới đây vẫn chưa triển khai. Schema v8 hiện có Target, PostBatch, PostTask, PostTaskMedia; chưa có bảng nháp. Quyết định recovery hiện hành: không tự retry, queued sau restart chờ người dùng Tiếp tục.
+Người dùng ưu tiên Nhóm Facebook và yêu cầu tải tất cả nhóm đã tham gia, chọn cụ thể/ngẫu nhiên N/tất cả để tạo lô. Luồng nhóm, UI, bridge và hàng đợi đã triển khai; [handoff nhóm](FACEBOOK_GROUPS_HANDOFF.md) ghi hành vi và giới hạn. Page/video trong bản kế hoạch dưới đây vẫn chưa triển khai. Cập nhật schema v9: hẹn giờ (bảng `FacebookTaskSchedule`, không thêm trạng thái DB; lỡ lịch = `NeedsUser` mã `schedule_missed`) và nháp lưu bền (`FacebookDraft`, một bảng, không phiên bản hóa) đã làm cho luồng nhóm, khác thiết kế §5–§6 (cột `due_at_utc`, bảng `FacebookDraftMedia`, trạng thái `Scheduled/Missed`) vì đổi CHECK trạng thái/cột cần dựng lại bảng đang chứa dữ liệu. Quyết định recovery hiện hành: không tự retry, queued sau restart chờ người dùng Tiếp tục.
 
 ## Ràng buộc chung (áp dụng cho mọi giai đoạn)
 

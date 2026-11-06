@@ -6,8 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { listAssets, uploadAsset, type AssetItem } from "../library/libraryApi";
-import { facebookApi, facebookError, facebookStateLabels, isFacebookTaskPending, randomGroupIds,
-  type FacebookApi, type FacebookBatchRequest, type FacebookGroup, type FacebookList, type FacebookTask } from "./facebookApi";
+import { facebookApi, facebookDisplayState, facebookError, facebookStateLabels, isFacebookTaskPending, localInputToUtc, randomGroupIds, utcToLocalInput,
+  type FacebookApi, type FacebookBatchRequest, type FacebookDraft, type FacebookGroup, type FacebookList, type FacebookTask } from "./facebookApi";
 
 export type FacebookView = "compose" | "queue" | "history";
 interface Props {
@@ -21,6 +21,8 @@ interface Props {
 const control = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 const panel = "rounded-xl border border-border bg-card p-5";
 const empty: FacebookList = { accounts: [], groups: [], tasks: [] };
+const cancelableStates = ["Queued", "Preparing", "NeedsUser"];
+const historyStates = ["Published", "PendingApproval", "Failed", "Unknown", "Canceled"];
 const titles: Record<FacebookView, string> = { compose: "Soạn bài Facebook", queue: "Hàng đợi Facebook", history: "Lịch sử Facebook" };
 
 export function FacebookPage({ active, view, onNavigate, onOpenAccounts, onPendingCount, api = facebookApi }: Props) {
@@ -43,6 +45,15 @@ export function FacebookPage({ active, view, onNavigate, onOpenAccounts, onPendi
   const [taskBusy, setTaskBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [mode, setMode] = useState<"now" | "scheduled">("now");
+  const [dueInput, setDueInput] = useState("");
+  const [draftName, setDraftName] = useState("");
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [draftBusy, setDraftBusy] = useState(false);
+  const [editingDue, setEditingDue] = useState<{ taskId: string; value: string } | null>(null);
+  const [confirmBatchId, setConfirmBatchId] = useState<string | null>(null);
+  const [historyState, setHistoryState] = useState("all");
+  const [historySearch, setHistorySearch] = useState("");
   const [confirmation, setConfirmation] = useState<{ request: FacebookBatchRequest; groups: FacebookGroup[]; accountName: string } | null>(null);
   const pendingRequest = useRef<{ signature: string; id: string } | null>(null);
   const mounted = useRef(true);
@@ -76,7 +87,13 @@ export function FacebookPage({ active, view, onNavigate, onOpenAccounts, onPendi
   const visibleGroups = groups.filter(group => group.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   const connected = account?.sessionStatus === "Connected" && !!account.accountIdentity && account.enabled !== false;
   const textLength = Array.from(text).length;
-  const canCreate = connected && selectedGroups.length > 0 && (text.trim().length > 0 || imageIds.length > 0) && textLength <= 10000 && !busy && !syncing && !imageBusy;
+  // undefined = đăng ngay; chuỗi = giờ hẹn hợp lệ (tương lai); null = chưa nhập hoặc không hợp lệ.
+  const dueUtc = (() => {
+    if (mode !== "scheduled") return undefined;
+    try { const iso = localInputToUtc(dueInput); return Date.parse(iso) > Date.now() ? iso : null; } catch { return null; }
+  })();
+  const drafts = data.drafts ?? [];
+  const canCreate = connected && selectedGroups.length > 0 && (text.trim().length > 0 || imageIds.length > 0) && textLength <= 10000 && dueUtc !== null && !busy && !syncing && !imageBusy;
 
   const changeAccount = (value: string) => {
     setAccountId(value); setSelected([]); setSearch(""); setError(null); setMessage(null); setConfirmation(null);
@@ -124,7 +141,7 @@ export function FacebookPage({ active, view, onNavigate, onOpenAccounts, onPendi
   };
   const review = () => {
     if (!canCreate || !account) return;
-    const content = { accountId, targetIds: selectedGroups.map(group => group.targetId).sort(), text, imageAssetIds: [...imageIds] };
+    const content = { accountId, targetIds: selectedGroups.map(group => group.targetId).sort(), text, imageAssetIds: [...imageIds], ...(dueUtc ? { dueAtUtc: dueUtc } : {}) };
     const signature = JSON.stringify(content);
     if (pendingRequest.current?.signature !== signature) pendingRequest.current = { signature, id: crypto.randomUUID() };
     setError(null);
@@ -137,23 +154,90 @@ export function FacebookPage({ active, view, onNavigate, onOpenAccounts, onPendi
       const tasks = await api.create(confirmation.request);
       if (!mounted.current) return;
       setData(current => ({ ...current, tasks: [...tasks, ...current.tasks.filter(task => !tasks.some(created => created.taskId === task.taskId))] }));
-      setMessage(`Đã tạo ${tasks.length} tác vụ. Theo dõi kết quả từng nhóm trong Hàng đợi.`);
+      setMessage(`Đã tạo ${tasks.length} tác vụ${confirmation.request.dueAtUtc ? " hẹn giờ" : ""}. Theo dõi kết quả từng nhóm trong Hàng đợi.`);
       setConfirmation(null); setSelected([]); pendingRequest.current = null;
       onNavigate("queue");
     } catch (err) {
       if (mounted.current) setError(`${facebookError(err)} Tải lại hàng đợi để kiểm tra. Gửi lại cùng bản xác nhận sẽ dùng cùng mã lô, không tạo thêm bài.`);
     } finally { creating.current = false; if (mounted.current) setBusy(false); }
   };
-  const taskAction = async (task: FacebookTask, action: "cancel" | "resume") => {
+  const replaceTask = (result: FacebookTask) => setData(current => ({ ...current, tasks: current.tasks.map(item => item.taskId === result.taskId ? result : item) }));
+  const taskAction = async (task: FacebookTask, action: "cancel" | "resume" | "postNow") => {
     if (taskBusy) return;
     setTaskBusy(task.taskId); setError(null);
     try {
       const result = await api[action](task.taskId);
-      if (mounted.current) setData(current => ({ ...current, tasks: current.tasks.map(item => item.taskId === result.taskId ? result : item) }));
+      if (mounted.current) replaceTask(result);
     } catch (err) { if (mounted.current) setError(facebookError(err)); }
     finally { if (mounted.current) setTaskBusy(null); }
   };
-  const tasks = data.tasks.filter(task => view === "queue" ? isFacebookTaskPending(task.state) : !isFacebookTaskPending(task.state));
+  const saveDue = async () => {
+    if (!editingDue || taskBusy) return;
+    const target = editingDue;
+    setTaskBusy(target.taskId); setError(null);
+    try {
+      const result = await api.reschedule(target.taskId, localInputToUtc(target.value));
+      if (!mounted.current) return;
+      replaceTask(result); setEditingDue(null);
+    } catch (err) { if (mounted.current) setError(facebookError(err)); }
+    finally { if (mounted.current) setTaskBusy(null); }
+  };
+  const cancelBatch = async (batchId: string) => {
+    if (taskBusy) return;
+    setTaskBusy(batchId); setError(null); setConfirmBatchId(null);
+    let canceled = 0;
+    try {
+      for (const task of data.tasks.filter(item => item.batchId === batchId && cancelableStates.includes(item.state))) {
+        const result = await api.cancel(task.taskId);
+        if (result.state === "Canceled") canceled++;
+        if (!mounted.current) return;
+        replaceTask(result);
+      }
+      setMessage(`Đã hủy ${canceled} bài chưa gửi của lô. Bài đã gửi lệnh đăng không thể hủy.`);
+    } catch (err) { if (mounted.current) setError(facebookError(err)); }
+    finally { if (mounted.current) setTaskBusy(null); }
+  };
+  const saveDraft = async () => {
+    if (!accountId || draftBusy) return;
+    setDraftBusy(true); setError(null);
+    try {
+      const saved = await api.saveDraft({ draftId: draftId ?? undefined, name: draftName.trim() || `Nháp ${new Date().toLocaleString("vi-VN")}`, accountId, text, targetIds: selected, imageAssetIds: imageIds });
+      if (!mounted.current) return;
+      setData(current => ({ ...current, drafts: [saved, ...(current.drafts ?? []).filter(item => item.draftId !== saved.draftId)] }));
+      setDraftId(saved.draftId); setDraftName(saved.name); setMessage(`Đã lưu nháp "${saved.name}".`);
+    } catch (err) { if (mounted.current) setError(facebookError(err)); }
+    finally { if (mounted.current) setDraftBusy(false); }
+  };
+  const openDraft = (draft: FacebookDraft) => {
+    if (!data.accounts.some(item => item.accountId === draft.accountId)) { setError("Tài khoản của nháp không còn trong danh sách."); return; }
+    const known = new Set(data.groups.filter(group => group.accountId === draft.accountId).map(group => group.targetId));
+    const kept = draft.targetIds.filter(id => known.has(id));
+    setAccountId(draft.accountId); setSelected(kept); setSearch(""); setText(draft.text); setImageIds(draft.imageAssetIds);
+    setDraftId(draft.draftId); setDraftName(draft.name); setConfirmation(null); setError(null);
+    setMessage(kept.length < draft.targetIds.length ? `Đã mở nháp; ${draft.targetIds.length - kept.length} nhóm không còn trong danh sách nên bị bỏ chọn.` : `Đã mở nháp "${draft.name}".`);
+    if (draft.imageAssetIds.length > 0) void loadImages();
+  };
+  const removeDraft = async (draft: FacebookDraft) => {
+    if (draftBusy) return;
+    setDraftBusy(true); setError(null);
+    try {
+      await api.deleteDraft(draft.draftId);
+      if (!mounted.current) return;
+      setData(current => ({ ...current, drafts: (current.drafts ?? []).filter(item => item.draftId !== draft.draftId) }));
+      if (draftId === draft.draftId) setDraftId(null);
+    } catch (err) { if (mounted.current) setError(facebookError(err)); }
+    finally { if (mounted.current) setDraftBusy(false); }
+  };
+  const repost = (task: FacebookTask) => {
+    if (!data.groups.some(group => group.targetId === task.targetId && group.accountId === task.accountId)) { setError("Nhóm không còn trong danh sách đã lưu; hãy tải lại nhóm rồi soạn lại."); return; }
+    setAccountId(task.accountId); setSelected([task.targetId]); setSearch(""); setText(task.text); setImageIds(task.imageAssetIds ?? []);
+    setDraftId(null); setDraftName(""); setConfirmation(null); setError(null); pendingRequest.current = null;
+    setMessage("Đã nạp lại nội dung vào Soạn bài. Kiểm tra nhóm trước khi tạo lô mới để tránh đăng trùng.");
+    if (task.imageAssetIds?.length) void loadImages();
+    onNavigate("compose");
+  };
+  const tasks = data.tasks.filter(task => view === "queue" ? isFacebookTaskPending(task.state) : !isFacebookTaskPending(task.state))
+    .filter(task => view !== "history" || ((historyState === "all" || task.state === historyState) && task.groupName.toLocaleLowerCase().includes(historySearch.trim().toLocaleLowerCase())));
 
   return <section className="mx-auto flex max-w-6xl flex-col gap-6" aria-labelledby="facebook-title">
     <PageHeader titleId="facebook-title" title={titles[view]} description="Đăng bài vào các nhóm bạn đã tham gia, theo tài khoản Facebook đã đăng nhập."
@@ -212,28 +296,71 @@ export function FacebookPage({ active, view, onNavigate, onOpenAccounts, onPendi
         </div>
         <aside className={`${panel} flex flex-col gap-4 self-start`}><h3 className="font-semibold">Sẵn sàng tạo lô</h3><p className="text-sm">{account?.displayName ?? "Chưa chọn tài khoản"}</p><p className="text-3xl font-semibold tracking-tight tabular-nums">{selectedGroups.length} <span className="text-sm font-normal text-muted-foreground">nhóm</span></p>
           <p className="text-sm text-muted-foreground">Mỗi nhóm là một tác vụ riêng. Cùng tài khoản đăng cách nhau ít nhất 5 phút, tối đa 20 lần gửi trong 24 giờ; các bài còn lại tiếp tục chờ.</p>
-          <p className="text-sm text-muted-foreground">Giữ Fraylo và máy đang chạy để hàng đợi tiếp tục.</p><Button onClick={review} disabled={!canCreate}>Xem lại lô đăng</Button>
+          <fieldset className="flex flex-col gap-2" disabled={busy}><legend className="mb-1 text-sm font-medium">Thời điểm đăng</legend>
+            <label className="flex items-center gap-2 text-sm"><input type="radio" name="facebook-mode" className="size-4 accent-primary" checked={mode === "now"} onChange={() => setMode("now")} />Đăng ngay</label>
+            <label className="flex items-center gap-2 text-sm"><input type="radio" name="facebook-mode" className="size-4 accent-primary" checked={mode === "scheduled"} onChange={() => setMode("scheduled")} />Hẹn giờ</label>
+            {mode === "scheduled" && <><label htmlFor="facebook-due" className="sr-only">Giờ hẹn đăng</label>
+              <input id="facebook-due" type="datetime-local" className={control} value={dueInput} min={utcToLocalInput(new Date().toISOString())} onChange={event => setDueInput(event.target.value)} aria-invalid={dueUtc === null} />
+              {dueUtc === null && <p className="text-xs text-destructive">Chọn giờ ở tương lai (tối đa 365 ngày).</p>}</>}
+          </fieldset>
+          <p className="text-sm text-muted-foreground">{mode === "scheduled" ? "Hẹn giờ chỉ chạy khi Fraylo và máy đang hoạt động đúng giờ; nếu lỡ giờ, bài không tự đăng muộn mà chờ bạn chọn." : "Giữ Fraylo và máy đang chạy để hàng đợi tiếp tục."}</p><Button onClick={review} disabled={!canCreate}>Xem lại lô đăng</Button>
+          <div className="flex flex-col gap-2 border-t border-border pt-4"><h3 className="text-sm font-medium">Nháp</h3>
+            <Input aria-label="Tên nháp" placeholder="Tên nháp (tùy chọn)" value={draftName} maxLength={80} disabled={draftBusy} onChange={event => setDraftName(event.target.value)} />
+            <Button variant="outline" onClick={() => void saveDraft()} disabled={!accountId || draftBusy || busy}>{draftId ? "Cập nhật nháp" : "Lưu nháp"}</Button>
+            {draftId && <Button variant="ghost" size="sm" onClick={() => { setDraftId(null); setDraftName(""); }}>Lưu thành nháp mới</Button>}
+            {drafts.length === 0 ? <p className="text-xs text-muted-foreground">Chưa có nháp. Nháp lưu tài khoản, nhóm đã chọn, nội dung và ảnh; vẫn còn sau khi mở lại ứng dụng.</p> :
+              <ul className="max-h-48 divide-y divide-border overflow-y-auto rounded-lg border border-border" aria-label="Danh sách nháp">{drafts.map(draft => <li key={draft.draftId} className="flex items-center gap-2 p-2 text-sm">
+                <span className="min-w-0 flex-1"><span className="block truncate font-medium">{draft.name}</span><span className="block truncate text-xs text-muted-foreground">{draft.targetIds.length} nhóm · {draft.imageAssetIds.length} ảnh · {new Date(draft.updatedAtUtc).toLocaleString("vi-VN")}</span></span>
+                <Button size="sm" variant="outline" disabled={draftBusy || busy} onClick={() => openDraft(draft)} aria-label={`Mở nháp ${draft.name}`}>Mở</Button>
+                <Button size="sm" variant="ghost" disabled={draftBusy || busy} onClick={() => void removeDraft(draft)} aria-label={`Xóa nháp ${draft.name}`}>Xóa</Button></li>)}</ul>}
+          </div>
         </aside>
       </div>}
     </div>}
     {(view === "queue" || view === "history") && <div className="flex flex-col gap-3">
       {view === "queue" && <p className="text-sm text-muted-foreground">Các nhóm chạy tuần tự theo tài khoản và giãn cách. Bài đã gửi lệnh đăng không thể hủy. Không tự gửi lại bài có kết quả chưa rõ.</p>}
-      {tasks.map(task => <article key={task.taskId} className={`${panel} flex flex-col gap-3`}>
+      {view === "history" && <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor="facebook-history-state" className="sr-only">Lọc theo trạng thái</label>
+        <select id="facebook-history-state" className={`${control} w-48`} value={historyState} onChange={event => setHistoryState(event.target.value)}>
+          <option value="all">Mọi trạng thái</option>{historyStates.map(state => <option key={state} value={state}>{facebookStateLabels[state]}</option>)}
+        </select>
+        <Input className="min-w-40 flex-1" aria-label="Tìm nhóm trong lịch sử" placeholder="Tìm theo tên nhóm…" value={historySearch} onChange={event => setHistorySearch(event.target.value)} />
+      </div>}
+      {tasks.map(task => {
+        const display = facebookDisplayState(task);
+        const batchCancelable = data.tasks.filter(item => item.batchId === task.batchId && cancelableStates.includes(item.state)).length;
+        return <article key={task.taskId} className={`${panel} flex flex-col gap-3`}>
         <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><h3 className="font-semibold">{task.groupName}</h3><p className="mt-1 text-xs text-muted-foreground">{data.accounts.find(item => item.accountId === task.accountId)?.displayName ?? "Tài khoản đã lưu"} · {new Date(task.createdAtUtc).toLocaleString("vi-VN")}</p></div>
-          <span className={`rounded-full border px-3 py-1 text-xs font-medium ${task.state === "Published" ? "border-primary/25 bg-primary/10 text-primary-text" : task.state === "Failed" || task.state === "Unknown" ? "border-destructive/25 bg-destructive/10 text-destructive" : "border-border bg-muted text-foreground"}`}>{facebookStateLabels[task.state] ?? task.state}</span></div>
+          <span className={`rounded-full border px-3 py-1 text-xs font-medium ${task.state === "Published" ? "border-primary/25 bg-primary/10 text-primary-text" : task.state === "Failed" || task.state === "Unknown" ? "border-destructive/25 bg-destructive/10 text-destructive" : "border-border bg-muted text-foreground"}`}>{facebookStateLabels[display] ?? display}</span></div>
         <p className="line-clamp-3 whitespace-pre-wrap break-words text-sm select-text">{task.text}</p><p className="text-sm text-muted-foreground">{task.message}</p>
+        {task.dueAtUtc && (display === "Scheduled" || display === "Missed") && <p className="text-sm font-medium">Giờ hẹn: {new Date(task.dueAtUtc).toLocaleString("vi-VN")}</p>}
+        <p className="text-xs text-muted-foreground">{task.submittedAtUtc ? `Gửi lệnh đăng lúc ${new Date(task.submittedAtUtc).toLocaleString("vi-VN")}` : "Chưa gửi lệnh đăng"}{task.reasonCode && task.reasonCode !== "confirmed" ? ` · Mã: ${task.reasonCode}` : ""}{task.imageAssetIds?.length ? ` · ${task.imageAssetIds.length} ảnh` : ""}</p>
         {task.state === "Unknown" && <p className="text-sm text-muted-foreground">Bài có thể đã được gửi. Hãy tự kiểm tra trong nhóm trước khi tạo bài mới để tránh đăng trùng.</p>}
         <div className="flex flex-wrap gap-2"><a href={task.groupUrl} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center rounded-md border border-border px-3 text-sm underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-ring">Xem nhóm</a>
-          {["Queued", "Preparing", "NeedsUser", "Missed", "Scheduled"].includes(task.state) && <Button size="sm" variant="outline" disabled={!!taskBusy} onClick={() => void taskAction(task, "cancel")}>Hủy tác vụ</Button>}
-          {task.state === "NeedsUser" && <><Button size="sm" variant="outline" onClick={onOpenAccounts}>Cài đặt tài khoản</Button><Button size="sm" disabled={!!taskBusy} onClick={() => void taskAction(task, "resume")}>Tiếp tục</Button></>}
+          {display === "Scheduled" && <Button size="sm" disabled={!!taskBusy} onClick={() => void taskAction(task, "postNow")}>Đăng ngay</Button>}
+          {display === "Missed" && <Button size="sm" disabled={!!taskBusy} onClick={() => void taskAction(task, "resume")}>Đăng ngay</Button>}
+          {(display === "Scheduled" || display === "Missed" || task.state === "Queued") && <Button size="sm" variant="outline" disabled={!!taskBusy} onClick={() => setEditingDue({ taskId: task.taskId, value: task.dueAtUtc && Date.parse(task.dueAtUtc) > Date.now() ? utcToLocalInput(task.dueAtUtc) : "" })}>Đổi giờ</Button>}
+          {cancelableStates.includes(task.state) && <Button size="sm" variant="outline" disabled={!!taskBusy} onClick={() => void taskAction(task, "cancel")}>Hủy tác vụ</Button>}
+          {cancelableStates.includes(task.state) && batchCancelable > 1 && (confirmBatchId === task.batchId
+            ? <Button size="sm" variant="destructive" disabled={!!taskBusy} onClick={() => void cancelBatch(task.batchId)}>Xác nhận hủy {batchCancelable} bài chưa gửi</Button>
+            : <Button size="sm" variant="ghost" disabled={!!taskBusy} onClick={() => setConfirmBatchId(task.batchId)}>Hủy cả lô ({batchCancelable})</Button>)}
+          {task.state === "NeedsUser" && display !== "Missed" && <><Button size="sm" variant="outline" onClick={onOpenAccounts}>Cài đặt tài khoản</Button><Button size="sm" disabled={!!taskBusy} onClick={() => void taskAction(task, "resume")}>Tiếp tục</Button></>}
+          {["Failed", "Unknown", "Canceled"].includes(task.state) && <Button size="sm" variant="outline" onClick={() => repost(task)}>Đăng lại</Button>}
         </div>
-      </article>)}
+        {editingDue?.taskId === task.taskId && <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/40 p-3">
+          <label htmlFor={`facebook-reschedule-${task.taskId}`} className="sr-only">Giờ hẹn mới</label>
+          <input id={`facebook-reschedule-${task.taskId}`} type="datetime-local" className={`${control} w-60`} value={editingDue.value} min={utcToLocalInput(new Date().toISOString())} onChange={event => setEditingDue({ taskId: task.taskId, value: event.target.value })} />
+          <Button size="sm" disabled={!!taskBusy || !editingDue.value} onClick={() => void saveDue()}>Lưu giờ hẹn</Button>
+          <Button size="sm" variant="ghost" disabled={!!taskBusy} onClick={() => setEditingDue(null)}>Đóng</Button>
+        </div>}
+      </article>; })}
       {!tasks.length && <div className={`${panel} py-12 text-center text-sm text-muted-foreground`}>{loading ? "Đang tải…" : view === "queue" ? "Hàng đợi trống. Chọn nhóm và soạn bài để bắt đầu." : "Chưa có kết quả đăng Facebook."}</div>}
     </div>}
     <Dialog open={!!confirmation} onOpenChange={open => { if (!open && !busy) setConfirmation(null); }}>
       <DialogContent className="max-w-2xl" onEscapeKeyDown={event => { if (busy) event.preventDefault(); }} onPointerDownOutside={event => { if (busy) event.preventDefault(); }}>
         <DialogHeader><DialogTitle>Xác nhận lô đăng vào {confirmation?.groups.length} nhóm</DialogTitle><DialogDescription>Kiểm tra tài khoản, nội dung và toàn bộ nhóm đích. Sau khi xác nhận, các tác vụ bắt đầu vào hàng đợi đăng.</DialogDescription></DialogHeader>
-        {confirmation && <><div className="rounded-lg border border-border bg-muted/40 p-3"><p className="text-sm font-medium">{confirmation.accountName}</p><p className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-sm select-text">{confirmation.request.text || "Bài chỉ có ảnh"}</p><p className="mt-2 text-xs text-muted-foreground">{confirmation.request.imageAssetIds.length} ảnh · {confirmation.groups.length} tác vụ · Giãn cách tối thiểu 5 phút</p></div>
+        {confirmation && <><div className="rounded-lg border border-border bg-muted/40 p-3"><p className="text-sm font-medium">{confirmation.accountName}</p><p className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-sm select-text">{confirmation.request.text || "Bài chỉ có ảnh"}</p><p className="mt-2 text-xs text-muted-foreground">{confirmation.request.imageAssetIds.length} ảnh · {confirmation.groups.length} tác vụ · Giãn cách tối thiểu 5 phút</p>
+          <p className="mt-1 text-xs font-medium">{confirmation.request.dueAtUtc ? `Hẹn giờ đăng: ${new Date(confirmation.request.dueAtUtc).toLocaleString("vi-VN")}` : "Đăng ngay khi đến lượt"}</p></div>
           <ol className="max-h-60 overflow-y-auto rounded-lg border border-border divide-y divide-border">{confirmation.groups.map(group => <li key={group.targetId} className="p-3 text-sm"><span className="text-muted-foreground">{confirmation.accountName} → </span><span className="font-medium">{group.name}</span><span className="mt-1 block break-all text-xs text-muted-foreground">{group.url}</span></li>)}</ol></>}
         {error && <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
         <DialogFooter><Button variant="outline" disabled={busy} onClick={() => setConfirmation(null)}>Quay lại chỉnh sửa</Button><Button onClick={() => void create()} disabled={busy}>{busy ? "Đang tạo lô…" : `Xác nhận tạo ${confirmation?.groups.length ?? 0} tác vụ`}</Button></DialogFooter>
