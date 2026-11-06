@@ -86,7 +86,6 @@ public static class ProjectFirstSmokeTests
             var missingId = await DispatchProjectAsync("project.get", "{}");
             Assert(!missingId.Success, "project.get phải từ chối request thiếu projectId.");
             Console.WriteLine("[PASS] Project create/list and Project-scoped scene operations work.");
-            await ProjectGroupSmokeTests.RunAsync(options);
             return 0;
         }
         finally

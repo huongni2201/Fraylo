@@ -80,7 +80,7 @@ static async Task VerifyFinalSchemaAsync(string path)
         Assert(Convert.ToInt32(await legacyTablesCommand.ExecuteScalarAsync()) == 0, "EF migration history must be absent.");
     }
 
-    foreach (var table in new[] { "Project", "Scene", "Asset", "Job", "ProviderAccount", "VideoRevision", "PublishRecord", "ProjectGroup" })
+    foreach (var table in new[] { "Project", "Scene", "Asset", "Job", "ProviderAccount", "VideoRevision", "PublishRecord" })
     {
         await using var command = connection.CreateCommand();
         command.CommandText = $"PRAGMA table_info(\"{table}\");";

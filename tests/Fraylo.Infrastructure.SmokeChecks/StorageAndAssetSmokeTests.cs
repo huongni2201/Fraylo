@@ -92,9 +92,6 @@ public static class StorageAndAssetSmokeTests
             // Regression 8: Đối soát duyệt root chưa có Asset và không dọn staging qua junction
             await TestReconcileRegisteredRootsAndSkipStagingJunctionAsync(assetService, rootRegistry, testWorkDir);
 
-            // Regression 9: Tài nguyên dùng chung trong Nhóm: upload, phạm vi theo Project và theo Nhóm
-            await TestGroupScopedAssetsAsync(assetService, dbOptions);
-
             Console.WriteLine("=================================================================");
             Console.WriteLine("   TẤT CẢ KIỂM THỬ KHÓI VÀ REGRESSION T09 ĐÃ HOÀN TẤT THÀNH CÔNG! ");
             Console.WriteLine("=================================================================");
@@ -785,60 +782,6 @@ public static class StorageAndAssetSmokeTests
         }
 
         Console.WriteLine("    -> Đối soát root chưa có Asset và junction .staging: PASS");
-    }
-
-    private static async Task TestGroupScopedAssetsAsync(AssetService assetService, DbContextOptions<FrayloDbContext> dbOptions)
-    {
-        Console.WriteLine("\n[T09-9] Kiểm thử tài nguyên dùng chung trong Nhóm: upload, phạm vi Project và Nhóm...");
-        var groups = new ProjectGroupService(dbOptions);
-        var projects = new ProjectService(dbOptions);
-        var payload = Convert.ToBase64String(new byte[] { 1, 2, 3, 4 });
-
-        var group = await groups.SaveAsync(new ProjectGroupSaveRequest(null, "Nhóm tài nguyên", null, null, null, null));
-        var member = await projects.CreateAsync(new ProjectCreateRequest("Thành viên nhóm", null, group.GroupId));
-        var outsider = await projects.CreateAsync(new ProjectCreateRequest("Ngoài nhóm", null, null));
-
-        var groupUpload = await assetService.UploadAssetAsync(new UploadAssetRequest(GroupId: group.GroupId, AssetType: "Image", FileName: "nhom.png", Base64Data: payload));
-        var memberUpload = await assetService.UploadAssetAsync(new UploadAssetRequest(ProjectId: member.ProjectId, AssetType: "Image", FileName: "rieng.png", Base64Data: payload));
-        var outsiderUpload = await assetService.UploadAssetAsync(new UploadAssetRequest(ProjectId: outsider.ProjectId, AssetType: "Image", FileName: "ngoai.png", Base64Data: payload));
-        Assert(groupUpload.Asset is not null && groupUpload.Asset.GroupId == group.GroupId && groupUpload.Asset.ProjectId is null,
-            "Tải lên trong nhóm phải gắn Nhóm và không gắn Project.");
-        Assert(groupUpload.Asset!.RelativePath.StartsWith($"groups/{group.GroupId}/", StringComparison.Ordinal),
-            "Tệp của nhóm phải lưu dưới thư mục groups/.");
-
-        var rejectedBoth = false;
-        try
-        {
-            await assetService.UploadAssetAsync(new UploadAssetRequest(ProjectId: member.ProjectId, GroupId: group.GroupId, AssetType: "Image", FileName: "x.png", Base64Data: payload));
-        }
-        catch (AssetValidationException)
-        {
-            rejectedBoth = true;
-        }
-        Assert(rejectedBoth, "Tải lên không được gắn đồng thời Project và Nhóm.");
-
-        var rejectedMissingGroup = false;
-        try
-        {
-            await assetService.UploadAssetAsync(new UploadAssetRequest(GroupId: Guid.NewGuid().ToString("D"), AssetType: "Image", FileName: "y.png", Base64Data: payload));
-        }
-        catch (AssetValidationException)
-        {
-            rejectedMissingGroup = true;
-        }
-        Assert(rejectedMissingGroup, "Tải lên vào nhóm không tồn tại phải bị từ chối.");
-
-        var forMember = await assetService.ListAssetsAsync(new ListAssetsRequest(ProjectId: member.ProjectId, PageSize: 100));
-        Assert(forMember.Assets.Any(a => a.AssetId == groupUpload.Asset.AssetId) && forMember.Assets.Any(a => a.AssetId == memberUpload.Asset!.AssetId),
-            "Project trong nhóm phải thấy cả tệp riêng và tệp của nhóm.");
-        var forOutsider = await assetService.ListAssetsAsync(new ListAssetsRequest(ProjectId: outsider.ProjectId, PageSize: 100));
-        Assert(!forOutsider.Assets.Any(a => a.AssetId == groupUpload.Asset.AssetId),
-            "Project ngoài nhóm không được thấy tệp của nhóm.");
-        var forGroup = await assetService.ListAssetsAsync(new ListAssetsRequest(GroupId: group.GroupId, PageSize: 100));
-        Assert(forGroup.Assets.Any(a => a.AssetId == groupUpload.Asset.AssetId) && forGroup.Assets.Any(a => a.AssetId == memberUpload.Asset!.AssetId)
-            && !forGroup.Assets.Any(a => a.AssetId == outsiderUpload.Asset!.AssetId),
-            "Danh sách theo nhóm phải gồm tệp của nhóm và tệp của dự án trong nhóm, không gồm dự án ngoài nhóm.");
-        Console.WriteLine("    -> Tài nguyên dùng chung trong Nhóm: upload và phạm vi theo Project/Nhóm PASS");
     }
 
     private static void Assert(bool condition, string message)

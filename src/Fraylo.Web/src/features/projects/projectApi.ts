@@ -9,8 +9,6 @@ export interface ProjectSummaryDto {
   hasVideo: boolean;
   createdAtUtc: string;
   updatedAtUtc: string;
-  groupId?: string | null;
-  groupName?: string | null;
   /** Video của cảnh đầu tiên đã có video, dùng làm ảnh xem trước 9:16. */
   previewVideoAssetId?: string | null;
 }
@@ -28,8 +26,6 @@ export interface ProjectDetailDto {
   status: string;
   createdAtUtc: string;
   updatedAtUtc: string;
-  groupId?: string | null;
-  groupName?: string | null;
 }
 
 export interface ProjectListResponseData {
@@ -43,49 +39,17 @@ export interface ProjectGetResponseData {
 export interface ProjectCreateRequest {
   name: string;
   description?: string | null;
-  groupId?: string | null;
 }
 
 export interface ProjectCreateResponseData {
   projectId: string;
 }
 
-/** groupId: undefined giữ nguyên nhóm, chuỗi rỗng bỏ khỏi nhóm. */
 export interface ProjectUpdateRequest {
   projectId: string;
   name?: string | null;
   description?: string | null;
   status?: string | null;
-  groupId?: string | null;
-}
-
-/** Nhóm dự án: hướng dẫn prompt và biến dùng chung cho các Dự án trong nhóm. */
-export interface ProjectGroupDto {
-  groupId: string;
-  name: string;
-  description: string;
-  scriptGuidance: string;
-  videoGuidance: string;
-  /** Tệp dùng chung của nhóm; dự án để trống ô sẽ dùng tệp này. */
-  modelAssetId?: string | null;
-  productAssetId?: string | null;
-  readyImageAssetId?: string | null;
-  audioAssetId?: string | null;
-  projectCount: number;
-  createdAtUtc: string;
-  updatedAtUtc: string;
-}
-
-export interface ProjectGroupSaveRequest {
-  groupId?: string | null;
-  name: string;
-  description?: string | null;
-  scriptGuidance?: string | null;
-  videoGuidance?: string | null;
-  modelAssetId?: string | null;
-  productAssetId?: string | null;
-  readyImageAssetId?: string | null;
-  audioAssetId?: string | null;
 }
 
 export interface ProjectUpdateResponseData {
@@ -178,38 +142,6 @@ export interface SceneReorderResponseData {
   reordered: boolean;
   scenes: SceneDto[];
 }
-
-/**
- * Typed Bridge Client cho nhóm dự án (projectgroup.*).
- */
-export const projectGroupApi = {
-  /** Liệt kê nhóm kèm số Dự án trong mỗi nhóm. */
-  async listGroups(): Promise<ProjectGroupDto[]> {
-    const data = await bridgeClient.invoke<{ groups: ProjectGroupDto[] }>(
-      "projectgroup.list",
-      {},
-    );
-    return data?.groups ?? [];
-  },
-
-  /** Tạo mới (không có groupId) hoặc cập nhật nhóm. */
-  async saveGroup(payload: ProjectGroupSaveRequest): Promise<ProjectGroupDto> {
-    const data = await bridgeClient.invoke<{ group: ProjectGroupDto }>(
-      "projectgroup.save",
-      payload,
-    );
-    return data.group;
-  },
-
-  /** Xóa nhóm; các Dự án trong nhóm được giữ lại và chuyển về không nhóm. */
-  async deleteGroup(groupId: string): Promise<boolean> {
-    const data = await bridgeClient.invoke<{ groupId: string; success: boolean }>(
-      "projectgroup.delete",
-      { groupId },
-    );
-    return data?.success ?? true;
-  },
-};
 
 /**
  * Typed Bridge Client cho các thao tác Quản lý Dự án (Project) và Cảnh (Scene) theo contracts v1.0.4.

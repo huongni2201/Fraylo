@@ -127,7 +127,7 @@ public sealed partial class ProjectWorkflowService
             {
                 var nowIso = DateTimeOffset.UtcNow.ToString("o");
                 runState = WorkflowRunState.Running;
-                setting.Value = await SerializeStoredConfigAsync(dbContext, config with { RunState = runState, UpdatedAtUtc = nowIso }, cancellationToken).ConfigureAwait(false);
+                setting.Value = SerializeStoredConfig(config with { RunState = runState, UpdatedAtUtc = nowIso });
                 setting.UpdatedAtUtc = nowIso;
                 await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             }

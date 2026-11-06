@@ -13,8 +13,6 @@ import { listAssets, uploadAsset, type AssetItem } from "./libraryApi";
 
 interface AssetPickerProps {
   projectId?: string;
-  /** Chọn trong phạm vi Nhóm dự án (tệp của nhóm và của các dự án trong nhóm). */
-  groupId?: string;
   assetType: "Image" | "Audio";
   onSelect: (asset: AssetItem) => void;
   onClose: () => void;
@@ -22,7 +20,6 @@ interface AssetPickerProps {
 
 export function AssetPicker({
   projectId,
-  groupId,
   assetType,
   onSelect,
   onClose,
@@ -43,7 +40,6 @@ export function AssetPicker({
     try {
       const res = await listAssets({
         projectId,
-        groupId,
         assetType,
         search: search.trim() || undefined,
         page: 1,
@@ -59,7 +55,7 @@ export function AssetPicker({
     } finally {
       setLoading(false);
     }
-  }, [projectId, groupId, assetType, search]);
+  }, [projectId, assetType, search]);
 
   useEffect(() => {
     fetchAssets();
@@ -85,7 +81,6 @@ export function AssetPicker({
 
       const res = await uploadAsset({
         projectId,
-        groupId,
         assetType,
         fileName: file.name,
         base64Data,
@@ -115,7 +110,6 @@ export function AssetPicker({
       try {
         const res = await uploadAsset({
           projectId,
-          groupId,
           assetType,
         });
         if (res.asset) {

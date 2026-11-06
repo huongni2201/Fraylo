@@ -14,8 +14,6 @@ public sealed record ProjectSummaryDto(
     [property: JsonPropertyName("hasVideo")] bool HasVideo,
     [property: JsonPropertyName("createdAtUtc")] string CreatedAtUtc,
     [property: JsonPropertyName("updatedAtUtc")] string UpdatedAtUtc,
-    [property: JsonPropertyName("groupId")] string? GroupId = null,
-    [property: JsonPropertyName("groupName")] string? GroupName = null,
     [property: JsonPropertyName("previewVideoAssetId")] string? PreviewVideoAssetId = null);
 
 /// <summary>
@@ -27,30 +25,26 @@ public sealed record ProjectDetailDto(
     [property: JsonPropertyName("description")] string? Description,
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("createdAtUtc")] string CreatedAtUtc,
-    [property: JsonPropertyName("updatedAtUtc")] string UpdatedAtUtc,
-    [property: JsonPropertyName("groupId")] string? GroupId = null,
-    [property: JsonPropertyName("groupName")] string? GroupName = null);
+    [property: JsonPropertyName("updatedAtUtc")] string UpdatedAtUtc);
 
 /// <summary>
 /// Yêu cầu tạo mới Dự án.
 /// </summary>
 public sealed record ProjectCreateRequest(
     [property: JsonPropertyName("name")] string Name,
-    [property: JsonPropertyName("description")] string? Description,
-    [property: JsonPropertyName("groupId")] string? GroupId = null);
+    [property: JsonPropertyName("description")] string? Description);
 
 public sealed record ProjectCreateResponseData(
     [property: JsonPropertyName("projectId")] string ProjectId);
 
 /// <summary>
-/// Yêu cầu cập nhật Dự án. groupId: null giữ nguyên, chuỗi rỗng bỏ khỏi nhóm.
+/// Yêu cầu cập nhật Dự án.
 /// </summary>
 public sealed record ProjectUpdateRequest(
     [property: JsonPropertyName("projectId")] string ProjectId,
     [property: JsonPropertyName("name")] string? Name,
     [property: JsonPropertyName("description")] string? Description,
-    [property: JsonPropertyName("status")] string? Status,
-    [property: JsonPropertyName("groupId")] string? GroupId = null);
+    [property: JsonPropertyName("status")] string? Status);
 
 public sealed record ProjectUpdateResponseData(
     [property: JsonPropertyName("project")] ProjectDetailDto Project);

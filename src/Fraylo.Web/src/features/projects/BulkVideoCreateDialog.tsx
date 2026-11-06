@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, ImagePlus, Layers, Loader2, Plus, Rocket, Trash2, X } from "lucide-react";
-import { projectApi, type ProjectGroupDto } from "./projectApi";
+import { useEffect, useState } from "react";
+import { AlertCircle, CheckCircle2, ImagePlus, Loader2, Plus, Rocket, Trash2, X } from "lucide-react";
+import { projectApi } from "./projectApi";
 import {
   AudioOptions,
   VideoStrategies,
@@ -21,7 +21,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 
 type RowState = "idle" | "creating" | "done" | "error";
@@ -46,9 +45,6 @@ const newRow = (name = ""): BulkRow => ({
 
 export interface BulkVideoCreateDialogProps {
   isOpen: boolean;
-  groups: ProjectGroupDto[];
-  /** Nhóm mặc định (đang xem nhóm nào thì tạo vào nhóm đó). */
-  defaultGroupId: string | null;
   onClose: () => void;
   /** Gọi khi có ít nhất một video được tạo, để danh sách làm mới. */
   onCreated: () => void;
@@ -56,10 +52,9 @@ export interface BulkVideoCreateDialogProps {
 
 /**
  * Tạo nhiều video trong một màn hình: mỗi dòng là một video (một Project phía sau).
- * Prompt và ảnh để trống thì kế thừa từ nhóm/mẫu; chỉ điền ở dòng nào cần khác.
+ * Prompt để trống thì dùng mẫu toàn cục; chỉ điền ở dòng nào cần khác.
  */
-export function BulkVideoCreateDialog({ isOpen, groups, defaultGroupId, onClose, onCreated }: BulkVideoCreateDialogProps) {
-  const [groupId, setGroupId] = useState<string>("");
+export function BulkVideoCreateDialog({ isOpen, onClose, onCreated }: BulkVideoCreateDialogProps) {
   const [rows, setRows] = useState<BulkRow[]>([]);
   const [pasteText, setPasteText] = useState("");
   const [autoStart, setAutoStart] = useState(true);
@@ -69,13 +64,11 @@ export function BulkVideoCreateDialog({ isOpen, groups, defaultGroupId, onClose,
 
   useEffect(() => {
     if (!isOpen) return;
-    setGroupId(defaultGroupId ?? "");
     setRows([newRow(), newRow(), newRow()]);
     setPasteText("");
     setIsRunning(false);
-  }, [isOpen, defaultGroupId]);
+  }, [isOpen]);
 
-  const group = useMemo(() => groups.find((g) => g.groupId === groupId) ?? null, [groups, groupId]);
   const filledRows = rows.filter((r) => r.name.trim());
   const doneCount = rows.filter((r) => r.state === "done").length;
   const pending = filledRows.filter((r) => r.state !== "done");
@@ -98,9 +91,8 @@ export function BulkVideoCreateDialog({ isOpen, groups, defaultGroupId, onClose,
     try {
       const projectId = await projectApi.createProject({
         name: row.name.trim(),
-        groupId: groupId || null,
       });
-      // Lấy cấu hình đã kế thừa từ nhóm, chỉ ghi đè phần riêng của dòng.
+      // Lấy cấu hình mặc định, chỉ ghi đè phần riêng của dòng.
       const cfg = await videoWorkflowApi.getConfig(projectId);
       await videoWorkflowApi.saveConfig({
         projectId,
@@ -141,26 +133,11 @@ export function BulkVideoCreateDialog({ isOpen, groups, defaultGroupId, onClose,
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><Rocket className="size-5 text-primary" /> Tạo video hàng loạt</DialogTitle>
             <DialogDescription>
-              Mỗi dòng là một video. Để trống ảnh hoặc prompt thì dùng của nhóm; chỉ điền ở dòng cần khác.
+              Mỗi dòng là một video. Để trống prompt thì dùng mẫu toàn cục; chỉ điền ở dòng cần khác.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 sm:grid-cols-[1fr_auto_auto] items-end">
-            <div className="space-y-1.5">
-              <Label htmlFor="bulk-group" className="text-sm font-medium">Nhóm / mẫu áp dụng</Label>
-              <select
-                id="bulk-group"
-                value={groupId}
-                disabled={isRunning}
-                onChange={(e) => setGroupId(e.target.value)}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                <option value="">Không dùng nhóm (cấu hình mặc định)</option>
-                {groups.map((g) => (
-                  <option key={g.groupId} value={g.groupId}>{g.name}</option>
-                ))}
-              </select>
-            </div>
+          <div className="flex flex-wrap items-end gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="bulk-duration" className="text-sm font-medium">Thời lượng</Label>
               <select
@@ -180,18 +157,6 @@ export function BulkVideoCreateDialog({ isOpen, groups, defaultGroupId, onClose,
               Chạy ngay
             </label>
           </div>
-
-          {group && (
-            <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              <Layers className="size-3.5 text-primary" />
-              <span>Kế thừa từ “{group.name}”:</span>
-              <Badge variant="secondary">{group.scriptGuidance ? "Prompt kịch bản" : "Prompt mặc định"}</Badge>
-              <Badge variant="secondary">{group.videoGuidance ? "Prompt video" : "Prompt video mặc định"}</Badge>
-              {group.productAssetId && <Badge variant="secondary">Ảnh sản phẩm</Badge>}
-              {group.modelAssetId && <Badge variant="secondary">Ảnh người mẫu</Badge>}
-              {group.audioAssetId && <Badge variant="secondary">Âm thanh</Badge>}
-            </div>
-          )}
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -228,7 +193,7 @@ export function BulkVideoCreateDialog({ isOpen, groups, defaultGroupId, onClose,
                     value={row.prompt}
                     rows={1}
                     disabled={isRunning || row.state === "done"}
-                    placeholder={group?.scriptGuidance ? "Prompt riêng (trống = dùng prompt nhóm)" : "Prompt riêng (không bắt buộc)"}
+                    placeholder="Prompt riêng (trống = dùng mẫu toàn cục)"
                     aria-label={`Prompt riêng video ${i + 1}`}
                     className="min-h-9 resize-y"
                     onChange={(e) => patchRow(row.key, { prompt: e.target.value })}
@@ -243,7 +208,7 @@ export function BulkVideoCreateDialog({ isOpen, groups, defaultGroupId, onClose,
                       onClick={() => setPickerRowKey(row.key)}
                     >
                       <ImagePlus className="size-3.5" />
-                      {row.productAssetId ? "Đã chọn ảnh" : group?.productAssetId ? "Ảnh nhóm" : "Thêm ảnh"}
+                      {row.productAssetId ? "Đã chọn ảnh" : "Thêm ảnh"}
                     </Button>
                     {row.productAssetId && (
                       <Button
@@ -322,7 +287,6 @@ export function BulkVideoCreateDialog({ isOpen, groups, defaultGroupId, onClose,
 
       {picking && (
         <AssetPicker
-          groupId={groupId || undefined}
           assetType="Image"
           onClose={() => setPickerRowKey(null)}
           onSelect={(asset: AssetItem) => {

@@ -182,7 +182,7 @@ public sealed partial class ProjectWorkflowService
         }
         bool composeFirst = !gridMode && singleVideo && config.WorkflowMode == WorkflowModes.ModelAndProduct && existingScenes.Count == 0 && _jobService != null;
 
-        // Prompt dự án > nhóm > mẫu toàn cục: báo thiếu ngay lúc bấm chạy, không đợi tới giữa pipeline.
+        // Prompt dự án > mẫu toàn cục: báo thiếu ngay lúc bấm chạy, không đợi tới giữa pipeline.
         if (existingScenes.Count == 0 && !composeFirst)
         {
             await VideoWorkflowPromptComposer.ResolvePromptAsync(dbContext, config, JobTaskType.Script, cancellationToken);
@@ -286,7 +286,7 @@ public sealed partial class ProjectWorkflowService
         var setting = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == key, cancellationToken);
         if (setting != null)
         {
-            setting.Value = await SerializeStoredConfigAsync(dbContext, updatedConfig, cancellationToken);
+            setting.Value = SerializeStoredConfig(updatedConfig);
             setting.UpdatedAtUtc = nowIso;
         }
 
@@ -360,7 +360,7 @@ public sealed partial class ProjectWorkflowService
         var setting = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == key, cancellationToken);
         if (setting != null)
         {
-            setting.Value = await SerializeStoredConfigAsync(dbContext, updated, cancellationToken);
+            setting.Value = SerializeStoredConfig(updated);
             setting.UpdatedAtUtc = updated.UpdatedAtUtc;
             await dbContext.SaveChangesAsync(cancellationToken);
         }
@@ -397,7 +397,7 @@ public sealed partial class ProjectWorkflowService
         var setting = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == key, cancellationToken).ConfigureAwait(false);
         if (setting != null)
         {
-            setting.Value = await SerializeStoredConfigAsync(dbContext, updated, cancellationToken);
+            setting.Value = SerializeStoredConfig(updated);
             setting.UpdatedAtUtc = updated.UpdatedAtUtc;
         }
 
@@ -468,7 +468,7 @@ public sealed partial class ProjectWorkflowService
         var setting = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == key, cancellationToken).ConfigureAwait(false);
         if (setting != null)
         {
-            setting.Value = await SerializeStoredConfigAsync(dbContext, updated, cancellationToken);
+            setting.Value = SerializeStoredConfig(updated);
             setting.UpdatedAtUtc = updated.UpdatedAtUtc;
         }
 

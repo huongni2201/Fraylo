@@ -16,7 +16,6 @@ Tài liệu về kiến trúc, vận hành và quá trình phát triển Fraylo.
 | --- | --- |
 | [Kiến trúc video-first](plans/VIDEO_FIRST_ARCHITECTURE_PLAN.md) | Domain, dữ liệu và kiến trúc sản xuất video |
 | [Hai luồng sản xuất video](plans/VIDEO_TWO_FLOW_SPLIT.md) | Nhiều video theo cảnh và một video nhiều phân cảnh |
-| [Nhóm dự án và prompt theo cấp](plans/PROJECT_GROUPS_AND_LAYERED_PROMPTS.md) | Tài nguyên dùng chung và thứ tự ưu tiên prompt |
 | [Đăng video TikTok](plans/TIKTOK_PUBLISHING_HANDOFF.md) | Luồng đăng chủ động, trạng thái tích hợp và giới hạn live |
 | [Nhận diện Fraylo](branding/README.md) | Tên, logo và các định danh Fraylo được giữ để tương thích |
 

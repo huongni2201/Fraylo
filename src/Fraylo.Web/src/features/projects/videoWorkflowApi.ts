@@ -72,10 +72,6 @@ export interface ProjectWorkflowConfigDto {
   scriptGuidance?: string | null;
   videoGuidance?: string | null;
   finalVideoAssetId?: string | null;
-  groupId?: string | null;
-  groupName?: string | null;
-  /** Ô tệp đang lấy từ mặc định của nhóm: Model, Product, ReadyImage, Audio. */
-  inheritedAssetSlots?: string[] | null;
   videoStrategy?: VideoStrategy | null;
   referenceImageMode?: ReferenceImageMode | null;
   /** Lần thử hiện hành của từng bước logic trong run; chỉ có khi đọc qua workflow.get_config. */

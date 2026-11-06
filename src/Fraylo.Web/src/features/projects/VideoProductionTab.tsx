@@ -34,7 +34,6 @@ import { AssetPicker } from "../library/AssetPicker";
 import { AssetMediaPreview } from "../library/AssetMediaPreview";
 import { TikTokPostPreview } from "./TikTokPostPreview";
 import { promptApi } from "../prompts/promptApi";
-import { projectGroupApi, type ProjectGroupDto } from "./projectApi";
 import {
   getActivePromptId,
   getStoredPrompts,
@@ -117,14 +116,12 @@ const GUIDANCE_FIELDS = [
   { field: "videoGuidance", label: "Prompt video" },
 ] as const;
 
-/** Prompt đang áp dụng theo thứ tự ưu tiên: Dự án > Nhóm > mẫu toàn cục (khớp VideoWorkflowPromptComposer.ResolvePromptAsync). */
+/** Prompt đang áp dụng theo thứ tự ưu tiên: Dự án > mẫu toàn cục (khớp VideoWorkflowPromptComposer.ResolvePromptAsync). */
 function appliedPromptSource(
   projectText: string | null | undefined,
-  groupText: string | null | undefined,
   globalName: string | undefined,
 ): { label: string; isGlobal: boolean } {
   if (projectText?.trim()) return { label: "Dự án", isGlobal: false };
-  if (groupText?.trim()) return { label: "Nhóm", isGlobal: false };
   return { label: globalName || "Mẫu toàn cục", isGlobal: true };
 }
 
@@ -217,10 +214,9 @@ export function VideoProductionTab({
   // Active Prompt Template Info & Dynamic Variables
   const [activeTemplateInfo, setActiveTemplateInfo] = useState<ActiveTemplateInfo | null>(null);
   const [videoPromptTemplateInfo, setVideoPromptTemplateInfo] = useState<ActiveTemplateInfo | null>(null);
-  const [projectGroup, setProjectGroup] = useState<ProjectGroupDto | null>(null);
 
-  const scriptPromptSource = appliedPromptSource(config?.scriptGuidance, projectGroup?.scriptGuidance, activeTemplateInfo?.name);
-  const videoPromptSource = appliedPromptSource(config?.videoGuidance, projectGroup?.videoGuidance, videoPromptTemplateInfo?.name);
+  const scriptPromptSource = appliedPromptSource(config?.scriptGuidance, activeTemplateInfo?.name);
+  const videoPromptSource = appliedPromptSource(config?.videoGuidance, videoPromptTemplateInfo?.name);
 
   const isGridMode =
     (config?.videoStrategy ?? VideoStrategies.MultiVideo) === VideoStrategies.SingleVideo &&
@@ -267,14 +263,12 @@ export function VideoProductionTab({
     try {
       setIsLoading(true);
       setErrorMessage(null);
-      const [cfg, scns, cItems, groups] = await Promise.all([
+      const [cfg, scns, cItems] = await Promise.all([
         videoWorkflowApi.getConfig(projectId),
         videoWorkflowApi.listScenes(projectId),
         videoWorkflowApi.listContentItems(projectId),
-        projectGroupApi.listGroups(),
       ]);
 
-      setProjectGroup(groups.find((group) => group.groupId === cfg.groupId) ?? null);
       setConfig({ ...cfg, goalPrompt: "" });
 
       setScenes(scns);
@@ -484,14 +478,11 @@ export function VideoProductionTab({
     setIsDirty(true);
   };
 
-  // Hướng dẫn riêng của dự án, nối sau hướng dẫn nhóm và mẫu chung ở backend.
+  // Hướng dẫn riêng của dự án.
   const handleGuidanceChange = (field: "scriptGuidance" | "videoGuidance", value: string) => {
     setConfig((prev) => (prev ? { ...prev, [field]: value } : prev));
     setIsDirty(true);
   };
-
-  // Ô tệp đang lấy từ tệp mặc định của nhóm (backend đánh dấu theo ô).
-  const isInheritedAsset = (slot: string) => config?.inheritedAssetSlots?.includes(slot) ?? false;
 
   const handleAudioOptionChange = (option: AudioOption) => {
     if (!config) return;
@@ -951,7 +942,6 @@ export function VideoProductionTab({
                       <span className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
                         <ImageIcon className="h-3.5 w-3.5 text-primary" />
                         Ảnh Mẫu người (Bắt buộc)
-                        {isInheritedAsset("Model") && <Badge variant="secondary" className="text-[10px] h-5">Từ nhóm</Badge>}
                       </span>
                       {config.modelAssetId ? (
                         <div className="space-y-2 w-full">
@@ -1029,7 +1019,6 @@ export function VideoProductionTab({
                       <span className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
                         <ImageIcon className="h-3.5 w-3.5 text-primary" />
                         Ảnh Sản Phẩm (Bắt buộc)
-                        {isInheritedAsset("Product") && <Badge variant="secondary" className="text-[10px] h-5">Từ nhóm</Badge>}
                       </span>
                       {config.productAssetId ? (
                         <div className="space-y-2 w-full">
@@ -1106,7 +1095,6 @@ export function VideoProductionTab({
                       <span className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
                         <ImageIcon className="h-3.5 w-3.5 text-primary" />
                         Ảnh Đã Hoàn Thiện (Bắt buộc)
-                        {isInheritedAsset("ReadyImage") && <Badge variant="secondary" className="text-[10px] h-5">Từ nhóm</Badge>}
                       </span>
                       {config.readyImageAssetId ? (
                         <div className="space-y-2 w-full">
@@ -1181,7 +1169,7 @@ export function VideoProductionTab({
 
               <Separator />
 
-              {/* Prompt áp dụng: Dự án > Nhóm > mẫu toàn cục */}
+              {/* Prompt áp dụng: Dự án > mẫu toàn cục */}
               <div className="space-y-4">
                 {/* Thông báo mẫu prompt áp dụng */}
                 <div className="flex items-center justify-between flex-wrap gap-2 p-2.5 rounded-md bg-muted/40 border border-border text-xs">
@@ -1214,18 +1202,10 @@ export function VideoProductionTab({
                   </Button>
                 </div>
 
-                {/* Nhóm dự án và prompt riêng: prompt dự án thay prompt nhóm, prompt nhóm thay mẫu toàn cục */}
+                {/* Prompt riêng của dự án: để trống thì dùng mẫu toàn cục */}
                 <div className="space-y-3 p-3.5 rounded-lg border border-border bg-muted/20">
-                  <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
-                    <span>
-                      Nhóm dự án:{" "}
-                      <strong className="text-foreground">{projectGroup?.name ?? config?.groupName ?? "Không thuộc nhóm"}</strong>
-                    </span>
-                    <span className="text-muted-foreground">Chỉnh prompt nhóm ở tab Cấu hình nhóm trong trang nhóm.</span>
-                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {GUIDANCE_FIELDS.map(({ field, label }) => {
-                      const groupText = field === "scriptGuidance" ? projectGroup?.scriptGuidance : projectGroup?.videoGuidance;
                       const projectText = config?.[field];
                       return (
                         <div key={field} className="space-y-1.5">
@@ -1236,14 +1216,11 @@ export function VideoProductionTab({
                             id={`guidance-${field}`}
                             rows={3}
                             className="resize-y text-xs bg-background"
-                            placeholder="Để trống để dùng prompt nhóm; nhóm cũng trống thì dùng mẫu toàn cục."
+                            placeholder="Để trống để dùng mẫu toàn cục."
                             value={projectText ?? ""}
                             disabled={!config}
                             onChange={(e) => handleGuidanceChange(field, e.target.value)}
                           />
-                          {groupText?.trim() && (
-                            <p className="text-[11px] text-muted-foreground line-clamp-2">Nhóm: {groupText}</p>
-                          )}
                           <p className="text-[11px] text-muted-foreground">
                             Đang áp dụng: {(field === "scriptGuidance" ? scriptPromptSource : videoPromptSource).label}
                           </p>
@@ -1285,7 +1262,6 @@ export function VideoProductionTab({
                 {config.audioOption === AudioOptions.CustomAudio && (
                   <div className="flex items-center gap-3 p-3 rounded-md border border-border bg-muted/10 w-full sm:w-auto flex-wrap">
                     <Music className="h-4 w-4 text-primary shrink-0" />
-                    {isInheritedAsset("Audio") && <Badge variant="secondary" className="text-[10px] h-5">Từ nhóm</Badge>}
                     <span className="text-xs text-muted-foreground truncate max-w-[200px]">
                       {config.audioAssetId
                         ? `Tệp âm thanh: ${config.audioAssetId.slice(0, 16)}…`

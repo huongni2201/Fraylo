@@ -38,10 +38,6 @@ public class ProjectConfiguration : IEntityTypeConfiguration<Project>
             .HasColumnName("current_video_revision_id")
             .HasColumnType("TEXT");
 
-        builder.Property(p => p.GroupId)
-            .HasColumnName("group_id")
-            .HasColumnType("TEXT");
-
         builder.Property(p => p.Revision)
             .HasColumnName("revision")
             .HasColumnType("INTEGER")
@@ -65,16 +61,7 @@ public class ProjectConfiguration : IEntityTypeConfiguration<Project>
             .IsRequired(false)
             .OnDelete(DeleteBehavior.NoAction);
 
-        builder.HasOne<ProjectGroup>()
-            .WithMany()
-            .HasForeignKey(p => p.GroupId)
-            .IsRequired(false)
-            .OnDelete(DeleteBehavior.SetNull);
-
         builder.HasIndex(p => p.Status)
             .HasDatabaseName("ix_project_status_updated");
-
-        builder.HasIndex(p => p.GroupId)
-            .HasDatabaseName("ix_project_group_id");
     }
 }

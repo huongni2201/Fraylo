@@ -26,7 +26,7 @@ public sealed record VideoPromptCompositionResult(
 );
 
 /// <summary>
-/// Prompt đã chọn cho một tác vụ: nguồn (Dự án / Nhóm / mẫu toàn cục) và nội dung nguyên văn.
+/// Prompt đã chọn cho một tác vụ: nguồn (Dự án / mẫu toàn cục) và nội dung nguyên văn.
 /// </summary>
 public sealed record ResolvedPrompt(string Id, string Name, string Text);
 
@@ -262,8 +262,8 @@ public sealed class VideoWorkflowPromptComposer
     }
 
     /// <summary>
-    /// Chọn prompt theo mức ưu tiên: Dự án (nếu có) &gt; Nhóm (nếu có) &gt; mẫu toàn cục đang chọn. Chỉ dùng đúng một mức,
-    /// không ghép, không điền biến. Chỉ khi cả Dự án lẫn Nhóm để trống mới bắt buộc có mẫu toàn cục.
+    /// Chọn prompt theo mức ưu tiên: Dự án (nếu có) &gt; mẫu toàn cục đang chọn. Chỉ dùng đúng một mức,
+    /// không ghép, không điền biến. Chỉ khi Dự án để trống mới bắt buộc có mẫu toàn cục.
     /// </summary>
     public static async Task<ResolvedPrompt> ResolvePromptAsync(
         FrayloDbContext dbContext,
@@ -276,22 +276,6 @@ public sealed class VideoWorkflowPromptComposer
         if (!string.IsNullOrWhiteSpace(projectPrompt))
         {
             return new ResolvedPrompt("project", "Prompt của dự án", projectPrompt.Trim());
-        }
-
-        var groupId = await dbContext.Projects
-            .AsNoTracking()
-            .Where(p => p.Id == config.ProjectId)
-            .Select(p => p.GroupId)
-            .FirstOrDefaultAsync(cancellationToken)
-            .ConfigureAwait(false);
-        var group = groupId is null ? null : await dbContext.ProjectGroups
-            .AsNoTracking()
-            .FirstOrDefaultAsync(g => g.Id == groupId, cancellationToken)
-            .ConfigureAwait(false);
-        var groupPrompt = isVideoPrompt ? group?.VideoGuidance : group?.ScriptGuidance;
-        if (group is not null && !string.IsNullOrWhiteSpace(groupPrompt))
-        {
-            return new ResolvedPrompt($"group:{group.Id}", $"Prompt của nhóm {group.Name}", groupPrompt.Trim());
         }
 
         var template = await RequireActiveTemplateAsync(dbContext, purpose, cancellationToken).ConfigureAwait(false);

@@ -121,7 +121,7 @@ export function ProjectPage({ projectId, onBack, onOpenPublishing }: ProjectPage
               className="inline-flex items-center gap-1 rounded px-1 py-0.5 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <ArrowLeft className="size-3.5" aria-hidden="true" />
-              {project.groupName ? project.groupName : "Dự án"}
+              Dự án
             </button>
             <ChevronRight className="size-3" aria-hidden="true" />
             <span className="truncate text-foreground">{project.name}</span>

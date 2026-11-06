@@ -149,11 +149,11 @@ public sealed partial class ProjectWorkflowService
                     setting => setting.Key == GetConfigKey(job.ProjectId), cancellationToken).ConfigureAwait(false);
                 if (cfgSetting != null)
                 {
-                    cfgSetting.Value = await SerializeStoredConfigAsync(dbContext, config with
+                    cfgSetting.Value = SerializeStoredConfig(config with
                     {
                         RunState = WorkflowRunState.Failed,
                         UpdatedAtUtc = nowIso
-                    }, cancellationToken).ConfigureAwait(false);
+                    });
                     cfgSetting.UpdatedAtUtc = nowIso;
                 }
                 await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -534,7 +534,7 @@ public sealed partial class ProjectWorkflowService
                 var cfgSetting = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == cfgKey, cancellationToken).ConfigureAwait(false);
                 if (cfgSetting != null)
                 {
-                    cfgSetting.Value = await SerializeStoredConfigAsync(dbContext, updatedConfig, cancellationToken).ConfigureAwait(false);
+                    cfgSetting.Value = SerializeStoredConfig(updatedConfig);
                     cfgSetting.UpdatedAtUtc = nowIso;
                 }
 

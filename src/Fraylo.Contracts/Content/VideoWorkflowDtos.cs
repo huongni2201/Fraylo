@@ -198,9 +198,6 @@ public sealed record ProjectWorkflowConfigDto(
     [property: JsonPropertyName("scriptGuidance")] string? ScriptGuidance = null,
     [property: JsonPropertyName("videoGuidance")] string? VideoGuidance = null,
     [property: JsonPropertyName("finalVideoAssetId")] string? FinalVideoAssetId = null,
-    [property: JsonPropertyName("groupId")] string? GroupId = null,
-    [property: JsonPropertyName("groupName")] string? GroupName = null,
-    [property: JsonPropertyName("inheritedAssetSlots")] IReadOnlyList<string>? InheritedAssetSlots = null,
     [property: JsonPropertyName("videoStrategy")] string VideoStrategy = VideoStrategies.MultiVideo,
     [property: JsonPropertyName("referenceImageMode")] string ReferenceImageMode = ReferenceImageModes.Direct,
     // Chỉ điền khi đọc qua GetWorkflowConfigWithStepsAsync (bridge): lần thử hiện hành của từng bước logic trong run.

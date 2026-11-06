@@ -91,11 +91,6 @@ public sealed partial class ProjectWorkflowService
             .Select(v => v.AssetId)
             .FirstOrDefaultAsync(cancellationToken);
 
-        // Tên và tệp mặc định của nhóm: hướng dẫn prompt được ghép khi tạo prompt (VideoWorkflowPromptComposer).
-        var group = project.GroupId is null ? null : await dbContext.ProjectGroups
-            .AsNoTracking()
-            .FirstOrDefaultAsync(g => g.Id == project.GroupId, cancellationToken);
-
         var stored = await LoadStoredConfigAsync(dbContext, normalizedProjectId, cancellationToken);
         // Queue là nguồn trạng thái hiển thị: kể cả khi bỏ lỡ sự kiện lỗi hoặc mở lại app sau timeout.
         IReadOnlyList<WorkflowStepStateDto>? steps = null;
@@ -103,24 +98,22 @@ public sealed partial class ProjectWorkflowService
             stored.RunState is WorkflowRunState.Running or WorkflowRunState.Paused or WorkflowRunState.Failed &&
             stored.CurrentRunId != null)
         {
-            var run = await BuildRunStepsAsync(dbContext, ApplyGroupDefaults(stored, group), includeSteps, cancellationToken);
+            var run = await BuildRunStepsAsync(dbContext, stored, includeSteps, cancellationToken);
             stored = stored with { RunState = DeriveDisplayRunState(stored.RunState, run) };
             if (includeSteps)
             {
                 steps = run.Steps;
             }
         }
-        return ApplyGroupDefaults(stored, group) with
+        return stored with
         {
             FinalVideoAssetId = finalVideoAssetId,
-            GroupId = project.GroupId,
-            GroupName = group?.Name,
             Steps = steps
         };
     }
 
     /// <summary>
-    /// Cấu hình đã lưu của Dự án, chưa điền tệp kế thừa từ Nhóm. Chưa có thì trả về mặc định.
+    /// Cấu hình đã lưu của Dự án. Chưa có thì trả về mặc định.
     /// </summary>
     private static async Task<ProjectWorkflowConfigDto> LoadStoredConfigAsync(
         FrayloDbContext dbContext,
@@ -169,67 +162,10 @@ public sealed partial class ProjectWorkflowService
     }
 
     /// <summary>
-    /// Điền tệp của Nhóm vào các ô tệp Dự án để trống. Âm thanh của Nhóm chỉ áp dụng khi Dự án dùng âm thanh tùy chọn.
-    /// Chỉ thay đổi kết quả đọc; cấu hình lưu không chứa tệp kế thừa (xem ToStoredConfig).
+    /// Ghi cấu hình vào AppSettings theo dạng lưu: trường tính toán (video cuối) không được ghi.
     /// </summary>
-    private static ProjectWorkflowConfigDto ApplyGroupDefaults(ProjectWorkflowConfigDto config, ProjectGroup? group)
-    {
-        var inherited = new List<string>();
-        string? Inherit(string slot, string? own, string? groupDefault)
-        {
-            if (own is not null) return own;
-            if (groupDefault is null) return null;
-            inherited.Add(slot);
-            return groupDefault;
-        }
-
-        var modelId = Inherit("Model", config.ModelAssetId, group?.ModelAssetId);
-        var productId = Inherit("Product", config.ProductAssetId, group?.ProductAssetId);
-        var readyId = Inherit("ReadyImage", config.ReadyImageAssetId, group?.ReadyImageAssetId);
-        var audioId = Inherit("Audio", config.AudioAssetId, config.AudioOption == AudioOptions.CustomAudio ? group?.AudioAssetId : null);
-
-        return config with
-        {
-            ModelAssetId = modelId,
-            ProductAssetId = productId,
-            ReadyImageAssetId = readyId,
-            AudioAssetId = audioId,
-            InheritedAssetSlots = inherited.Count > 0 ? inherited : null
-        };
-    }
-
-    /// <summary>
-    /// Đưa cấu hình về dạng lưu. Tệp trùng mặc định của Nhóm được bỏ để Dự án tiếp tục theo Nhóm;
-    /// các trường tính toán (video cuối, nhóm, tệp kế thừa) không được ghi.
-    /// </summary>
-    private static ProjectWorkflowConfigDto ToStoredConfig(ProjectWorkflowConfigDto config, ProjectGroup? group)
-    {
-        static string? OwnOnly(string? own, string? groupDefault) => own is not null && own == groupDefault ? null : own;
-
-        return config with
-        {
-            ModelAssetId = OwnOnly(config.ModelAssetId, group?.ModelAssetId),
-            ProductAssetId = OwnOnly(config.ProductAssetId, group?.ProductAssetId),
-            ReadyImageAssetId = OwnOnly(config.ReadyImageAssetId, group?.ReadyImageAssetId),
-            AudioAssetId = OwnOnly(config.AudioAssetId, config.AudioOption == AudioOptions.CustomAudio ? group?.AudioAssetId : null),
-            FinalVideoAssetId = null,
-            GroupId = null,
-            GroupName = null,
-            InheritedAssetSlots = null
-        };
-    }
-
-    /// <summary>
-    /// Ghi cấu hình vào AppSettings theo dạng lưu. Dùng cho mọi nơi ghi lại cấu hình sau khi đã đọc hiệu lực.
-    /// </summary>
-    private static async Task<string> SerializeStoredConfigAsync(
-        FrayloDbContext dbContext,
-        ProjectWorkflowConfigDto config,
-        CancellationToken cancellationToken)
-    {
-        var group = await FindProjectGroupAsync(dbContext, config.ProjectId, cancellationToken);
-        return JsonSerializer.Serialize(ToStoredConfig(config, group), JsonOptions);
-    }
+    private static string SerializeStoredConfig(ProjectWorkflowConfigDto config) =>
+        JsonSerializer.Serialize(config with { FinalVideoAssetId = null }, JsonOptions);
 
     /// <summary>
     /// Lưu cấu hình quy trình sản xuất video cấp Dự án.
@@ -327,9 +263,7 @@ public sealed partial class ProjectWorkflowService
         var key = GetConfigKey(normalizedProjectId);
         var setting = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == key, cancellationToken);
         bool isInitialConfig = setting == null || string.IsNullOrWhiteSpace(setting.Value);
-        var group = await FindProjectGroupAsync(dbContext, normalizedProjectId, cancellationToken);
-        var effectiveUpdated = ApplyGroupDefaults(updated, group);
-        var jsonValue = JsonSerializer.Serialize(ToStoredConfig(updated, group), JsonOptions);
+        var jsonValue = SerializeStoredConfig(updated);
 
         if (setting == null)
         {
@@ -388,9 +322,9 @@ public sealed partial class ProjectWorkflowService
                     string? oldCommonImage = existing.WorkflowMode == WorkflowModes.ReadyImage
                         ? existing.ReadyImageAssetId
                         : existing.WorkflowMode == WorkflowModes.ProductOnly ? existing.ProductAssetId : null;
-                    string? newCommonImage = effectiveUpdated.WorkflowMode == WorkflowModes.ReadyImage
-                        ? effectiveUpdated.ReadyImageAssetId
-                        : effectiveUpdated.WorkflowMode == WorkflowModes.ProductOnly ? effectiveUpdated.ProductAssetId : null;
+                    string? newCommonImage = updated.WorkflowMode == WorkflowModes.ReadyImage
+                        ? updated.ReadyImageAssetId
+                        : updated.WorkflowMode == WorkflowModes.ProductOnly ? updated.ProductAssetId : null;
 
                     // Chế độ 9 ô: ảnh của cảnh là ảnh storyboard sinh từ nguồn cũ nên phải đặt lại để sinh lại từ nguồn mới.
                     if (sc.ImageAssetId == oldCommonImage || string.IsNullOrWhiteSpace(sc.ImageAssetId) ||
@@ -456,7 +390,7 @@ public sealed partial class ProjectWorkflowService
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
-        return ApplyGroupDefaults(updated, group);
+        return updated;
     }
 
     /// <summary>

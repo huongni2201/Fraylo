@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   projectApi,
-  projectGroupApi,
   type ProjectDetailDto,
-  type ProjectGroupDto,
   type ProjectSummaryDto,
 } from "./projectApi";
 import type { ErrorDto } from "../../contracts/bridge";
@@ -26,8 +24,6 @@ export interface ProjectFormProps {
   isOpen: boolean;
   mode: "create" | "edit";
   project?: ProjectDetailDto | ProjectSummaryDto | null;
-  /** Nhóm được chọn sẵn khi tạo dự án mới (ví dụ đang lọc theo nhóm). */
-  defaultGroupId?: string | null;
   onClose: () => void;
   onSuccess: (projectId: string) => void;
 }
@@ -36,15 +32,12 @@ export function ProjectForm({
   isOpen,
   mode,
   project,
-  defaultGroupId,
   onClose,
   onSuccess,
 }: ProjectFormProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState("Draft");
-  const [groupId, setGroupId] = useState("");
-  const [groups, setGroups] = useState<ProjectGroupDto[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -57,30 +50,20 @@ export function ProjectForm({
         setName(project.name || "");
         setDescription(project.description || "");
         setStatus(project.status || "Draft");
-        setGroupId(project.groupId ?? "");
       } else {
         setName("");
         setDescription("");
         setStatus("Draft");
-        setGroupId(defaultGroupId ?? "");
       }
       setErrorMessage(null);
       setFieldErrors({});
       setIsSubmitting(false);
 
-      projectGroupApi
-        .listGroups()
-        .then(setGroups)
-        .catch((err: unknown) => {
-          console.error("[ProjectForm] Không tải được danh sách nhóm:", err);
-          setGroups([]);
-        });
-
       setTimeout(() => {
         nameInputRef.current?.focus();
       }, 50);
     }
-  }, [isOpen, mode, project, defaultGroupId]);
+  }, [isOpen, mode, project]);
 
   const validate = (): boolean => {
     const errors: Record<string, string> = {};
@@ -112,7 +95,6 @@ export function ProjectForm({
         const newProjectId = await projectApi.createProject({
           name: trimmedName,
           description: trimmedDesc,
-          groupId: groupId || null,
         });
         onSuccess(newProjectId);
       } else if (mode === "edit" && project) {
@@ -121,7 +103,6 @@ export function ProjectForm({
           name: trimmedName,
           description: trimmedDesc,
           status,
-          groupId,
         });
         onSuccess(updated.projectId);
       }
@@ -213,29 +194,6 @@ export function ProjectForm({
               onChange={(e) => setDescription(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">Tùy chọn, tối đa 500 ký tự.</p>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="prj-group" className="text-sm font-medium">
-              Nhóm dự án
-            </Label>
-            <select
-              id="prj-group"
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 text-foreground"
-              value={groupId}
-              onChange={(e) => setGroupId(e.target.value)}
-              disabled={isSubmitting}
-            >
-              <option value="">Không thuộc nhóm</option>
-              {groups.map((group) => (
-                <option key={group.groupId} value={group.groupId}>
-                  {group.name}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-muted-foreground">
-              Nhóm giữ hướng dẫn prompt dùng chung; quản lý nhóm ở danh sách dự án.
-            </p>
           </div>
 
           {mode === "edit" && (

@@ -1,9 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { projectApi, projectGroupApi, STATUS_LABEL, type ProjectGroupDto, type ProjectSummaryDto } from "./projectApi";
+import { projectApi, STATUS_LABEL, type ProjectSummaryDto } from "./projectApi";
 import { ProjectForm } from "./ProjectForm";
-import { ProjectGroupCreateDialog } from "./ProjectGroupCreateDialog";
 import { BulkVideoCreateDialog } from "./BulkVideoCreateDialog";
-import { ProjectGroupSettings } from "./ProjectGroupSettings";
 import type { ErrorDto } from "../../contracts/bridge";
 import {
   Card,
@@ -30,7 +28,6 @@ import {
 import {
   ArrowLeft,
   ArrowRight,
-  ChevronRight,
   Plus,
   Search,
   RefreshCw,
@@ -41,8 +38,6 @@ import {
   Trash2,
   Info,
   Film,
-  Inbox,
-  Layers,
   Rocket,
 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
@@ -53,18 +48,6 @@ export interface ProjectListPageProps {
 }
 
 type StatusFilter = "all" | "Draft" | "InProgress" | "Completed";
-
-/** null: danh sách nhóm; UNGROUPED: dự án chưa thuộc nhóm; còn lại là groupId. */
-const UNGROUPED = "__ungrouped__";
-type GroupScope = string | null;
-
-interface GroupStats {
-  total: number;
-  inProgress: number;
-  completed: number;
-}
-
-type GroupTab = "projects" | "settings";
 
 const STATUS_TABS: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "Tất cả" },
@@ -84,73 +67,6 @@ const STATUS_VARIANT: Record<string, "secondary" | "info" | "success"> = {
   InProgress: "info",
   Completed: "success",
 };
-
-function countByStatus(list: ProjectSummaryDto[]): GroupStats {
-  return {
-    total: list.length,
-    inProgress: list.filter((p) => p.status === "InProgress").length,
-    completed: list.filter((p) => p.status === "Completed").length,
-  };
-}
-
-interface GroupCardProps {
-  name: string;
-  description: string;
-  stats: GroupStats;
-  ungrouped?: boolean;
-  onOpen: () => void;
-}
-
-function GroupCard({ name, description, stats, ungrouped = false, onOpen }: GroupCardProps) {
-  const percent = stats.total ? Math.round((stats.completed / stats.total) * 100) : 0;
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className={cn(
-        "group flex flex-col gap-4 rounded-xl border bg-card p-5 text-left shadow-xs transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-        ungrouped ? "border-dashed bg-transparent" : "border-border",
-      )}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div
-          className={cn(
-            "flex size-10 shrink-0 items-center justify-center rounded-lg",
-            ungrouped ? "bg-muted text-muted-foreground" : "bg-primary/15 text-primary-text",
-          )}
-        >
-          {ungrouped ? <Inbox className="size-5" /> : <Layers className="size-5" />}
-        </div>
-        <ChevronRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
-      </div>
-
-      <div className="min-w-0 space-y-1">
-        <h3 className="truncate text-base font-semibold text-foreground">{name}</h3>
-        <p className="line-clamp-2 min-h-[2.5rem] text-xs leading-relaxed text-muted-foreground">
-          {description}
-        </p>
-      </div>
-
-      <div className="mt-auto space-y-2">
-        <p className="text-xs text-muted-foreground">
-          <span className="font-semibold text-foreground">{stats.total}</span> dự án
-          <span aria-hidden="true"> · </span>
-          <span className="font-semibold text-foreground">{stats.inProgress}</span> đang sản xuất
-        </p>
-        <div
-          className="h-1.5 overflow-hidden rounded-full bg-muted"
-          role="progressbar"
-          aria-label={`Tiến độ hoàn thành của ${name}`}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={percent}
-        >
-          <div className="h-full rounded-full bg-success transition-[width] duration-300" style={{ width: `${percent}%` }} />
-        </div>
-      </div>
-    </button>
-  );
-}
 
 interface ProjectCardProps {
   project: ProjectSummaryDto;
@@ -186,7 +102,7 @@ function ProjectCard({ project, onOpen, onEdit, onDelete }: ProjectCardProps) {
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-3 pt-10 text-white">
           <h3 className="line-clamp-2 text-sm font-semibold leading-snug">{project.name}</h3>
           <p className="mt-0.5 truncate text-[11px] opacity-80">
-            {project.groupName ? `${project.groupName} · ` : ""}{new Date(project.updatedAtUtc).toLocaleDateString("vi-VN")}
+            {new Date(project.updatedAtUtc).toLocaleDateString("vi-VN")}
           </p>
         </div>
       </button>
@@ -223,21 +139,17 @@ function ProjectCard({ project, onOpen, onEdit, onDelete }: ProjectCardProps) {
   );
 }
 
+
 export function ProjectListPage({
   onSelectProject,
 }: ProjectListPageProps) {
   const [projects, setProjects] = useState<ProjectSummaryDto[]>([]);
-  const [groups, setGroups] = useState<ProjectGroupDto[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Phạm vi đang xem (cấp 1: danh sách nhóm, cấp 2: dự án trong một nhóm) và bộ lọc trong phạm vi đó.
-  const [scope, setScope] = useState<GroupScope>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [page, setPage] = useState(1);
-  const [groupTab, setGroupTab] = useState<GroupTab>("projects");
-  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [isBulkOpen, setIsBulkOpen] = useState(false);
 
   // Modals & Form
@@ -263,14 +175,9 @@ export function ProjectListPage({
     setErrorMessage(null);
 
     try {
-      const [list, groupList] = await Promise.all([projectApi.listAll(), projectGroupApi.listGroups()]);
+      const list = await projectApi.listAll();
       if (controller.signal.aborted) return;
       setProjects(list);
-      setGroups(groupList);
-      // Nhóm vừa bị xóa thì quay về danh sách nhóm thay vì hiển thị một trang rỗng.
-      setScope((prev) =>
-        prev === null || prev === UNGROUPED || groupList.some((group) => group.groupId === prev) ? prev : null,
-      );
     } catch (err: unknown) {
       if (controller.signal.aborted) return;
       const errorDto = err as ErrorDto;
@@ -292,54 +199,14 @@ export function ProjectListPage({
     };
   }, [fetchProjects]);
 
-  const openScope = (next: GroupScope) => {
-    setScope(next);
-    setGroupTab("projects");
-    setStatusFilter("all");
-    setSearchQuery("");
-    setPage(1);
-  };
-
-  /** Chỉ tải lại nhóm (không bật trạng thái đang tải), để form cấu hình nhóm không bị dựng lại. */
-  const reloadGroups = useCallback(async () => {
-    setGroups(await projectGroupApi.listGroups());
-  }, []);
-
-  const handleGroupCreated = async (group: ProjectGroupDto) => {
-    setIsCreateGroupOpen(false);
-    await reloadGroups();
-    openScope(group.groupId);
-  };
-
-  const handleGroupDeleted = () => {
-    openScope(null);
-    void fetchProjects();
-  };
-
-  const groupStats = useMemo(() => {
-    const map = new Map<string, GroupStats>();
-    for (const group of groups) {
-      map.set(group.groupId, countByStatus(projects.filter((p) => p.groupId === group.groupId)));
-    }
-    return map;
-  }, [projects, groups]);
-
-  const ungroupedProjects = useMemo(() => projects.filter((p) => !p.groupId), [projects]);
-
-  const scopedProjects = useMemo(() => {
-    if (scope === null) return [];
-    if (scope === UNGROUPED) return ungroupedProjects;
-    return projects.filter((p) => p.groupId === scope);
-  }, [projects, scope, ungroupedProjects]);
-
   const visibleProjects = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    return scopedProjects.filter((prj) => {
+    return projects.filter((prj) => {
       if (statusFilter !== "all" && prj.status !== statusFilter) return false;
       if (!query) return true;
       return prj.name.toLowerCase().includes(query) || (prj.description || "").toLowerCase().includes(query);
     });
-  }, [scopedProjects, statusFilter, searchQuery]);
+  }, [projects, statusFilter, searchQuery]);
 
   // Trang hiện tại được kẹp lại khi danh sách co (ví dụ sau khi xóa dự án ở trang cuối).
   const totalPages = Math.max(1, Math.ceil(visibleProjects.length / PAGE_SIZE));
@@ -348,10 +215,6 @@ export function ProjectListPage({
     () => visibleProjects.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
     [visibleProjects, currentPage],
   );
-
-  const activeGroup = scope !== null && scope !== UNGROUPED ? groups.find((g) => g.groupId === scope) ?? null : null;
-  // Tạo video từ trong nhóm sẽ gán sẵn nhóm đó.
-  const createGroupId = scope !== null && scope !== UNGROUPED ? scope : null;
 
   const openCreate = () => {
     setEditingProject(null);
@@ -381,91 +244,14 @@ export function ProjectListPage({
     }
   };
 
-  const title =
-    scope === null ? "Dự án video" : scope === UNGROUPED ? "Chưa thuộc nhóm" : activeGroup?.name ?? "Nhóm dự án";
-  const subtitle =
-    scope === null
-      ? "Chọn một nhóm để xem các video TikTok bên trong."
-      : scope === UNGROUPED
-        ? "Các dự án chưa được gán vào nhóm nào."
-        : activeGroup?.description || "Nhóm chưa có mô tả.";
-
-  const renderOverview = () => {
-    const totals = countByStatus(projects);
-    const groupCount = groups.length;
-
-    if (groupCount === 0 && projects.length === 0) {
+  const renderProjects = () => {
+    if (projects.length === 0) {
       return (
         <Card className="flex flex-col items-center justify-center p-12 text-center">
           <div className="mb-4 rounded-full bg-primary/10 p-4 text-primary-text">
             <Film className="size-10" />
           </div>
-          <h3 className="mb-1 text-lg font-semibold text-foreground">Chưa có nhóm hay dự án nào</h3>
-          <p className="mb-4 max-w-md text-sm text-muted-foreground">
-            Tạo nhóm để gom các video cùng chủ đề, hoặc tạo video đầu tiên để bắt đầu.
-          </p>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => setIsCreateGroupOpen(true)}>
-              <Layers className="mr-2 size-4" /> Tạo nhóm
-            </Button>
-            <Button onClick={openCreate}>
-              <Plus className="mr-2 size-4" /> Tạo video
-            </Button>
-          </div>
-        </Card>
-      );
-    }
-
-    const summary = [
-      { label: "Nhóm", value: groupCount },
-      { label: "Dự án", value: totals.total },
-      { label: "Đang sản xuất", value: totals.inProgress },
-      { label: "Hoàn thành", value: totals.completed },
-    ];
-
-    return (
-      <div className="space-y-6">
-        <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {summary.map((item) => (
-            <div key={item.label} className="rounded-xl border border-border bg-card px-4 py-3">
-              <dt className="text-xs font-medium text-muted-foreground">{item.label}</dt>
-              <dd className="mt-1 text-2xl font-bold tabular-nums text-foreground">{item.value}</dd>
-            </div>
-          ))}
-        </dl>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {groups.map((group) => (
-            <GroupCard
-              key={group.groupId}
-              name={group.name}
-              description={group.description || "Chưa có mô tả nhóm."}
-              stats={groupStats.get(group.groupId) ?? { total: 0, inProgress: 0, completed: 0 }}
-              onOpen={() => openScope(group.groupId)}
-            />
-          ))}
-          {ungroupedProjects.length > 0 && (
-            <GroupCard
-              name="Chưa thuộc nhóm"
-              description="Các dự án chưa được gán vào nhóm nào."
-              stats={countByStatus(ungroupedProjects)}
-              ungrouped
-              onOpen={() => openScope(UNGROUPED)}
-            />
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const renderGroupProjects = () => {
-    if (scopedProjects.length === 0) {
-      return (
-        <Card className="flex flex-col items-center justify-center p-12 text-center">
-          <div className="mb-4 rounded-full bg-primary/10 p-4 text-primary-text">
-            <Film className="size-10" />
-          </div>
-          <h3 className="mb-1 text-lg font-semibold text-foreground">Chưa có dự án nào trong mục này</h3>
+          <h3 className="mb-1 text-lg font-semibold text-foreground">Chưa có dự án nào</h3>
           <p className="mb-4 max-w-md text-sm text-muted-foreground">
             Tạo video đầu tiên để chuẩn bị đầu vào và tạo video TikTok.
           </p>
@@ -487,8 +273,8 @@ export function ProjectListPage({
             {STATUS_TABS.map((tab) => {
               const count =
                 tab.value === "all"
-                  ? scopedProjects.length
-                  : scopedProjects.filter((p) => p.status === tab.value).length;
+                  ? projects.length
+                  : projects.filter((p) => p.status === tab.value).length;
               const active = statusFilter === tab.value;
               return (
                 <button
@@ -614,36 +400,6 @@ export function ProjectListPage({
     );
   };
 
-  const renderGroupTabs = () => {
-    const tabs: { value: GroupTab; label: string }[] = [
-      { value: "projects", label: `Dự án (${scopedProjects.length})` },
-      { value: "settings", label: "Cấu hình nhóm" },
-    ];
-    return (
-      <div
-        className="inline-flex h-9 w-fit items-center rounded-lg bg-muted p-1 text-muted-foreground"
-        role="tablist"
-        aria-label="Nội dung của nhóm"
-      >
-        {tabs.map((tab) => {
-          const active = groupTab === tab.value;
-          return (
-            <button
-              key={tab.value}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              className={cn(segmentTabClass, active ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground")}
-              onClick={() => setGroupTab(tab.value)}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-    );
-  };
-
   const renderBody = () => {
     if (isLoading) {
       return (
@@ -665,66 +421,26 @@ export function ProjectListPage({
         </Card>
       );
     }
-    if (scope === null) return renderOverview();
-    if (activeGroup && groupTab === "settings") {
-      return (
-        <ProjectGroupSettings
-          key={activeGroup.groupId}
-          group={activeGroup}
-          onSaved={reloadGroups}
-          onDeleted={handleGroupDeleted}
-        />
-      );
-    }
-    return renderGroupProjects();
+    return renderProjects();
   };
 
   return (
     <div className="space-y-6 pb-10">
-      {/* Header: tiêu đề theo phạm vi đang xem + hành động chung */}
       <PageHeader
-        title={title}
-        description={subtitle}
-        leading={
-          scope !== null && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="-ml-2 h-7 gap-1 px-2 text-muted-foreground hover:text-foreground"
-              onClick={() => openScope(null)}
-            >
-              <ArrowLeft className="size-3.5" /> Tất cả nhóm
-            </Button>
-          )
-        }
+        title="Dự án video"
+        description="Quản lý các video TikTok của bạn."
         actions={
-          scope === null ? (
-            <>
-              <Button type="button" variant="outline" onClick={() => setIsCreateGroupOpen(true)} className="gap-1.5">
-                <Layers className="size-4" /> Tạo nhóm
-              </Button>
-              <Button type="button" variant="outline" onClick={openCreate} className="gap-1.5">
-                <Plus className="size-4" /> Tạo 1 video
-              </Button>
-              <Button type="button" onClick={() => setIsBulkOpen(true)} className="gap-1.5">
-                <Rocket className="size-4" /> Tạo hàng loạt
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button type="button" variant="outline" onClick={openCreate} className="gap-1.5">
-                <Plus className="size-4" /> Tạo 1 video
-              </Button>
-              <Button type="button" onClick={() => setIsBulkOpen(true)} className="gap-1.5">
-                <Rocket className="size-4" /> Tạo hàng loạt
-              </Button>
-            </>
-          )
+          <>
+            <Button type="button" variant="outline" onClick={openCreate} className="gap-1.5">
+              <Plus className="size-4" /> Tạo 1 video
+            </Button>
+            <Button type="button" onClick={() => setIsBulkOpen(true)} className="gap-1.5">
+              <Rocket className="size-4" /> Tạo hàng loạt
+            </Button>
+          </>
         }
       />
 
-      {activeGroup && renderGroupTabs()}
       {renderBody()}
 
       {/* Modal Form Tạo/Sửa */}
@@ -732,7 +448,6 @@ export function ProjectListPage({
         isOpen={isFormOpen}
         mode={formMode}
         project={editingProject}
-        defaultGroupId={createGroupId}
         onClose={() => setIsFormOpen(false)}
         onSuccess={() => {
           setIsFormOpen(false);
@@ -742,16 +457,8 @@ export function ProjectListPage({
 
       <BulkVideoCreateDialog
         isOpen={isBulkOpen}
-        groups={groups}
-        defaultGroupId={activeGroup?.groupId ?? null}
         onClose={() => setIsBulkOpen(false)}
         onCreated={fetchProjects}
-      />
-
-      <ProjectGroupCreateDialog
-        isOpen={isCreateGroupOpen}
-        onClose={() => setIsCreateGroupOpen(false)}
-        onCreated={handleGroupCreated}
       />
 
       {/* Modal xác nhận xóa */}

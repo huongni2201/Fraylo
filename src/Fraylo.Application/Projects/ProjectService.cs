@@ -48,8 +48,6 @@ public sealed class ProjectService
                 dbContext.Scenes.Any(s => s.ProjectId == p.Id && s.VideoAssetId != null),
                 p.CreatedAtUtc,
                 p.UpdatedAtUtc,
-                p.GroupId,
-                dbContext.ProjectGroups.Where(g => g.Id == p.GroupId).Select(g => g.Name).FirstOrDefault(),
                 dbContext.Scenes
                     .Where(s => s.ProjectId == p.Id && s.VideoAssetId != null)
                     .OrderBy(s => s.SequenceOrder)
@@ -76,7 +74,7 @@ public sealed class ProjectService
             throw new ProjectNotFoundException(normalizedProjectId);
         }
 
-        return await ToDetailAsync(dbContext, project, cancellationToken);
+        return ToDetail(project);
     }
 
     /// <summary>
@@ -99,7 +97,6 @@ public sealed class ProjectService
             Name = name,
             Brief = description ?? string.Empty,
             Status = "Draft",
-            GroupId = await ResolveGroupIdAsync(dbContext, request.GroupId, cancellationToken),
             CreatedAtUtc = nowUtc,
             UpdatedAtUtc = nowUtc
         };
@@ -168,26 +165,13 @@ public sealed class ProjectService
             isModified = true;
         }
 
-        if (request.GroupId is not null)
-        {
-            var newGroupId = await ResolveGroupIdAsync(dbContext, request.GroupId, cancellationToken);
-            if (newGroupId != project.GroupId)
-            {
-                // Đổi nhóm là đổi hướng dẫn/tệp kế thừa của run: áp cùng quy tắc với sửa Nhóm.
-                await ProjectGroupService.EnsureNoActiveRunAsync(dbContext, [project.Id], cancellationToken);
-                await WorkflowInputGuard.MarkProjectVideosStaleAsync(dbContext, [project.Id], "Nhóm của dự án đã thay đổi.", cancellationToken);
-            }
-            project.GroupId = newGroupId;
-            isModified = true;
-        }
-
         if (isModified)
         {
             project.UpdatedAtUtc = DateTime.UtcNow.ToString("o");
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        return await ToDetailAsync(dbContext, project, cancellationToken);
+        return ToDetail(project);
     }
 
     /// <summary>
@@ -268,38 +252,13 @@ public sealed class ProjectService
         return new ProjectDeleteResponseData(normalizedProjectId, true);
     }
 
-    private static async Task<ProjectDetailDto> ToDetailAsync(FrayloDbContext dbContext, Project project, CancellationToken cancellationToken)
-    {
-        var groupName = project.GroupId is null
-            ? null
-            : await dbContext.ProjectGroups
-                .AsNoTracking()
-                .Where(g => g.Id == project.GroupId)
-                .Select(g => g.Name)
-                .FirstOrDefaultAsync(cancellationToken);
-
-        return new ProjectDetailDto(
-            project.Id,
-            project.Name,
-            project.Brief,
-            project.Status,
-            project.CreatedAtUtc,
-            project.UpdatedAtUtc,
-            project.GroupId,
-            groupName);
-    }
-
-    /// <summary>
-    /// Trả về mã nhóm đã kiểm tra tồn tại; chuỗi rỗng nghĩa là không thuộc nhóm nào.
-    /// </summary>
-    private static async Task<string?> ResolveGroupIdAsync(FrayloDbContext dbContext, string? groupId, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(groupId)) return null;
-
-        var normalizedGroupId = NormalizeAndValidateGuid(groupId, nameof(groupId));
-        var exists = await dbContext.ProjectGroups.AnyAsync(g => g.Id == normalizedGroupId, cancellationToken);
-        return exists ? normalizedGroupId : throw new ProjectGroupNotFoundException(normalizedGroupId);
-    }
+    private static ProjectDetailDto ToDetail(Project project) => new(
+        project.Id,
+        project.Name,
+        project.Brief,
+        project.Status,
+        project.CreatedAtUtc,
+        project.UpdatedAtUtc);
 
     private static (string Name, string? Description) ValidateProjectFields(string? name, string? description)
     {

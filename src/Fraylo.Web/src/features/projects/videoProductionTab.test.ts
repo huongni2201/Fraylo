@@ -29,7 +29,6 @@ let mockConfig: Record<string, any> = {
 let mockScenes: Array<Record<string, unknown>> = [];
 let mockStoryboard: unknown = null;
 let mockPromptTemplate: Record<string, any> | null = null;
-let mockGroups: Array<Record<string, unknown>> = [];
 
 window.chrome = {
   webview: {
@@ -79,9 +78,6 @@ window.chrome = {
             break;
           case "workflow.get_config":
             responseData = mockConfig;
-            break;
-          case "projectgroup.list":
-            responseData = { groups: mockGroups };
             break;
           case "workflow.list_scenes":
             responseData = { scenes: mockScenes };
@@ -623,18 +619,8 @@ test("VideoProductionTab: CD11 & CD13 - Xem trước yêu cầu gửi AI writer 
   container.remove();
 });
 
-test("VideoProductionTab: prompt áp dụng theo thứ tự Dự án > Nhóm > mẫu toàn cục, không còn biến", async () => {
+test("VideoProductionTab: prompt áp dụng theo thứ tự Dự án > mẫu toàn cục, không còn biến", async () => {
   executedCommands = [];
-  mockGroups = [{
-    groupId: "grp_fashion",
-    name: "Quần áo nữ",
-    description: "",
-    scriptGuidance: "Prompt kịch bản của nhóm",
-    videoGuidance: "Prompt video của nhóm",
-    projectCount: 1,
-    createdAtUtc: "2026-10-27T00:00:00Z",
-    updatedAtUtc: "2026-10-27T00:00:00Z",
-  }];
   mockPromptTemplate = {
     template: {
       templateId: "tpl_script_fashion",
@@ -651,7 +637,6 @@ test("VideoProductionTab: prompt áp dụng theo thứ tự Dự án > Nhóm > m
   };
   mockConfig = {
     projectId: "prj_test_dyn_vars",
-    groupId: "grp_fashion",
     workflowMode: "ModelAndProduct",
     goalPrompt: "",
     modelAssetId: "ast_model_01",
@@ -689,9 +674,9 @@ test("VideoProductionTab: prompt áp dụng theo thứ tự Dự án > Nhóm > m
   // 1. Kiểm tra badge/thông báo mẫu prompt áp dụng
   const badgeArea = container.textContent || "";
   assert(badgeArea.includes("Mẫu prompt áp dụng"), "Phải có thông báo mẫu prompt áp dụng.");
-  // Kịch bản: dự án trống nên dùng nhóm; Video: dự án có prompt nên dùng dự án.
-  assert(badgeArea.includes("Kịch bản: Nhóm · Video: Dự án"), "Phải hiển thị nguồn prompt đang áp dụng theo thứ tự ưu tiên.");
-  assert(badgeArea.includes("Prompt tùy chỉnh"), "Có prompt nhóm/dự án thì không phải mẫu toàn cục.");
+  // Kịch bản: dự án trống nên dùng mẫu toàn cục; Video: dự án có prompt nên dùng dự án.
+  assert(badgeArea.includes("Video: Dự án"), "Phải hiển thị nguồn prompt đang áp dụng theo thứ tự ưu tiên.");
+  assert(badgeArea.includes("Prompt tùy chỉnh"), "Có prompt dự án thì không phải mẫu toàn cục.");
 
   // 2. Không còn ô nhập biến.
   assert(!container.querySelector("[id^='var-input-']"), "Không còn ô nhập biến theo mẫu prompt ở dự án.");
@@ -721,7 +706,6 @@ test("VideoProductionTab: prompt áp dụng theo thứ tự Dự án > Nhóm > m
   React.act(() => root.unmount());
   container.remove();
   mockPromptTemplate = null;
-  mockGroups = [];
 
   React.act(() => root.unmount());
   container.remove();

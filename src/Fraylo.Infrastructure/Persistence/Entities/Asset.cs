@@ -4,7 +4,6 @@ public class Asset
 {
     public string Id { get; set; } = string.Empty;
     public string? ProjectId { get; set; }
-    public string? GroupId { get; set; } // Thuộc Nhóm dùng chung; không đồng thời có ProjectId
     public string StorageRootId { get; set; } = string.Empty;
     public string RelativePath { get; set; } = string.Empty;
     public string AssetType { get; set; } = string.Empty; // Document | Image | Video | Audio
