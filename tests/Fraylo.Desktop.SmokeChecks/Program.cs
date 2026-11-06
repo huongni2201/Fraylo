@@ -81,6 +81,11 @@ public static class Program
             return await TikTokSessionProbeSmokeTests.RunAllAsync();
         }
 
+        if (args.Length > 0 && string.Equals(args[0], "facebook", StringComparison.OrdinalIgnoreCase))
+        {
+            return await FacebookSessionProbeSmokeTests.RunAllAsync();
+        }
+
         if (args.Length > 0 && string.Equals(args[0], "benchmark", StringComparison.OrdinalIgnoreCase))
         {
             int sampleCount = 7;

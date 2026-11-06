@@ -13,6 +13,7 @@ public static class ProviderUrlResolver
     public const string DefaultGeminiUrl = "https://gemini.google.com/";
     public const string DefaultMuseAiUrl = "https://muse.ai/";
     public const string DefaultTikTokUrl = "https://www.tiktok.com/";
+    public const string DefaultFacebookUrl = "https://www.facebook.com/";
 
     /// <summary>
     /// Giải quyết URL đích dựa trên providerKey, kind hoặc customUrl được truyền vào.
@@ -54,6 +55,11 @@ public static class ProviderUrlResolver
             {
                 return DefaultTikTokUrl;
             }
+
+            if (normalizedKey == "facebook")
+            {
+                return DefaultFacebookUrl;
+            }
         }
 
         // 3. Phân giải theo profileKind nếu providerKey chưa xác định
@@ -68,6 +74,11 @@ public static class ProviderUrlResolver
             if (normalizedKind is "tiktok" or "tiktok-channel" or "tiktok_channel")
             {
                 return DefaultTikTokUrl;
+            }
+
+            if (normalizedKind == "facebook")
+            {
+                return DefaultFacebookUrl;
             }
 
             if (normalizedKind == "sharedai")

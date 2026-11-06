@@ -128,9 +128,9 @@ public sealed class ProviderAccountService
         {
             providerKey = "museai";
         }
-        if (providerKey != "chatgpt-web" && providerKey != "gemini-web" && providerKey != "museai" && providerKey != "tiktok")
+        if (providerKey != "chatgpt-web" && providerKey != "gemini-web" && providerKey != "museai" && providerKey != "tiktok" && providerKey != "facebook")
         {
-            throw new ProviderAccountValidationException($"Nhà cung cấp '{request.ProviderKey}' không được hỗ trợ. Chỉ chấp nhận chatgpt-web, gemini-web, museai hoặc tiktok.");
+            throw new ProviderAccountValidationException($"Nhà cung cấp '{request.ProviderKey}' không được hỗ trợ. Chỉ chấp nhận chatgpt-web, gemini-web, museai, tiktok hoặc facebook.");
         }
 
         // Nguồn cấu hình N duy nhất là MaxTabs (Số tác vụ chạy đồng thời).
@@ -158,6 +158,7 @@ public sealed class ProviderAccountService
             {
                 "museai" => "MuseAI",
                 "tiktok" => "TikTok",
+                "facebook" => "Facebook",
                 _ => "SharedAI"
             };
             var newProfile = new BrowserProfile

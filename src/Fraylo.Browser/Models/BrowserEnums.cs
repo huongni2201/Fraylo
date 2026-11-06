@@ -8,9 +8,10 @@ public static class BrowserProfileKind
     public const string SharedAI = "SharedAI";
     public const string MuseAI = "MuseAI";
     public const string TikTok = "TikTok";
+    public const string Facebook = "Facebook";
 
     public static bool IsValid(string kind) =>
-        kind is SharedAI or MuseAI or TikTok;
+        kind is SharedAI or MuseAI or TikTok or Facebook;
 }
 
 /// <summary>

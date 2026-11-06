@@ -5,7 +5,7 @@ import {
   type CreateProviderAccountPayload,
 } from "./accountSettingsApi";
 import { RefreshCw, Plus, Check, AlertCircle, X, ShieldCheck, ShieldAlert, Laptop, Trash2, Pencil, Film, Sparkles } from "lucide-react";
-import { IconTikTok } from "../../components/Icons";
+import { IconFacebook, IconTikTok } from "../../components/Icons";
 import { cn } from "../../lib/utils";
 import { browserManagerApi } from "../browsers/browserManagerApi";
 
@@ -21,9 +21,10 @@ const PROVIDER_NAMES: Record<string, string> = {
   "museai-video": "MuseAI Video",
   "tiktok": "TikTok",
   "TikTok": "TikTok",
+  "facebook": "Facebook",
 };
 
-export type ProviderTabKey = "all" | "chatgpt" | "gemini" | "museai" | "tiktok";
+export type ProviderTabKey = "all" | "chatgpt" | "gemini" | "museai" | "tiktok" | "facebook";
 
 export interface ProviderTabItem {
   key: ProviderTabKey;
@@ -37,6 +38,7 @@ export const PROVIDER_TABS: ProviderTabItem[] = [
   { key: "gemini", label: "Gemini", defaultProviderKey: "gemini-web" },
   { key: "museai", label: "MuseAI", defaultProviderKey: "museai" },
   { key: "tiktok", label: "TikTok", defaultProviderKey: "tiktok" },
+  { key: "facebook", label: "Facebook", defaultProviderKey: "facebook" },
 ];
 
 // shadcn UI-compatible primitives
@@ -197,6 +199,7 @@ export function AccountSettingsPanel() {
       gemini: 0,
       museai: 0,
       tiktok: 0,
+      facebook: 0,
     };
     for (const acc of accounts) {
       const p = acc.providerKey?.toLowerCase() || "";
@@ -208,6 +211,8 @@ export function AccountSettingsPanel() {
         counts.museai++;
       } else if (p.includes("tiktok")) {
         counts.tiktok++;
+      } else if (p.includes("facebook")) {
+        counts.facebook++;
       }
     }
     return counts;
@@ -225,6 +230,8 @@ export function AccountSettingsPanel() {
         if (!p.includes("muse")) return false;
       } else if (activeProviderTab === "tiktok") {
         if (!p.includes("tiktok")) return false;
+      } else if (activeProviderTab === "facebook") {
+        if (!p.includes("facebook")) return false;
       }
 
       if (statusFilter === "enabled" && !acc.enabled) return false;
@@ -524,6 +531,7 @@ export function AccountSettingsPanel() {
                   <option value="gemini-web">Gemini Web (Google)</option>
                   <option value="museai">MuseAI Video</option>
                   <option value="tiktok">TikTok Channel</option>
+                  <option value="facebook">Facebook</option>
                 </select>
               </div>
 
@@ -614,6 +622,7 @@ export function AccountSettingsPanel() {
                 onClick={() => setActiveProviderTab(tab.key)}
               >
                 {tab.key === "tiktok" && <IconTikTok size={13} className="shrink-0" />}
+                {tab.key === "facebook" && <IconFacebook size={13} className="shrink-0" />}
                 {tab.key === "museai" && <Film className="h-3 w-3 shrink-0" />}
                 {(tab.key === "chatgpt" || tab.key === "gemini") && <Sparkles className="h-3 w-3 shrink-0" />}
                 <span>{tab.label}</span>
@@ -708,6 +717,9 @@ export function AccountSettingsPanel() {
                   <Badge variant="secondary" className="shrink-0 whitespace-nowrap text-[11px] gap-1">
                     {acc.providerKey?.toLowerCase().includes("tiktok") && (
                       <IconTikTok size={12} className="shrink-0" />
+                    )}
+                    {acc.providerKey?.toLowerCase().includes("facebook") && (
+                      <IconFacebook size={12} className="shrink-0" />
                     )}
                     {PROVIDER_NAMES[acc.providerKey] || acc.providerKey}
                   </Badge>

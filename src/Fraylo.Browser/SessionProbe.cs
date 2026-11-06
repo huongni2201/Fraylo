@@ -39,7 +39,8 @@ public sealed class SessionProbe : ISessionProbe, IProfileIdentityResolver
             new MuseAiSessionProber(_profileRegistry),
             new ChatGptSessionProber(_profileRegistry),
             new GeminiSessionProber(_profileRegistry),
-            new TikTokPlatformProber(_profileRegistry)
+            new TikTokPlatformProber(_profileRegistry),
+            new FacebookPlatformProber(_profileRegistry)
         };
     }
 

@@ -1,4 +1,4 @@
-
+﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -28,6 +28,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Fraylo.Storyboard.SmokeChecks", "tests\Fraylo.Storyboard.SmokeChecks\Fraylo.Storyboard.SmokeChecks.csproj", "{401039FC-21AE-4021-8C5B-0CF6FF4AF136}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Fraylo.Launcher", "src\Fraylo.Launcher\Fraylo.Launcher.csproj", "{F6803239-7E2F-408F-B012-95A3C9515BF2}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Fraylo.Facebook.SmokeChecks", "tests\Fraylo.Facebook.SmokeChecks\Fraylo.Facebook.SmokeChecks.csproj", "{FA0800F1-29FD-4164-80F2-C384659647BB}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -171,6 +173,18 @@ Global
 		{F6803239-7E2F-408F-B012-95A3C9515BF2}.Release|x64.Build.0 = Release|Any CPU
 		{F6803239-7E2F-408F-B012-95A3C9515BF2}.Release|x86.ActiveCfg = Release|Any CPU
 		{F6803239-7E2F-408F-B012-95A3C9515BF2}.Release|x86.Build.0 = Release|Any CPU
+		{FA0800F1-29FD-4164-80F2-C384659647BB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FA0800F1-29FD-4164-80F2-C384659647BB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FA0800F1-29FD-4164-80F2-C384659647BB}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{FA0800F1-29FD-4164-80F2-C384659647BB}.Debug|x64.Build.0 = Debug|Any CPU
+		{FA0800F1-29FD-4164-80F2-C384659647BB}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{FA0800F1-29FD-4164-80F2-C384659647BB}.Debug|x86.Build.0 = Debug|Any CPU
+		{FA0800F1-29FD-4164-80F2-C384659647BB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FA0800F1-29FD-4164-80F2-C384659647BB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FA0800F1-29FD-4164-80F2-C384659647BB}.Release|x64.ActiveCfg = Release|Any CPU
+		{FA0800F1-29FD-4164-80F2-C384659647BB}.Release|x64.Build.0 = Release|Any CPU
+		{FA0800F1-29FD-4164-80F2-C384659647BB}.Release|x86.ActiveCfg = Release|Any CPU
+		{FA0800F1-29FD-4164-80F2-C384659647BB}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -187,5 +201,6 @@ Global
 		{340EBACC-F96F-4AFD-B00E-66E6E11A4811} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{401039FC-21AE-4021-8C5B-0CF6FF4AF136} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{F6803239-7E2F-408F-B012-95A3C9515BF2} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{FA0800F1-29FD-4164-80F2-C384659647BB} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal
