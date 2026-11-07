@@ -157,7 +157,10 @@ public sealed partial class ProjectWorkflowService
                 var stored = JsonSerializer.Deserialize<ProjectWorkflowConfigDto>(appSetting.Value, JsonOptions);
                 if (stored != null)
                 {
-                    return stored;
+                    return stored.WorkflowMode == WorkflowModes.ReferenceVideo &&
+                           !ReferenceVideoMedia.IsOutputDurationSupported(stored.TargetDurationPerSceneSeconds)
+                        ? stored with { TargetDurationPerSceneSeconds = ReferenceVideoMedia.DefaultOutputSeconds }
+                        : stored;
                 }
             }
             catch
@@ -215,6 +218,10 @@ public sealed partial class ProjectWorkflowService
         {
             throw new ProjectWorkflowValidationException($"Không tìm thấy dự án '{normalizedProjectId}'.");
         }
+
+        if (request.WorkflowMode == WorkflowModes.ReferenceVideo &&
+            !ReferenceVideoMedia.IsOutputDurationSupported(request.TargetDurationPerSceneSeconds))
+            throw new ProjectWorkflowValidationException("Thời lượng video theo mẫu phải là 10, 15, 20 hoặc 30 giây.");
 
         // Kiểm tra quyền sở hữu các asset được gán
         await ValidateAssetBelongsToProjectAsync(dbContext, normalizedProjectId, request.ModelAssetId, "ảnh mẫu", cancellationToken);

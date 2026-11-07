@@ -66,7 +66,14 @@ int Update(string[] updateArgs)
 
         var previous = ReadCurrentVersion();
         var pointer = currentJson + ".tmp";
-        File.WriteAllText(pointer, JsonSerializer.Serialize(new { version, previous_version = previous }));
+        using (var stream = File.Create(pointer))
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("version", version);
+            writer.WriteString("previous_version", previous);
+            writer.WriteEndObject();
+        }
         File.Move(pointer, currentJson, overwrite: true);
 
         // Giữ bản hiện hành + bản liền trước để có đường lùi thủ công.

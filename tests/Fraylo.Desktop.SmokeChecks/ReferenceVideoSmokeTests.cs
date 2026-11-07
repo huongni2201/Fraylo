@@ -79,7 +79,7 @@ internal static class ReferenceVideoSmokeTests
             var scheduler = new JobScheduler(options, new JobReservation(options), new NotExecutedExecutor());
             var workflow = new ProjectWorkflowService(options, new JobService(options, snapshotFactory, scheduler));
             var saved = await workflow.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(id, WorkflowModes.ReferenceVideo, "", null, null,
-                image.Asset!.AssetId, AudioOptions.None, null, 1, 17, VideoStrategy: VideoStrategies.SingleVideo, ReferenceVideoAssetId: imported.Asset!.AssetId));
+                image.Asset!.AssetId, AudioOptions.None, null, 1, 20, VideoStrategy: VideoStrategies.SingleVideo, ReferenceVideoAssetId: imported.Asset!.AssetId));
             Check(saved.ReferenceVideoAssetId == imported.Asset.AssetId, "video draft saved");
             var loaded = await workflow.GetWorkflowConfigAsync(id);
             Check(loaded.ReferenceVideoAvailable, "silent reference supports approximate generation with different duration");
@@ -95,7 +95,7 @@ internal static class ReferenceVideoSmokeTests
                 Check(job.TaskType == JobTaskType.VideoRender && await db.Scenes.CountAsync() == 1, "one render and one internal scene");
                 using var snapshot = JsonDocument.Parse(job.ConfigSnapshotJson!);
                 media = JsonSerializer.Deserialize<JobMediaSnapshotDto>(snapshot.RootElement.GetProperty("MediaSnapshot").GetRawText())!;
-                Check(media.ReferenceVideoAssetId == imported.Asset.AssetId && media.ReferenceVideoAssetHash is not null && media.SourceImageAssetHash is not null && media.DurationSeconds == 10 && media.ReferenceVideoDurationSeconds == 16.56,
+                Check(media.ReferenceVideoAssetId == imported.Asset.AssetId && media.ReferenceVideoAssetHash is not null && media.SourceImageAssetHash is not null && media.DurationSeconds == 20 && media.ReferenceVideoDurationSeconds == 16.56,
                     "immutable two-media snapshot preserves source metadata and independent output duration");
             }
             await File.WriteAllBytesAsync(output, Mp4(10, null));

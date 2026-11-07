@@ -40,7 +40,7 @@ dotnet publish "$root\src\Fraylo.Desktop\Fraylo.Desktop.csproj" -c Release --no-
 if ($LASTEXITCODE) { throw "publish app thất bại" }
 
 Write-Host "[2/4] Publish launcher/updater..." -ForegroundColor Yellow
-dotnet publish "$root\src\Fraylo.Launcher\Fraylo.Launcher.csproj" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o $launcherDir
+dotnet publish "$root\src\Fraylo.Launcher\Fraylo.Launcher.csproj" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -warnaserror:IL2026 -o $launcherDir
 if ($LASTEXITCODE) { throw "publish launcher thất bại" }
 
 # Không bao giờ để dữ liệu người dùng lọt vào gói phát hành.

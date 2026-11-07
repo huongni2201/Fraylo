@@ -54,6 +54,16 @@ export function ReferenceVideoInputs({ config, disabled, onChange }: {
         </div>;
       })}
     </fieldset>
+    <div className="space-y-2 text-sm">
+      <label htmlFor="reference-target-duration" className="block font-medium">Thời lượng video mục tiêu</label>
+      <select id="reference-target-duration" aria-describedby="reference-duration-help"
+        className="h-9 w-full rounded-md border border-input bg-background px-3 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring sm:w-48"
+        disabled={disabled} value={config.targetDurationPerSceneSeconds}
+        onChange={e => onChange({ targetDurationPerSceneSeconds: Number(e.target.value) })}>
+        {[10, 15, 20, 30].map(seconds => <option key={seconds} value={seconds}>{seconds} giây</option>)}
+      </select>
+      <p id="reference-duration-help" className="text-xs text-muted-foreground">Thời lượng thực tế có thể chênh lệch tùy kết quả MuseAI.</p>
+    </div>
     <label className="block space-y-2 text-sm font-medium">
       <span>Yêu cầu bổ sung (tùy chọn)</span>
       <textarea className="w-full rounded-md border border-input bg-background p-3 text-sm" rows={3} disabled={disabled}

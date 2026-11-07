@@ -24,3 +24,10 @@ Owner: Codex coordinator, tuần tự, tự review. Người dùng cấp quyền
 NOT_RUN: chạy Setup cài đè thật trên Windows sạch, nhánh WMI/downgrade trong UI installer, cập nhật R2 thật, dữ liệu người dùng thật. Không tuyên bố đã nghiệm thu phát hành. Bản 1.0.5 đã phát hành không được vá bằng cách ghi đè artifact; đóng gói bản mới 1.0.6 sau nghiệm thu.
 
 Nếu người dùng đã chạy 1.0.5 và DB v6 bị reset, bản sửa không tự ghép dữ liệu đã mất: cần kiểm tra backup pre-reset và phục hồi có kiểm soát, tránh ghi đè dữ liệu mới.
+
+## Launcher mở lại 1.0.6 sau khi tải 1.0.7
+
+- Log máy ghi hai lần giải nén xong nhưng lỗi tại `JsonSerializer.Serialize`. Cấu hình phát hành `PublishTrimmed=true` tắt serialization dựa trên reflection. Vì lỗi xảy ra trước khi thay `current.json`, launcher mở lại 1.0.6. [Tài liệu .NET](https://learn.microsoft.com/en-us/dotnet/core/compatibility/serialization/8.0/publishtrimmed).
+- Launcher ghi hai trường JSON bằng `Utf8JsonWriter`, sau đó thay con trỏ nguyên tử như trước. Lệnh đóng gói coi cảnh báo IL2026 là lỗi để chặn việc đưa lại API không an toàn với trimming.
+- Fixture Windows với launcher cài từ 1.0.6 tái hiện lỗi, ZIP đã giải nén nhưng con trỏ vẫn là 1.0.6. Publish launcher đã sửa theo cấu hình phát hành và chạy lại fixture PASS. Gói lỗi giữ bản cũ, gói hợp lệ chuyển sang 1.0.7, giữ `previous_version` và backup dữ liệu thử, chặn downgrade. Publish cảnh báo NU1900 do không lấy được dữ liệu lỗ hổng NuGet.
+- Đã thay launcher ở bản cài trên máy và xác minh SHA-256, giữ bản sao launcher cũ. App 1.0.6 đang chạy tại lúc thay tệp. Người dùng bấm cập nhật lại để kiểm bước cuối trên bản cài thật. Với máy khác đang dùng launcher lỗi, cần bộ cài chứa launcher đã sửa vì gói ZIP không thay launcher. Chưa phát hành bộ cài mới.

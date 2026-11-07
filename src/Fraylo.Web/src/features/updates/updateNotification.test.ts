@@ -11,9 +11,9 @@ test("Báo bản mới, không tự cài và cho đóng thông báo", async () =
   try {
     await React.act(async()=>root.render(React.createElement(UpdateNotification,{api})));
     await React.act(async()=>{await new Promise(r=>setTimeout(r,2100));});
-    assert.match(container.textContent!,/1.0.5/);assert.equal(applies,0);
-    await React.act(async()=>container.querySelector<HTMLButtonElement>('[aria-label="Để lần sau"]')!.click());
-    assert.equal(container.textContent,"");
+    assert.ok(document.body.querySelector('[role="dialog"]')?.textContent?.includes("1.0.5"));assert.equal(applies,0);
+    await React.act(async()=>Array.from(document.body.querySelectorAll("button")).find(button=>button.textContent?.includes("Để sau"))!.click());
+    assert.equal(document.body.querySelector('[role="dialog"]'),null);
   } finally {await React.act(async()=>root.unmount());container.remove();}
 });
 test("Bản mới nhất không hiện thông báo", async () => {

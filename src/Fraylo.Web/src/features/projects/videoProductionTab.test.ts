@@ -971,6 +971,12 @@ test("Video theo mẫu nhập bằng host Video, lưu nháp và mở lại đủ
     assert.equal(lastBridgePayload!.assetType, "Video");
     assert(!lastBridgePayload!.base64Data);
     assert(first.container.querySelector('video[aria-label="Video mẫu chuyển động và âm thanh"]'));
+    const duration = first.container.querySelector<HTMLSelectElement>("#reference-target-duration")!;
+    assert.deepEqual(Array.from(duration.options, option => option.value), ["10", "15", "20", "30"]);
+    await React.act(async () => {
+      duration.value = "20";
+      duration.dispatchEvent(new Event("change", { bubbles: true }));
+    });
     const save = Array.from(first.container.querySelectorAll("button")).find(b => b.textContent === "Lưu cấu hình")!;
     await React.act(async () => save.click());
     await React.act(async () => { await new Promise(r => setTimeout(r, 80)); });
@@ -983,6 +989,7 @@ test("Video theo mẫu nhập bằng host Video, lưu nháp và mở lại đủ
     try {
       assert(reopened.container.querySelector('video[aria-label="Video mẫu chuyển động và âm thanh"]'));
       assert(reopened.container.querySelector('img[alt="Ảnh người mẫu mặc sản phẩm"]'));
+      assert.equal(reopened.container.querySelector<HTMLSelectElement>("#reference-target-duration")?.value, "20");
     } finally { await reopened.unmount(); }
   } finally { if (first.container.isConnected) await first.unmount(); mockUploadedAsset = null; mockConfig = originalConfig; mockScenes = originalScenes; }
 });

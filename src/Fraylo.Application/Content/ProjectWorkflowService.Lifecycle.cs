@@ -228,7 +228,7 @@ public sealed partial class ProjectWorkflowService
                     // Keep candidates/revisions in history, but do not present the previous render as this run's output.
                     s.VideoAssetId = null;
                     s.PromptText = null;
-                    s.TargetDurationSeconds = Fraylo.Application.Assets.ReferenceVideoMedia.OutputSeconds;
+                    s.TargetDurationSeconds = config.TargetDurationPerSceneSeconds;
                     s.Status = "Draft";
                     s.UpdatedAtUtc = nowIso;
                 }

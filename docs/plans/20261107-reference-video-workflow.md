@@ -45,7 +45,7 @@ Thêm yêu cầu tùy chọn, CTA **Tạo video theo mẫu**. Nhãn **MuseAI · 
 
 - Config thêm `referenceVideoAssetId`, availability và lý do lỗi được suy khi đọc, không tin flag client gửi.
 - Job có ID/hash hai input, `ReferenceVideoMode=PromptApproximation`, `ReferenceAudioPolicy=FitOriginalAudioByAI`, metadata thời lượng/kích thước nguồn, flag nguồn có audio. ConfigVersion3 cho snapshot mới; ảnh-only giữ version1.
-- Metadata nguồn double giữ riêng; mục tiêu khoảng10s là hướng dẫn, không phải điều kiện bắt độ dài file kết quả bằng nguồn hoặc bằng10s.
+- Metadata nguồn giữ riêng. Người dùng chọn mục tiêu 10, 15, 20 hoặc 30 giây (mặc định 10 giây khi chọn chế độ). Cấu hình lưu cùng dự án và được chốt trong snapshot khi tạo tác vụ. MuseAI nhận thời lượng mục tiêu trong prompt, còn độ dài tệp xuất có thể chênh lệch.
 - Kiểm đúng Linked/type/Project hoặc app scope, path/junction/root, file/hash trước gửi. Video không nằm trong ImageAssetIds hoặc AudioAssetId. Snapshot/retry không lấy input mới từ form.
 - Một job VideoRender: gửi lần lượt ảnh và video kèm audio → MuseAI phân tích động tác → viết prompt → sinh video từ ảnh → tự tách/ghép/co giãn audio trong môi trường MuseAI → trả một MP4 hoàn chỉnh.
 - Không thêm FFmpeg/TTS/mixer/transcode vào Fraylo. Backend chỉ đọc/kiểm metadata và lưu file; việc xử lý audio thuộc MuseAI theo yêu cầu người dùng.

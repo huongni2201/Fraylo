@@ -76,7 +76,7 @@ public sealed class MuseAiPlaywrightAutomation
         if (referenceFiles is not null) ReferenceVideoMedia.EnsureProviderSupported(referenceFiles.Snapshot);
         var imagePaths = referenceFiles is null ? await ResolveImagePathsAsync(job, imageIds, ct).ConfigureAwait(false) : new[] { referenceFiles.ImagePath };
         var fullPrompt = referenceFiles is null ? $"{prompt}\n\nThời lượng yêu cầu: {durationSeconds} giây."
-            : $"{prompt}\n\nReference duration (informational only): {referenceFiles.Snapshot.ReferenceVideoDurationSeconds?.ToString(System.Globalization.CultureInfo.InvariantCulture)} seconds. Output may have a different duration, targeting about 10 seconds. Extract the original audio from the attached reference and automatically fit/merge it to the generated video yourself; no substitute music. Leave silent if reference has no audio.";
+            : $"{prompt}\n\nReference duration (informational only): {referenceFiles.Snapshot.ReferenceVideoDurationSeconds?.ToString(System.Globalization.CultureInfo.InvariantCulture)} seconds. Output may have a different duration, targeting about {durationSeconds} seconds. Extract the original audio from the attached reference and automatically fit/merge it to the generated video yourself; no substitute music. Leave silent if reference has no audio.";
         if (referenceFiles is not null)
             fullPrompt += $"\nInput 1 PHOTO filename: {Path.GetFileName(referenceFiles.ImagePath)}. Input 2 VIDEO filename: {Path.GetFileName(referenceFiles.VideoPath)}. This is PromptApproximation, not direct motion transfer.";
 

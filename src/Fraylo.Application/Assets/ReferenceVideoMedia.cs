@@ -14,7 +14,9 @@ internal sealed record ReferenceVideoFiles(string ImagePath, string VideoPath, J
 
 public static class ReferenceVideoMedia
 {
-    public const int OutputSeconds = 10;
+    public const int DefaultOutputSeconds = 10;
+
+    internal static bool IsOutputDurationSupported(int seconds) => seconds is 10 or 15 or 20 or 30;
     public const string ApproximationMode = "PromptApproximation";
     public const long MaxVideoBytes = 50 * 1024 * 1024;
     public const int MaxVideoSeconds = 30;
@@ -78,6 +80,9 @@ public static class ReferenceVideoMedia
         DbContextOptions<FrayloDbContext> options, string projectId, JobMediaSnapshotDto media,
         bool requireSnapshotHashes, CancellationToken cancellationToken)
     {
+        if (!IsOutputDurationSupported(media.DurationSeconds))
+            throw new JobValidationException("Thời lượng video theo mẫu phải là 10, 15, 20 hoặc 30 giây.");
+
         var imageId = media.SourceImageAssetId ?? media.ReadyImageAssetId;
         if (string.IsNullOrWhiteSpace(imageId) || string.IsNullOrWhiteSpace(media.ReferenceVideoAssetId) ||
             media.ReferenceVideoMode != ApproximationMode || media.ReferenceAudioPolicy != ReferenceVideoAudio.FitByAi ||
@@ -131,8 +136,7 @@ public static class ReferenceVideoMedia
             ReferenceVideoWidth = metadata.Width,
             ReferenceVideoHeight = metadata.Height,
             ReferenceVideoHasAudio = ReferenceVideoAudio.HasAudio(video.Path),
-            ReferenceAudioPolicy = ReferenceVideoAudio.FitByAi,
-            DurationSeconds = OutputSeconds
+            ReferenceAudioPolicy = ReferenceVideoAudio.FitByAi
         });
     }
 
