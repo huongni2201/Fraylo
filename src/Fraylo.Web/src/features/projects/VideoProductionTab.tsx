@@ -1739,7 +1739,7 @@ export function VideoProductionTab({
               <div>
                 <CardTitle className="text-base flex items-center gap-2 text-foreground">
                   <FileText className="h-5 w-5 text-primary" />
-                  Bảng Kịch bản & Prompt Video AI ({contentItems.length} cảnh đã lưu CSDL)
+                  Bảng Kịch bản & Prompt Video AI
                 </CardTitle>
                 <p className="text-xs text-muted-foreground mt-1">
                   Mỗi cảnh hiển thị ảnh tham chiếu, nội dung và prompt AI trả về, prompt gửi Muse và video khi đã render xong. Bạn có thể bấm "Sửa" hoặc "Tạo video" để đưa vào hàng đợi sản xuất.
@@ -1783,10 +1783,12 @@ export function VideoProductionTab({
                             <span className="text-[11px] text-muted-foreground">Chưa có ảnh</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-xs text-foreground align-top">
-                          <p className="line-clamp-4 leading-relaxed whitespace-pre-line" title={item.tiktokContent}>
-                            {item.tiktokContent || "Chưa có nội dung đăng TikTok"}
-                          </p>
+                        <TableCell className="text-xs align-top">
+                          <PromptCell
+                            text={item.tiktokContent}
+                            emptyText="Chưa có nội dung đăng TikTok"
+                            title={`Nội dung đăng TikTok cảnh ${item.sequenceOrder}`}
+                          />
                         </TableCell>
                         <TableCell className="text-xs align-top">
                           <PromptCell text={item.imagePrompt} emptyText="Chưa có prompt ảnh" title={`Prompt ảnh cảnh ${item.sequenceOrder}`} />

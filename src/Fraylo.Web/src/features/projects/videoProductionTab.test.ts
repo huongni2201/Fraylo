@@ -28,6 +28,7 @@ let mockConfig: Record<string, any> = {
 };
 
 let mockScenes: Array<Record<string, unknown>> = [];
+let mockContentItems: Array<Record<string, unknown>> = [];
 let mockStoryboard: unknown = null;
 let mockPromptTemplate: Record<string, any> | null = null;
 
@@ -85,6 +86,9 @@ window.chrome = {
             break;
           case "workflow.list_scenes":
             responseData = { scenes: mockScenes };
+            break;
+          case "workflow.list_content_items":
+            responseData = mockContentItems;
             break;
           case "workflow.get_storyboard":
             responseData = { storyboard: mockStoryboard };
@@ -194,6 +198,53 @@ window.chrome = {
 const React = await import("react");
 const ReactDOMClient = await import("react-dom/client");
 const { VideoProductionTab } = await import("./VideoProductionTab");
+
+test("Bảng kịch bản cho mở và sao chép toàn bộ nội dung TikTok đã lưu", async () => {
+  const caption = "Outfit 04 🖤\nĐen - nâu cho một ngày dạo phố\n\nPhối cùng túi nâu.\nLưu lại để thử nhé!\n#outfit #ootd #phoido";
+  mockContentItems = [
+    { id: "caption", sequenceOrder: 1, tiktok_content: caption },
+    { id: "empty", sequenceOrder: 2, tiktok_content: "" },
+  ];
+  const copied: string[] = [];
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (value: string) => { copied.push(value); } },
+  });
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = ReactDOMClient.createRoot(container);
+  try {
+    await React.act(async () => { root.render(React.createElement(VideoProductionTab, { projectId: "prj_test_01" })); });
+    await React.act(async () => { await new Promise(resolve => setTimeout(resolve, 100)); });
+
+    assert.doesNotMatch(container.textContent ?? "", /cảnh đã lưu CSDL/);
+    const [captionRow, emptyRow] = container.querySelectorAll("tbody tr");
+    const captionCell = captionRow.querySelectorAll("td")[2];
+    const emptyCell = emptyRow.querySelectorAll("td")[2];
+    assert.match(emptyCell.textContent ?? "", /Chưa có nội dung đăng TikTok/);
+    assert.equal(emptyCell.querySelector("button"), null);
+
+    const copyButton = captionCell.querySelector<HTMLButtonElement>('button[aria-label="Sao chép"]');
+    const expandButton = captionCell.querySelector<HTMLButtonElement>('button[aria-label="Xem chi tiết"]');
+    assert.ok(copyButton);
+    assert.ok(expandButton);
+    await React.act(async () => copyButton.click());
+    await React.act(async () => expandButton.click());
+
+    const dialog = document.querySelector('[role="dialog"]');
+    assert.match(dialog?.textContent ?? "", /Nội dung đăng TikTok cảnh 1/);
+    assert.equal(dialog?.querySelector("pre")?.textContent, caption);
+    const dialogCopy = Array.from(dialog!.querySelectorAll("button")).find(button => button.textContent?.includes("sao chép"));
+    assert.ok(dialogCopy);
+    await React.act(async () => dialogCopy.click());
+    assert.deepEqual(copied, [caption, caption]);
+  } finally {
+    await React.act(async () => root.unmount());
+    container.remove();
+    Reflect.deleteProperty(navigator, "clipboard");
+    mockContentItems = [];
+  }
+});
 
 test("Prompt đã sẵn sàng hiển thị trạng thái chờ tác vụ video", async () => {
   mockConfig = { ...mockConfig, runState: "Running" };
