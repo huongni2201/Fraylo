@@ -14,7 +14,8 @@ import {
   Images,
   BarChart3,
   FilePenLine,
-  History,
+  UserRound,
+  PanelsTopLeft,
   type LucideIcon,
 } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
@@ -27,6 +28,7 @@ import { PublishingNavItem } from "./features/publishing/PublishingNavItem";
 import { createPublishingApi } from "./features/publishing/publishingApi";
 import { projectApi } from "./features/projects/projectApi";
 import { cn } from "@/lib/utils";
+import type { FacebookDraft, FacebookPost } from "./features/facebook/facebookApi";
 import type { FacebookView } from "./features/facebook/FacebookPage";
 import type { ThemePreference } from "./contracts/dtos";
 
@@ -37,6 +39,11 @@ export type ActiveRoute =
   | "library"
   | "analytics"
   | "publishing"
+  | "facebook-personal"
+  | "facebook-page"
+  | "facebook-posts"
+  | "facebook-drafts"
+  | "facebook-schedule"
   | "facebook-compose"
   | "facebook-queue"
   | "facebook-history"
@@ -52,7 +59,12 @@ const PromptTemplateManager = lazy(() => import("./features/prompts/PromptTempla
 const LibraryPage = lazy(() => import("./features/library/LibraryPage").then(m => ({ default: m.LibraryPage })));
 const SettingsPage = lazy(() => import("./features/settings/SettingsPage").then(m => ({ default: m.SettingsPage })));
 const AnalyticsPage = lazy(() => import("./features/analytics/AnalyticsPage").then(m => ({ default: m.AnalyticsPage })));
+const FacebookPageScreen = lazy(() => import("./features/facebook/FacebookPageScreen").then(m => ({ default: m.FacebookPageScreen })));
 const PublishingPage = lazy(() => import("./features/publishing/PublishingPage").then(m => ({ default: m.PublishingPage })));
+
+const FacebookPersonalPage = lazy(() => import("./features/facebook/FacebookPersonalPage").then(m => ({ default: m.FacebookPersonalPage })));
+
+const FacebookQueue = lazy(() => import("./features/facebook/FacebookQueue").then(m => ({ default: m.FacebookQueue })));
 
 const FacebookPage = lazy(() => import("./features/facebook/FacebookPage").then(m => ({ default: m.FacebookPage })));
 
@@ -128,15 +140,18 @@ function ThemeSwitch() {
 }
 
 function AppContent() {
-  const [activeRoute, setActiveRoute] = useState<ActiveRoute>("projects");
+  const [activeRoute, setActiveRoute] = useState<ActiveRoute>(() => {
+    try { return localStorage.getItem("fraylo.platform") === "facebook" ? "facebook-posts" : "projects"; } catch { return "projects"; }
+  });
   const [platform, setPlatform] = useState<"tiktok" | "facebook">(() => {
     try { return localStorage.getItem("fraylo.platform") === "facebook" ? "facebook" : "tiktok"; } catch { return "tiktok"; }
   });
-  const [lastTikTokRoute, setLastTikTokRoute] = useState<ActiveRoute>("publishing");
-  const [lastFacebookRoute, setLastFacebookRoute] = useState<ActiveRoute>("facebook-compose");
-  const [facebookPendingCount, setFacebookPendingCount] = useState(0);
+  const [lastTikTokRoute, setLastTikTokRoute] = useState<ActiveRoute>("projects");
+  const [lastFacebookRoute, setLastFacebookRoute] = useState<ActiveRoute>("facebook-posts");
+  const [openedDraft, setOpenedDraft] = useState<FacebookDraft | null>(null);
+  const [clonePost, setClonePost] = useState<FacebookPost | null>(null);
   useEffect(() => {
-    if (activeRoute === "publishing" || activeRoute === "analytics") {
+    if (["projects", "project-detail", "prompt-templates", "publishing", "analytics"].includes(activeRoute)) {
       setLastTikTokRoute(activeRoute); setPlatform("tiktok");
     } else if (activeRoute.startsWith("facebook-")) {
       setLastFacebookRoute(activeRoute); setPlatform("facebook");
@@ -152,6 +167,7 @@ function AppContent() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [publishTarget, setPublishTarget] = useState<{ projectId: string; revision: number } | null>(null);
   const [accountsNavigationSignal, setAccountsNavigationSignal] = useState(0);
+  const [aiNavigationSignal, setAiNavigationSignal] = useState(0);
 
   // Số tác vụ đang hoạt động, hiện trên mục Tiến trình
   const [activeJobCount, setActiveJobCount] = useState<number>(0);
@@ -219,6 +235,11 @@ function AppContent() {
     handleNavigate("settings");
   }, [handleNavigate]);
 
+  const handleNavigateToSettingsAi = useCallback(() => {
+    setAiNavigationSignal(value => value + 1);
+    handleNavigate("settings");
+  }, [handleNavigate]);
+
   const handleOpenPublishing = (projectId: string) => {
     setPublishTarget(current => ({ projectId, revision: (current?.revision ?? 0) + 1 }));
     handleNavigate("publishing");
@@ -230,6 +251,13 @@ function AppContent() {
     setSelectedProjectId(projectId);
     handleNavigate("project-detail");
   };
+
+  const isFacebookGroupActive = ["facebook-schedule", "facebook-compose"].includes(activeRoute);
+  const isFacebookQueueActive = ["facebook-posts", "facebook-queue", "facebook-history", "facebook-drafts"].includes(activeRoute);
+  const [lastFacebookGroupView, setLastFacebookGroupView] = useState<FacebookView>("compose");
+  useEffect(() => {
+    if (isFacebookGroupActive) setLastFacebookGroupView(activeRoute.slice(9) as FacebookView);
+  }, [activeRoute, isFacebookGroupActive]);
 
   const isProjectsActive = activeRoute === "projects" || activeRoute === "project-detail";
   const isPromptTemplatesActive = activeRoute === "prompt-templates";
@@ -254,35 +282,35 @@ function AppContent() {
         </div>
 
         <nav className="sidebar-nav flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4" aria-label="Menu chức năng">
-          <NavGroup label="Sản xuất">
-            <NavItem active={isProjectsActive} icon={Video} label="Dự án" onClick={() => handleNavigate("projects")} />
-            <NavItem
-              active={isPromptTemplatesActive}
-              icon={Sparkles}
-              label="Prompt"
-              onClick={() => handleNavigate("prompt-templates")}
-            />
-            <NavItem active={isLibraryActive} icon={Images} label="Tài nguyên" onClick={() => handleNavigate("library")} />
-          </NavGroup>
-
-          <NavGroup label="Nền tảng">
-            <div role="group" aria-label="Chọn nền tảng" className="mb-2 grid grid-cols-2 gap-1 rounded-lg border border-sidebar-border p-1">
-              {(["tiktok", "facebook"] as const).map(value => <button key={value} type="button" aria-pressed={platform === value}
-                className={cn("h-9 rounded-md text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", platform === value ? "bg-primary/15 text-primary-text" : "text-muted-foreground hover:bg-muted")}
-                onClick={() => { setPlatform(value); handleNavigate(value === "tiktok" ? lastTikTokRoute : lastFacebookRoute); }}>{value === "tiktok" ? "TikTok" : "Facebook"}</button>)}
-            </div>
+          <div className="flex flex-col gap-2">
+            <label htmlFor="navigation-platform" className="px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Nền tảng</label>
+            <select
+              id="navigation-platform"
+              value={platform}
+              className="h-11 w-full cursor-pointer rounded-lg border border-sidebar-border bg-sidebar px-3 text-sm font-semibold text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onChange={event => handleNavigate(event.target.value === "tiktok" ? lastTikTokRoute : lastFacebookRoute)}
+            >
+              <option value="tiktok">TikTok</option>
+              <option value="facebook">Facebook</option>
+            </select>
             <div className={platform === "tiktok" ? "contents" : "hidden"}>
+              <NavItem active={isProjectsActive} icon={Video} label="Dự án" onClick={() => handleNavigate("projects")} />
+              <NavItem active={isPromptTemplatesActive} icon={Sparkles} label="Prompt" onClick={() => handleNavigate("prompt-templates")} />
               <NavItem active={isAnalyticsActive} icon={BarChart3} label="TikTok Analytics" onClick={() => handleNavigate("analytics")} />
               <PublishingNavItem active={activeRoute === "publishing"} onClick={() => handleNavigate("publishing")} />
             </div>
             <div className={platform === "facebook" ? "contents" : "hidden"}>
-              <NavItem active={activeRoute === "facebook-compose"} icon={FilePenLine} label="Soạn bài" onClick={() => handleNavigate("facebook-compose")} />
-              <button type="button" className={navItemClass(activeRoute === "facebook-queue")} onClick={() => handleNavigate("facebook-queue")} aria-current={activeRoute === "facebook-queue" ? "page" : undefined}>
-                <ListOrdered className="size-4 shrink-0" aria-hidden="true" /><span className="truncate">Hàng đợi</span>
-                {facebookPendingCount > 0 && <span className="ml-auto rounded-full bg-primary px-2 py-0.5 text-[11px] text-primary-foreground" aria-label={facebookPendingCount + " tác vụ Facebook đang chờ"}>{facebookPendingCount > 99 ? "99+" : facebookPendingCount}</span>}
-              </button>
-              <NavItem active={activeRoute === "facebook-history"} icon={History} label="Lịch sử" onClick={() => handleNavigate("facebook-history")} />
+              <NavItem active={isFacebookGroupActive} icon={FilePenLine} label="Đăng bài nhóm" onClick={() => handleNavigate("facebook-compose")} />
+              <NavItem active={activeRoute === "facebook-personal"} icon={UserRound} label="Đăng bài cá nhân" onClick={() => handleNavigate("facebook-personal")} />
+              <NavItem active={activeRoute === "facebook-page"} icon={PanelsTopLeft} label="Đăng bài Page" onClick={() => handleNavigate("facebook-page")} />
+              <NavItem active={activeRoute === "facebook-posts" || activeRoute === "facebook-queue"} icon={ListOrdered} label="Hàng đợi" onClick={() => handleNavigate("facebook-queue")} />
+              <NavItem active={activeRoute === "facebook-history"} icon={ListOrdered} label="Lịch sử" onClick={() => handleNavigate("facebook-history")} />
+              <NavItem active={activeRoute === "facebook-drafts"} icon={FilePenLine} label="Nháp" onClick={() => handleNavigate("facebook-drafts")} />
             </div>
+          </div>
+
+          <NavGroup label="Dùng chung">
+            <NavItem active={isLibraryActive} icon={Images} label="Tài nguyên" onClick={() => handleNavigate("library")} />
           </NavGroup>
 
           <NavGroup label="Hệ thống">
@@ -343,6 +371,7 @@ function AppContent() {
                   <SettingsPage
                     onDirtyChange={setIsSettingsDirty}
                     accountsNavigationSignal={accountsNavigationSignal}
+                    aiNavigationSignal={aiNavigationSignal}
                   />
                 </Suspense>
               )}
@@ -392,7 +421,7 @@ function AppContent() {
             <div className={isAnalyticsActive ? "block" : "hidden"}>
               {isLoaded("analytics") && (
                 <Suspense fallback={null}>
-                  <AnalyticsPage active={isAnalyticsActive} />
+                  <AnalyticsPage active={isAnalyticsActive} onOpenAccounts={handleNavigateToSettingsAccounts} onOpenAi={handleNavigateToSettingsAi} />
                 </Suspense>
               )}
             </div>
@@ -412,15 +441,30 @@ function AppContent() {
               )}
             </div>
 
-            <div className={activeRoute.startsWith("facebook-") ? "block" : "hidden"}>
-              {(["facebook-compose", "facebook-queue", "facebook-history"] as ActiveRoute[]).some(isLoaded) && <Suspense fallback={null}>
-                <FacebookPage active={activeRoute.startsWith("facebook-")} view={(activeRoute.startsWith("facebook-") ? activeRoute.slice(9) : lastFacebookRoute.slice(9)) as FacebookView}
-                  onNavigate={view => handleNavigate(("facebook-" + view) as ActiveRoute)} onOpenAccounts={handleNavigateToSettingsAccounts} onPendingCount={setFacebookPendingCount} />
+            <div className={isFacebookGroupActive ? "block" : "hidden"}>
+              {(["facebook-schedule", "facebook-compose"] as ActiveRoute[]).some(isLoaded) && <Suspense fallback={null}>
+                <FacebookPage active={isFacebookGroupActive} view={isFacebookGroupActive ? activeRoute.slice(9) as FacebookView : lastFacebookGroupView}
+                  onNavigate={view => handleNavigate(("facebook-" + view) as ActiveRoute)} onOpenAccounts={handleNavigateToSettingsAccounts} openedDraft={openedDraft?.targetIds.some(id => id.startsWith("personal:")) ? null : openedDraft} clonePost={clonePost?.tasks[0]?.targetId.startsWith("personal:") ? null : clonePost} />
               </Suspense>}
             </div>
 
+            <div className={activeRoute === "facebook-personal" ? "block" : "hidden"}>
+              {isLoaded("facebook-personal") && <Suspense fallback={null}><FacebookPersonalPage openedDraft={openedDraft?.targetIds.some(id => id.startsWith("personal:")) ? openedDraft : null} onOpenQueue={history => handleNavigate(history ? "facebook-history" : "facebook-queue")} clonePost={clonePost?.tasks[0]?.targetId.startsWith("personal:") ? clonePost : null} active={activeRoute === "facebook-personal"} onOpenAccounts={handleNavigateToSettingsAccounts} /></Suspense>}
+            </div>
+            <div className={activeRoute === "facebook-page" ? "block" : "hidden"}>
+              {isLoaded("facebook-page") && <Suspense fallback={null}>
+                <FacebookPageScreen active={activeRoute === "facebook-page"} onOpenAi={handleNavigateToSettingsAi} onOpenAccounts={handleNavigateToSettingsAccounts} onOpenGroups={() => handleNavigate("facebook-compose")} />
+              </Suspense>}
+            </div>
+            <div className={isFacebookQueueActive ? "block" : "hidden"}>
+              {(["facebook-posts", "facebook-queue", "facebook-history", "facebook-drafts"] as ActiveRoute[]).some(isLoaded) && <Suspense fallback={null}>
+                <FacebookQueue drafts={activeRoute === "facebook-drafts"} onOpenDraft={draft => { setOpenedDraft({ ...draft }); handleNavigate(draft.targetIds.some(id => id.startsWith("personal:")) ? "facebook-personal" : "facebook-compose"); }} active={isFacebookQueueActive} history={activeRoute === "facebook-history"}
+                  onHistoryChange={history => handleNavigate(history ? "facebook-history" : "facebook-queue")}
+                  onClone={post => { setClonePost({ ...post }); handleNavigate(post.tasks[0]?.targetId.startsWith("personal:") ? "facebook-personal" : "facebook-compose"); }} />
+              </Suspense>}
+            </div>
             <div className={isJobProgressActive ? "block" : "hidden"}>
-              <JobProgressPage active={isJobProgressActive} />
+              <JobProgressPage active={isJobProgressActive} onNavigateToSettingsAccounts={handleNavigateToSettingsAccounts} />
             </div>
           </div>
         </main>

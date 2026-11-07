@@ -35,16 +35,19 @@ public sealed record SelectReferenceImageResponse(
 
 public sealed record UploadAssetRequest(
     string? ProjectId = null,
-    string AssetType = "Image", // Image | Audio
+    string AssetType = "Image", // Image | Audio | Video (Video chỉ chọn qua picker host)
     string? FileName = null,
     string? Base64Data = null,
     string? SourceFilePath = null,
-    string? StorageRootId = null // Root đã chụp trong job; null thì dùng Settings hiện hành
+    string? StorageRootId = null, // Root đã chụp trong job; null thì dùng Settings hiện hành
+    bool Multiple = false // Chỉ áp dụng cho Image khi host mở hộp thoại: cho chọn nhiều tệp một lần
 );
 
 public sealed record UploadAssetResponse(
     AssetDto? Asset,
-    bool Canceled = false
+    bool Canceled = false,
+    IReadOnlyList<AssetDto>? Assets = null, // Có khi Multiple: mọi tệp tải thành công
+    IReadOnlyList<string>? Errors = null // Có khi Multiple: lỗi từng tệp không tải được
 );
 
 public sealed record GetAssetMetadataRequest(
@@ -65,7 +68,8 @@ public sealed record ListAssetsRequest(
     string? AssetType = null,
     int Page = 1,
     int PageSize = 20,
-    string? Search = null
+    string? Search = null,
+    bool IncludeShared = false
 );
 
 public sealed record ListAssetsResponse(

@@ -24,10 +24,13 @@ public sealed class AnalyticsService : IAnalyticsService
     private readonly DbContextOptions<FrayloDbContext>? _dbOptions;
     private readonly Func<FrayloDbContext>? _contextFactory;
     private readonly IAnalyticsDataParser _importExportService;
+    private readonly AnalyticsAnalysisService? _analysis;
 
-    public AnalyticsService(DbContextOptions<FrayloDbContext> dbOptions, IAnalyticsDataParser? importExportService = null)
+    public AnalyticsService(DbContextOptions<FrayloDbContext> dbOptions, IAnalyticsDataParser? importExportService = null,
+        AnalyticsAnalysisService? analysis = null)
     {
         _dbOptions = dbOptions ?? throw new ArgumentNullException(nameof(dbOptions));
+        _analysis = analysis;
         _importExportService = importExportService ?? new AnalyticsImportExportService();
     }
 
@@ -460,8 +463,10 @@ public sealed class AnalyticsService : IAnalyticsService
         });
         dbContext.Set<TikTokAnalyticsDailyRecord>().AddRange(dailyRecords);
         dbContext.Set<VideoAnalyticsRecord>().AddRange(videoRecords);
+        var reportId = _analysis is null ? null : await _analysis.StageAsync(dbContext, "tiktok", accountId, null, snapshotId, null, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
         await tx.CommitAsync(cancellationToken);
+        if (_analysis is not null) await _analysis.AfterCommitAsync(reportId);
 
         return new TikTokStudioImportResultDto(
             SnapshotId: snapshotId,
@@ -606,9 +611,11 @@ public sealed class AnalyticsService : IAnalyticsService
 
         dbContext.Set<AnalyticsSnapshot>().Add(snapshot);
         dbContext.Set<VideoAnalyticsRecord>().AddRange(entityRecords);
+        var reportId = _analysis is null ? null : await _analysis.StageAsync(dbContext, "tiktok", normalizedAccountId, null, snapshotId, null, cancellationToken);
 
         await dbContext.SaveChangesAsync(cancellationToken);
         await tx.CommitAsync(cancellationToken);
+        if (_analysis is not null) await _analysis.AfterCommitAsync(reportId);
 
         return new AnalyticsImportResultDto(
             SnapshotId: snapshotId,

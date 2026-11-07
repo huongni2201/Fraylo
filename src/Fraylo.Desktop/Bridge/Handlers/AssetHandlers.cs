@@ -24,18 +24,21 @@ public sealed class AssetHandlers
     private readonly AssetService _assetService;
     private readonly Func<string?>? _audioPicker;
     private readonly Func<string?>? _imagePicker;
+    private readonly Func<string?>? _videoPicker;
     private readonly bool _allowExplicitPath;
 
     public AssetHandlers(
         AssetService assetService,
         Func<string?>? audioPicker = null,
         Func<string?>? imagePicker = null,
-        bool allowExplicitPath = false)
+        bool allowExplicitPath = false,
+        Func<string?>? videoPicker = null)
     {
         _assetService = assetService ?? throw new ArgumentNullException(nameof(assetService));
         _audioPicker = audioPicker;
         _imagePicker = imagePicker;
         _allowExplicitPath = allowExplicitPath;
+        _videoPicker = videoPicker;
     }
 
     /// <summary>
@@ -319,6 +322,20 @@ public sealed class AssetHandlers
                     retryable: false);
             }
 
+            var assetType = string.IsNullOrWhiteSpace(payload.AssetType) ? "Image" : payload.AssetType;
+            bool isImageUpload = string.Equals(assetType, "Image", StringComparison.OrdinalIgnoreCase);
+            bool isVideoUpload = string.Equals(assetType, "Video", StringComparison.OrdinalIgnoreCase);
+            if (!isImageUpload && !isVideoUpload && !string.Equals(assetType, "Audio", StringComparison.OrdinalIgnoreCase))
+                return ResponseEnvelopeHelper.CreateError(request.Id, "INVALID_ARGUMENT", "Loại tài nguyên không hợp lệ.", retryable: false);
+            if (isVideoUpload && (payload.Multiple || !string.IsNullOrWhiteSpace(payload.Base64Data)))
+                return ResponseEnvelopeHelper.CreateError(request.Id, "INVALID_ARGUMENT", "Hãy chọn một video MP4 qua hộp thoại.", retryable: false);
+            bool pickFromDialog = !(_allowExplicitPath && !string.IsNullOrWhiteSpace(payload.SourceFilePath))
+                && string.IsNullOrWhiteSpace(payload.Base64Data);
+            if (payload.Multiple && isImageUpload && pickFromDialog)
+            {
+                return await UploadManyImagesAsync(request.Id, payload, cancellationToken);
+            }
+
             string? sourceFilePath = null;
             if (_allowExplicitPath && !string.IsNullOrWhiteSpace(payload.SourceFilePath))
             {
@@ -334,6 +351,10 @@ public sealed class AssetHandlers
                 if (isAudio)
                 {
                     sourceFilePath = _audioPicker != null ? _audioPicker() : ShowAudioOpenFileDialog();
+                }
+                else if (isVideoUpload)
+                {
+                    sourceFilePath = _videoPicker != null ? _videoPicker() : ShowVideoOpenFileDialog();
                 }
                 else
                 {
@@ -365,6 +386,39 @@ public sealed class AssetHandlers
         {
             return MapExceptionToError(request.Id, ex);
         }
+    }
+
+    private async Task<ResponseEnvelope> UploadManyImagesAsync(Guid requestId, UploadAssetRequest payload, CancellationToken cancellationToken)
+    {
+        var paths = _imagePicker != null
+            ? (_imagePicker() is { } picked ? new[] { picked } : Array.Empty<string>())
+            : ShowImageOpenFileDialogs(multiselect: true);
+        if (paths.Length == 0)
+        {
+            return ResponseEnvelopeHelper.CreateSuccess(requestId, new UploadAssetResponse(null, Canceled: true));
+        }
+
+        var assets = new List<AssetDto>();
+        var errors = new List<string>();
+        foreach (var path in paths)
+        {
+            try
+            {
+                var result = await _assetService.UploadAssetAsync(
+                    new UploadAssetRequest(payload.ProjectId, "Image", SourceFilePath: path), cancellationToken);
+                if (result.Asset is not null) assets.Add(result.Asset);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"{Path.GetFileName(path)}: {ex.Message}");
+            }
+        }
+
+        return ResponseEnvelopeHelper.CreateSuccess(requestId, new UploadAssetResponse(assets.FirstOrDefault(), false, assets, errors));
     }
 
     private static string? ShowAudioOpenFileDialog()
@@ -403,9 +457,18 @@ public sealed class AssetHandlers
         return selected;
     }
 
-    private static string? ShowImageOpenFileDialog()
+    private static string? ShowImageOpenFileDialog() => ShowImageOpenFileDialogs(multiselect: false).FirstOrDefault();
+
+    private static string[] ShowImageOpenFileDialogs(bool multiselect) => ShowMediaOpenFileDialogs(multiselect,
+        multiselect ? "Chọn một hoặc nhiều ảnh" : "Chọn tệp hình ảnh tham chiếu",
+        "Tệp hình ảnh (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp|Tất cả tệp (*.*)|*.*");
+
+    private static string? ShowVideoOpenFileDialog() => ShowMediaOpenFileDialogs(false,
+        "Chọn video mẫu chuyển động", "Video MP4 (*.mp4)|*.mp4").FirstOrDefault();
+
+    private static string[] ShowMediaOpenFileDialogs(bool multiselect, string title, string filter)
     {
-        string? selected = null;
+        string[] selected = [];
         if (OperatingSystem.IsWindows())
         {
             var thread = new Thread(() =>
@@ -416,20 +479,20 @@ public sealed class AssetHandlers
                     if (dialogType != null)
                     {
                         dynamic dialog = Activator.CreateInstance(dialogType)!;
-                        dialog.Title = "Chọn tệp hình ảnh tham chiếu";
-                        dialog.Filter = "Tệp hình ảnh (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp|Tất cả tệp (*.*)|*.*";
-                        dialog.Multiselect = false;
+                        dialog.Title = title;
+                        dialog.Filter = filter;
+                        dialog.Multiselect = multiselect;
                         dialog.CheckFileExists = true;
                         bool? res = dialog.ShowDialog();
                         if (res == true)
                         {
-                            selected = (string)dialog.FileName;
+                            selected = (string[])dialog.FileNames;
                         }
                     }
                 }
                 catch
                 {
-                    selected = null;
+                    selected = [];
                 }
             });
             thread.SetApartmentState(ApartmentState.STA);

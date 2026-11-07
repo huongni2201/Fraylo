@@ -6,10 +6,10 @@ using Fraylo.Contracts.Facebook;
 
 namespace Fraylo.Desktop.Bridge.Handlers;
 
-public sealed class FacebookHandlers(FacebookPublishingService service)
+public sealed class FacebookHandlers(FacebookPublishingService service, FacebookContentRewriteService? rewrite = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    public static readonly string[] Commands = ["facebook.list", "facebook.groups.sync", "facebook.tasks.create", "facebook.tasks.cancel", "facebook.tasks.resume",
+    public static readonly string[] Commands = ["facebook.rewrite.retry", "facebook.posts.action", "facebook.list", "facebook.groups.sync", "facebook.tasks.create", "facebook.tasks.cancel", "facebook.tasks.resume",
         "facebook.tasks.post_now", "facebook.tasks.reschedule", "facebook.drafts.save", "facebook.drafts.delete"];
 
     public void Register(IBridgeDispatcher dispatcher)
@@ -32,7 +32,9 @@ public sealed class FacebookHandlers(FacebookPublishingService service)
         {
             object result = request.Command switch
             {
+                "facebook.rewrite.retry" => await RetryRewriteAsync(Parse<FacebookRewriteRequest>(request), ct),
                 "facebook.list" => await service.ListAsync(ct),
+                "facebook.posts.action" => await service.PostActionAsync(Parse<FacebookPostActionRequest>(request), ct),
                 "facebook.groups.sync" => await service.SyncGroupsAsync(Parse<FacebookSyncRequest>(request), ct),
                 "facebook.tasks.create" => await service.CreateBatchAsync(Parse<FacebookCreateBatchRequest>(request), ct),
                 "facebook.tasks.cancel" => await service.CancelAsync(Parse<FacebookTaskRequest>(request), ct),
@@ -54,6 +56,13 @@ public sealed class FacebookHandlers(FacebookPublishingService service)
                 : ex.Message;
             return ResponseEnvelopeHelper.CreateError(request.Id, code, message, retryable: false);
         }
+    }
+
+    private async Task<object> RetryRewriteAsync(FacebookRewriteRequest request, CancellationToken ct)
+    {
+        if (rewrite == null) throw new InvalidOperationException("AI viết lại chưa sẵn sàng.");
+        await rewrite.RetryAsync(request, ct);
+        return new { };
     }
 
     private async Task<object> DeleteDraftAsync(FacebookDraftRequest request, CancellationToken ct)

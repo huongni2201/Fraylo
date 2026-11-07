@@ -9,7 +9,7 @@
 **Project:** Fraylo Desktop Studio  
 **Tech Stack:** React 19 + TypeScript + Vite + Tailwind CSS 4 + shadcn/ui + Windows WPF/WebView2  
 **Design Category:** Creative AI Video Automation / Desktop Studio  
-**Aesthetic Style:** Dark Navy / OLED (`#080d1a`) with Vibrant Purple Accent (`#6d3af2`) + Crisp Light Mode (`#f4f6fb`)  
+**Aesthetic Style:** Warm near-black (`#110d0c`) with coral accent (`#ff5a45`) + warm ivory Light Mode (`#faf6f3`). Nguồn sự thật của token: `src/Fraylo.Web/src/styles/globals.css`<br>
 **Accessibility Target:** WCAG AA+ / AAA (Minimum 4.5:1 contrast, keyboard trap & visible focus)
 
 ---
@@ -17,39 +17,39 @@
 ## 1. Global Color Tokens & Theming
 
 Theme selection is persistent and system-synchronized across host WPF and frontend React:
-- **Dark Mode (Default & Studio Visual Target):** Deep navy background with subtle surface elevation and vibrant purple accents.
-- **Light Mode:** Clean, high-contrast light slate background with deep purple accents and crisp borders.
+- **Dark Mode (Default & Studio Visual Target):** Warm near-black background with subtle surface elevation and coral accents.
+- **Light Mode:** Warm ivory background with deep coral accents and crisp borders.
 
 | Semantic Token | Dark Mode (`[data-theme="dark"]`) | Light Mode (`[data-theme="light"]`) | Usage |
 |---|---|---|---|
-| `--color-background` | `#080d1a` | `#f4f6fb` | Main window background |
-| `--color-foreground` | `#f8fafc` | `#0f172a` | Primary text |
-| `--color-card` | `#0f172a` | `#ffffff` | Content cards, dialog surfaces |
-| `--color-card-foreground` | `#f8fafc` | `#0f172a` | Text on cards |
-| `--color-popover` | `#0f172a` | `#ffffff` | Menus, dropdowns, tooltips |
-| `--color-popover-foreground` | `#f8fafc` | `#0f172a` | Text in popovers |
-| `--color-primary` | `#6d3af2` | `#6230dc` | Primary brand accent & active states |
-| `--color-primary-foreground` | `#ffffff` | `#ffffff` | Text on primary buttons/badges |
-| `--color-secondary` | `#141f36` | `#f8fafc` | Secondary button/badge background |
-| `--color-secondary-foreground` | `#94a3b8` | `#475569` | Secondary text |
-| `--color-muted` | `#19253d` | `#f1f5f9` | Muted backgrounds, chips, table alt |
-| `--color-muted-foreground` | `#64748b` | `#64748b` | Subtitles, placeholders, captions |
-| `--color-accent` | `#19253d` | `#eef3fa` | Hover highlights on list items |
-| `--color-accent-foreground` | `#f8fafc` | `#0f172a` | Text on hover items |
-| `--color-destructive` | `#ef4444` | `#dc2626` | Error states, delete actions |
+| `--color-background` | `#110d0c` | `#faf6f3` | Main window background |
+| `--color-foreground` | `#f6efec` | `#1f1412` | Primary text |
+| `--color-card` | `#1a1413` | `#ffffff` | Content cards, dialog surfaces |
+| `--color-card-foreground` | `#f6efec` | `#1f1412` | Text on cards |
+| `--color-popover` | `#1a1413` | `#ffffff` | Menus, dropdowns, tooltips |
+| `--color-popover-foreground` | `#f6efec` | `#1f1412` | Text in popovers |
+| `--color-primary` | `#ff5a45` | `#d63a26` | Primary brand accent & active states |
+| `--color-primary-foreground` | `#1a0805` | `#ffffff` | Text on primary buttons/badges |
+| `--color-secondary` | `#241b1a` | `#f6efeb` | Secondary button/badge background |
+| `--color-secondary-foreground` | `#d9ccc8` | `#54423d` | Secondary text |
+| `--color-muted` | `#241b1a` | `#f3ebe7` | Muted backgrounds, chips, table alt |
+| `--color-muted-foreground` | `#a89994` | `#6b5a55` | Subtitles, placeholders, captions |
+| `--color-accent` | `#31211f` | `#fdeae6` | Hover highlights on list items |
+| `--color-accent-foreground` | `#f6efec` | `#1f1412` | Text on hover items |
+| `--color-destructive` | `#f05252` | `#c81e1e` | Error states, delete actions |
 | `--color-destructive-foreground` | `#ffffff` | `#ffffff` | Text on destructive buttons |
-| `--color-border` | `#2c3e55` | `#d5deeb` | Borders on cards, tables, dividers |
-| `--color-input` | `#2c3e55` | `#d5deeb` | Input borders |
-| `--color-ring` | `#b7a0ff` | `#6230dc` | Focus rings (2px outline) |
-| `--color-sidebar` | `#060913` | `#ffffff` | Fixed left navigation sidebar |
-| `--color-sidebar-foreground` | `#94a3b8` | `#475569` | Sidebar icons and labels |
-| `--color-sidebar-border` | `#19273c` | `#e2e8f0` | Sidebar vertical separator |
+| `--color-border` | `#392b29` | `#e6d9d3` | Borders on cards, tables, dividers |
+| `--color-input` | `#46352f` | `#dccdc6` | Input borders |
+| `--color-ring` | `#ff8a78` | `#d63a26` | Focus rings (2px outline) |
+| `--color-sidebar` | `#0b0807` | `#ffffff` | Fixed left navigation sidebar |
+| `--color-sidebar-foreground` | `#b9aaa5` | `#54423d` | Sidebar icons and labels |
+| `--color-sidebar-border` | `#261c1a` | `#eee3de` | Sidebar vertical separator |
 
 ---
 
 ## 2. Typography & Hierarchy
 
-- **Font Family:** `Plus Jakarta Sans`, `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`
+- **Font Family:** `Plus Jakarta Sans Variable` (tự host qua `@fontsource-variable/plus-jakarta-sans`, không gọi CDN), `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`
 - **Typographic Scale:**
   - `H1 / Page Header`: `text-2xl font-bold tracking-tight text-foreground`
   - `H2 / Section Title`: `text-base font-bold text-foreground`
@@ -92,7 +92,7 @@ Theme selection is persistent and system-synchronized across host WPF and fronte
 
 ### 4.3 Badges
 - **Variants:**
-  - `default`: Primary purple background
+  - `default`: Primary coral background
   - `secondary`: Subdued background for counts/tags
   - `success`: `bg-emerald-500/15 border-emerald-500/30 text-emerald-600 dark:text-emerald-400`
   - `warning`: `bg-amber-500/15 border-amber-500/30 text-amber-600 dark:text-amber-400`

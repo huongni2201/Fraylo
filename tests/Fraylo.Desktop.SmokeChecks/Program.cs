@@ -8,6 +8,8 @@ public static class Program
 {
     public static async Task<int> Main(string[] args)
     {
+        if (args.FirstOrDefault() == "analytics-ai") return await AnalyticsAnalysisSmokeTests.RunAsync();
+        if (args.FirstOrDefault() == "reference-video") return await ReferenceVideoSmokeTests.RunAllAsync();
         if (args.Length > 0 && string.Equals(args[0], "project-first", StringComparison.OrdinalIgnoreCase))
         {
             return await ProjectFirstSmokeTests.RunAllAsync();

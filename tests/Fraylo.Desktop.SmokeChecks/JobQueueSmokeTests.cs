@@ -983,7 +983,7 @@ public static class JobQueueSmokeTests
                 {
                     using var db = new FrayloDbContext(dbOptions);
                     var j = db.Jobs.AsNoTracking().FirstOrDefault(x => x.Id == payload.JobId);
-                    if (j != null)
+                    if (j?.ProjectId != null)
                     {
                         lock (dispatchedProjects)
                         {

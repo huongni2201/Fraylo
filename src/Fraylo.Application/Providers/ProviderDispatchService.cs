@@ -65,6 +65,8 @@ public sealed class ProviderDispatchService
         string? providerKey = taskType switch
         {
             JobTaskType.Script => currentSettings.ScriptProvider,
+            JobTaskType.AnalyticsAnalysis => currentSettings.AnalyticsProvider,
+            JobTaskType.FacebookContentRewrite => currentSettings.FacebookRewriteProvider,
             JobTaskType.Image => currentSettings.ImageProvider,
             JobTaskType.VideoPrompt => currentSettings.VideoPromptProvider,
             JobTaskType.VideoRender => ProviderKeys.MuseAI, // Cố định MuseAI theo execution contract

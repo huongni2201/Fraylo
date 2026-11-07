@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
+import { Film } from "lucide-react";
 import {
   IconClose,
   IconSearch,
@@ -12,18 +13,21 @@ import {
 import { listAssets, uploadAsset, type AssetItem } from "./libraryApi";
 
 interface AssetPickerProps {
+  includeShared?: boolean;
   projectId?: string;
-  assetType: "Image" | "Audio";
+  assetType: "Image" | "Audio" | "Video";
   onSelect: (asset: AssetItem) => void;
   onClose: () => void;
 }
 
 export function AssetPicker({
+  includeShared = false,
   projectId,
   assetType,
   onSelect,
   onClose,
 }: AssetPickerProps) {
+  const assetLabel = assetType === "Image" ? "hình ảnh" : assetType === "Video" ? "video" : "âm thanh";
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +43,7 @@ export function AssetPicker({
     setError(null);
     try {
       const res = await listAssets({
+        includeShared,
         projectId,
         assetType,
         search: search.trim() || undefined,
@@ -55,7 +60,7 @@ export function AssetPicker({
     } finally {
       setLoading(false);
     }
-  }, [projectId, assetType, search]);
+  }, [projectId, assetType, search, includeShared]);
 
   useEffect(() => {
     fetchAssets();
@@ -104,7 +109,7 @@ export function AssetPicker({
   const handleTriggerUpload = async () => {
 
     // Nếu môi trường desktop WebView2 có window.chrome?.webview, gọi asset.upload mở native dialog
-    if (typeof window !== "undefined" && window.chrome?.webview) {
+    if (assetType === "Video" || (typeof window !== "undefined" && window.chrome?.webview)) {
       setUploading(true);
       setError(null);
       try {
@@ -148,7 +153,7 @@ export function AssetPicker({
         <input
           ref={fileInputRef}
           type="file"
-          accept={assetType === "Image" ? "image/png,image/jpeg,image/webp" : "audio/mp3,audio/wav"}
+          accept={assetType === "Image" ? "image/png,image/jpeg,image/webp" : assetType === "Video" ? "video/mp4" : "audio/mp3,audio/wav"}
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) {
@@ -165,10 +170,10 @@ export function AssetPicker({
             {assetType === "Image" ? (
               <IconImage size={20} className="text-info" />
             ) : (
-              <IconMusic size={20} className="text-success" />
+              assetType === "Video" ? <Film size={20} className="text-info" /> : <IconMusic size={20} className="text-success" />
             )}
             <h3 id="asset-picker-title" className="text-base font-semibold">
-              {assetType === "Image" ? "Chọn hình ảnh từ Thư viện" : "Chọn âm thanh từ Thư viện"}
+              Chọn {assetLabel} từ Thư viện
             </h3>
           </div>
           <button
@@ -201,7 +206,7 @@ export function AssetPicker({
             onClick={handleTriggerUpload}
             disabled={uploading}
             className="text-xs px-2.5 py-1.5 flex items-center gap-1.5 font-medium"
-            title={assetType === "Image" ? "Tải ảnh từ máy" : "Tải âm thanh từ máy"}
+            title={`Tải ${assetLabel} từ máy`}
           >
             <IconUpload size={14} />
             <span>{uploading ? "Đang tải lên…" : "Tải lên"}</span>
@@ -261,7 +266,7 @@ export function AssetPicker({
                 )}
               </div>
               <p className="text-sm font-medium text-foreground mb-1">
-                {search ? "Không tìm thấy tài nguyên nào phù hợp." : `Không tìm thấy tài nguyên ${assetType === "Image" ? "hình ảnh" : "âm thanh"} nào phù hợp.`}
+                {search ? "Không tìm thấy tài nguyên nào phù hợp." : `Không tìm thấy tài nguyên ${assetLabel} nào phù hợp.`}
               </p>
               <p className="text-xs text-muted-foreground mb-4 max-w-sm">
                 Bạn có thể tải lên tệp mới từ máy tính. Tệp sẽ tự động lưu vào Thư viện media để tái sử dụng bất cứ lúc nào.
@@ -275,7 +280,7 @@ export function AssetPicker({
                 className="text-xs gap-1.5 px-4"
               >
                 <IconUpload size={14} />
-                <span>{uploading ? "Đang tải lên…" : `Tải lên ${assetType === "Image" ? "hình ảnh" : "âm thanh"}`}</span>
+                <span>{uploading ? "Đang tải lên…" : `Tải lên ${assetLabel}`}</span>
               </Button>
             </div>
           )}

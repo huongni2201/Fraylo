@@ -1,5 +1,7 @@
 # Fraylo — sản xuất video từ ảnh mẫu và sản phẩm
 
+> **Delta hiện hành 2026-11-07:** [Làm theo video mẫu](20261107-reference-video-workflow.md) đã thay đúng mục **Chỉ sản phẩm / ProductOnly** trên UI bằng `ReferenceVideo`, bắt buộc ảnh mẫu mặc sản phẩm + video mẫu kèm audio. Người dùng chọn MuseAI mô phỏng động tác **gần đúng**, **chấp nhận thời lượng khác** và **AI tự tách/ghép/co giãn âm thanh gốc theo video mới**. Không ép stream-copy/cùng thời lượng; không xử lý audio cục bộ. **Mẫu + sản phẩm / ReadyImage giữ nguyên**. Quy tắc ProductOnly bên dưới là baseline legacy, không áp cho run mới. Kiểm chứng/giới hạn: [evidence](REFERENCE_VIDEO_EVIDENCE.md), [STATUS](../agents/STATUS.md).
+
 
 Ngày 2026-10-27 (UTC+07). **Đặc tả workflow generation hiện hành; phần triển khai đã có checkpoint trong [STATUS](../agents/STATUS.md) và [TASKS](../agents/TASKS.md).** Không coi ma trận/tiêu chí baseline bên dưới là bằng chứng nghiệm thu cho những thay đổi kiến trúc video-first mới.
 
@@ -17,6 +19,8 @@ Màn Project hiện tại trong ảnh người dùng thiên về bảng nhập c
 
 
 ## 2. Ba cách bắt đầu từ dữ liệu chung dự án
+
+**Tổ chức mã sau WFS/TM 2026-11-07:** `ModelAndProductWorkflow`, `ReadyImageWorkflow`, `ReferenceVideoWorkflow` sở hữu validation, kế hoạch ảnh và job kế tiếp qua `IVideoWorkflow`; ProductOnly chỉ còn diễn giải legacy. `VideoWorkflows` định tuyến, `WorkflowSceneJobs` dùng chung request ảnh/grid/prompt. `ProjectWorkflowService` giữ transaction/project gate/queue/run/retry/apply/storage. Sửa hành vi riêng tại workflow tương ứng; không gộp lại các nhánh mode. Bảng ba cách bắt đầu phía dưới là baseline trước TM; mode hiện hành theo delta ở đầu tài liệu.
 
 | Chế độ | Đầu vào | Xử lý ảnh | Điều kiện sang prompt video |
 |---|---|---|---|

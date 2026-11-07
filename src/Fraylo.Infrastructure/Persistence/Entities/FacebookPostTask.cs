@@ -2,6 +2,7 @@ namespace Fraylo.Infrastructure.Persistence.Entities;
 
 public sealed class FacebookPostTask
 {
+    public int SortOrder { get; set; } = 0;
     public string Id { get; set; } = string.Empty;
     public string BatchId { get; set; } = string.Empty;
     public string TargetId { get; set; } = string.Empty;
@@ -12,6 +13,7 @@ public sealed class FacebookPostTask
     public string TextSnapshot { get; set; } = string.Empty;
     public string State { get; set; } = "Queued";
     public string? ReasonCode { get; set; } = null;
+    public string ActivityLogJson { get; set; } = "[]";
     public string Message { get; set; } = string.Empty;
     public string? SubmittedAtUtc { get; set; } = null;
     public string? LeaseOwnerId { get; set; } = null;

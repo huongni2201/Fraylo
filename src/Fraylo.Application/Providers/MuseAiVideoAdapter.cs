@@ -21,7 +21,9 @@ public sealed class MuseAiVideoAdapter : IProviderAdapter
                 {
                     VerificationStatus = ProviderVerificationStatus.Verified,
                     AutomationSupported = true,
-                    EvidenceId = "playwright-automation"
+                    EvidenceId = "playwright-automation",
+                    SupportsReferenceVideoApproximation = true,
+                    ReferenceVideoEvidenceId = "reference-video-approximation-audio-fit-20261107"
                 }
                 : capability).ToArray();
 

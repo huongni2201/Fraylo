@@ -1,8 +1,10 @@
 import { useState } from "react";
 
+export const assetMediaUrl = (assetId: string) => `https://media.fraylo.local/media/${encodeURIComponent(assetId)}`;
+
 export function AssetMediaPreview({ assetId, assetType, fileName, heightClass = "h-36" }: { assetId: string; assetType: string; fileName: string; heightClass?: string }) {
   const [failed, setFailed] = useState(false);
-  const src = `https://media.fraylo.local/media/${encodeURIComponent(assetId)}`;
+  const src = assetMediaUrl(assetId);
   const type = assetType.toLowerCase();
 
   if (failed || !["image", "audio", "video"].includes(type)) {

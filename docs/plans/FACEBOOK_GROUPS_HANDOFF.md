@@ -1,16 +1,31 @@
 # Facebook — đăng bài vào nhóm
 
+> Điều hướng hiện hành 2026-11-07: **Facebook → Hàng đợi / Lịch sử / Nháp** dùng chung Nhóm/Cá nhân; mở nháp về đúng màn soạn, giữ nội dung/ảnh/giờ hẹn. [Spec và evidence thay thế phần điều hướng cũ](FACEBOOK_PUBLISHING_PLAN.md#hàng-đợi-facebook-chung--2026-11-07). Bằng chứng nghiệp vụ bên dưới được giữ theo thời điểm.
+
+**Cập nhật 2026-11-07 — đã tích hợp cục bộ:** [AI viết lại theo lô tối đa 10 phiên bản](20261107-facebook-group-ai-rewrite.md), một bản riêng cho mỗi nhóm, lưu thay nội dung task trước đăng và dùng queue/capacity AI chung. Chọn **AI viết lại bài nhóm Facebook** trong Cài đặt → AI & Prompt trước khi tạo bài nhóm có chữ. 23 nhóm tạo 10/10/3 bản; độ dài85–115%, giữ dữ kiện/link, loại trùng nguyên văn. Chỉ mở đăng khi cả bài đủ nội dung; lỗi không fallback bản gốc, không tự retry. Chi tiết hiển thị text từng nhóm, retry đúng lô; Nhân bản dùng nguồn gốc. Bài chỉ ảnh/cá nhân/bài đã tạo trước tính năng giữ luồng cũ. Schema v13 nâng cấp giữ dữ liệu; capability ChatGPT/Gemini TRIAL, provider live/WebView2/DPI chưa nghiệm thu. Evidence kiểm chứng trong plan FBR; các bằng chứng cũ bên dưới không được dùng để gọi bước AI mới là VERIFIED.
+
 Ngày: 2026-11-06. Phạm vi theo yêu cầu hiện hành: tải nhóm đã tham gia của tài khoản, chọn nhóm cụ thể / ngẫu nhiên N nhóm / tất cả nhóm đã tải, tạo lô đăng chữ + link + tối đa 10 ảnh. Mã đã nối từ React qua bridge đến hàng đợi SQLite và adapter Facebook. Cập nhật 2026-11-06 (schema v9): hẹn giờ, nháp lưu bền và hoàn thiện Hàng đợi/Lịch sử cho luồng nhóm. Không coi các phần Page và video của plan tổng là đã hoàn tất.
+
+
+## Lựa chọn nội dung hiện hành (schema v14)
+
+Form nhóm và từng bài hẹn giờ cho chọn **Viết lại nội dung / Đăng nguyên bản**, mặc định viết lại. Nguyên bản giữ chữ/ảnh đã nhập và không cần AI; nháp/bản sao giữ lựa chọn. Xem [spec và evidence FBR6](20261107-facebook-group-ai-rewrite.md). Các mốc schema/nghiệm thu bên dưới là lịch sử theo từng lát.
+
+## Cập nhật tab Đăng bài (schema v10)
+
+[Plan và evidence hiện hành](20261106-facebook-posts-tab.md): sidebar Facebook → **Đăng bài**, các mục **Bài đăng/Nháp/Lịch sử**, nút **Tạo bài đăng**. Mỗi bài có tên, lịch, nhóm và tiến độ độc lập; mở Chi tiết để xem từng nhóm. Có Nhân bản, Đổi giờ trước khi chạy, Tạm dừng/Tiếp tục và hủy phần chưa gửi có xác nhận. Chờ duyệt không tính thành đã đăng. Mã lô/revision chống replay và thao tác trên dữ liệu cũ; pause trước checkpoint không bấm Đăng, Submitting vẫn hoàn tất.
+
+Nâng cấp v9 → v10 có backup `pre-facebook-v10` và rollback, giữ dự án/tài khoản/cấu hình/task/nháp; nháp lưu cả giờ hẹn. Bỏ quota 20 lượt/24 giờ; giữ 5 phút toàn profile và các guard phiên/hash/checkpoint. Các kết quả v8/v9 bên dưới là evidence lịch sử, không chứng minh tính năng v10 đã kiểm live. NOT_RUN: đăng thật qua scheduler, WebView2, visual theme/hẹp/DPI và DB cá nhân.
 
 ## Cách dùng
 
 1. Cài đặt → Tài khoản → Facebook: thêm và đăng nhập, xác minh phiên.
-2. Sidebar → Facebook → Nhóm Facebook: chọn tài khoản, **Tải lại nhóm từ Facebook**. Nhóm đã tải được lưu SQLite theo tài khoản, mở lại ứng dụng chỉ đọc danh sách đã lưu. Chỉ nút này mới tải lại từ Facebook. Phân biệt kết quả đã tải đủ và kết quả chưa đầy đủ; nhóm của các tài khoản được giữ riêng.
+2. Sidebar → Facebook → Đăng bài → Tạo bài đăng: chọn tài khoản, **Tải lại nhóm từ Facebook**. Nhóm đã tải được lưu SQLite theo tài khoản, mở lại ứng dụng chỉ đọc danh sách đã lưu. Chỉ nút này mới tải lại từ Facebook. Phân biệt kết quả đã tải đủ và kết quả chưa đầy đủ; nhóm của các tài khoản được giữ riêng.
 3. Chọn từng nhóm, **Chọn tất cả**, hoặc nhập số nguyên N và **Chọn ngẫu nhiên**. Chọn tất cả/ngẫu nhiên áp dụng toàn danh sách của tài khoản, kể cả nhóm bị ẩn bởi tìm kiếm. Lựa chọn ngẫu nhiên được chốt trước màn xác nhận, không bốc lại khi gửi.
-4. Soạn bài: chữ/link trong nội dung, ảnh Library hoặc tải ảnh. **Xem lại lô đăng** liệt kê đúng tài khoản, nội dung, số ảnh và từng nhóm. Chỉ nút xác nhận mới tạo tác vụ.
-5. **Thời điểm đăng:** Đăng ngay hoặc Hẹn giờ (giờ máy, tối đa 365 ngày, phải ở tương lai); cả lô dùng một giờ hẹn, giãn cách 5 phút/hạn mức 20 bài vẫn áp dụng sau giờ hẹn.
+4. Tạo bài đăng: chữ/link trong nội dung, ảnh Library hoặc tải ảnh. **Xem lại lô đăng** liệt kê đúng tài khoản, nội dung, số ảnh và từng nhóm. Chỉ nút xác nhận mới tạo tác vụ.
+5. **Thời điểm đăng:** Đăng ngay hoặc Hẹn giờ (giờ máy, tối đa 365 ngày, phải ở tương lai); cả lô dùng một giờ hẹn, giãn cách 5 phút toàn tài khoản vẫn áp dụng sau giờ hẹn, không còn quota ngày.
 6. **Nháp:** Lưu nháp/Cập nhật nháp lưu tài khoản, nhóm đã chọn, nội dung và ảnh xuống SQLite (tối đa 50, còn sau khi mở lại app). Mở nháp bỏ chọn nhóm không còn trong danh sách; ảnh/nhóm được kiểm lại khi tạo lô.
-7. Hàng đợi/Lịch sử: mỗi nhóm một kết quả. Bài hẹn giờ có **Đăng ngay**, **Đổi giờ**, **Hủy**; **Hủy cả lô** (xác nhận hai bước, chỉ bài chưa gửi). Lịch sử lọc theo trạng thái/tên nhóm, hiện giờ gửi và mã lý do, **Đăng lại** nạp lại nội dung/ảnh/nhóm vào Soạn bài (bài Failed/Unknown/Canceled). Giữ Fraylo và máy hoạt động để hàng đợi tiếp tục.
+7. Đăng bài → Bài đăng/Lịch sử: mỗi nhóm một kết quả. Bài hẹn giờ có **Đăng ngay**, **Đổi giờ**, **Hủy**; **Hủy cả lô** (xác nhận hai bước, chỉ bài chưa gửi). Lịch sử lọc theo trạng thái/tên nhóm, hiện giờ gửi và mã lý do, **Đăng lại** nạp lại nội dung/ảnh/nhóm vào Soạn bài (bài Failed/Unknown/Canceled). Giữ Fraylo và máy hoạt động để hàng đợi tiếp tục.
 
 ## Hành vi đã chốt
 
@@ -18,7 +33,7 @@ Ngày: 2026-11-06. Phạm vi theo yêu cầu hiện hành: tải nhóm đã tham
 - Tải nhóm qua trang **All groups you've joined (N)** đã quan sát. Cuộn và gộp URL; chỉ báo đủ khi số nhóm duy nhất bằng N. Kết quả chưa đủ giữ lại các nhóm đã lưu từ lần trước, không archive nhầm nhóm chưa tải tới.
 - Mỗi nhóm là một tác vụ, bản chụp tên/URL nhóm, danh tính, chữ và SHA-256 ảnh. Hash tệp được kiểm lại trước mở Facebook và giữ tệp chỉ đọc trong lúc gửi.
 - Mã lô ổn định theo bản xác nhận: gửi lại cùng mã và cùng dữ liệu trả lô cũ; dùng lại mã với dữ liệu khác bị từ chối. Chống tạo thêm bài khi bridge timeout.
-- Một tài khoản chạy tuần tự: tối thiểu 5 phút giữa hai lần bắt đầu gửi; tối đa 20 lần gửi/24 giờ. Chọn vài chục hoặc tất cả vẫn tạo đủ tác vụ, phần vượt hạn mức tiếp tục chờ. Đây là giới hạn của Fraylo, không phải hạn mức Facebook công bố.
+- Một tài khoản chạy tuần tự: tối thiểu 5 phút giữa hai lần bắt đầu gửi xuyên mọi bài; không giới hạn số lượt/24 giờ theo yêu cầu mới. Đây là giãn cách của Fraylo, không phải hạn mức Facebook công bố.
 - CAS Preparing → Submitting phải ghi thành công trước click. Hủy trước CAS không click; Submitting không hủy được. Login/hủy login/xóa profile không được phá context đang có thao tác Facebook.
 - Chỉ thông báo cụ thể, hiển thị và mới được nhận là Published/PendingApproval; thông báo ẩn, cũ, generic pending và dialog đóng không chứng minh kết quả. Thiếu bằng chứng sau click → Unknown, không tự gửi lại.
 - Sau khởi động lại: Queued cũ → NeedsUser để người dùng chọn Tiếp tục; Preparing bị ngắt → Failed; Submitting bị ngắt → Unknown. Không tự đăng muộn hoặc tự retry bài lỗi.

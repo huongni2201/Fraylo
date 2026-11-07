@@ -2,17 +2,22 @@ import { bridgeClient } from "../../services/bridgeClient";
 
 export interface FacebookAccount { accountId: string; displayName: string; accountIdentity: string | null; sessionStatus: string; enabled?: boolean }
 export interface FacebookGroup { targetId: string; accountId: string; name: string; url: string }
+export interface FacebookActivityEntry { atUtc: string; code: string; message: string; reasonCode?: string | null }
 export interface FacebookTask {
   taskId: string; batchId: string; accountId: string; targetId: string; groupName: string; groupUrl: string;
   text: string; state: string; message: string; createdAtUtc: string; updatedAtUtc: string; submittedAtUtc: string | null;
-  reasonCode?: string | null; dueAtUtc?: string | null; imageAssetIds?: string[];
+  reasonCode?: string | null; dueAtUtc?: string | null; imageAssetIds?: string[]; activityLog?: FacebookActivityEntry[];
 }
-export interface FacebookDraft { draftId: string; name: string; accountId: string; text: string; targetIds: string[]; imageAssetIds: string[]; updatedAtUtc: string }
-export interface FacebookList { accounts: FacebookAccount[]; groups: FacebookGroup[]; tasks: FacebookTask[]; drafts?: FacebookDraft[] }
+export interface FacebookDraft { draftId: string; name: string; accountId: string; text: string; targetIds: string[]; imageAssetIds: string[]; updatedAtUtc: string; dueAtUtc?: string | null; rewriteContent?: boolean }
+export interface FacebookList { accounts: FacebookAccount[]; groups: FacebookGroup[]; tasks: FacebookTask[]; drafts?: FacebookDraft[]; posts?: FacebookPost[]; rewriteProvider?: string | null }
 export interface FacebookSync { groups: FacebookGroup[]; isComplete: boolean; message: string }
-export interface FacebookBatchRequest { batchRequestId: string; accountId: string; targetIds: string[]; text: string; imageAssetIds: string[]; dueAtUtc?: string }
-export interface FacebookDraftInput { draftId?: string; name: string; accountId: string; text: string; targetIds: string[]; imageAssetIds: string[] }
+export interface FacebookBatchRequest { batchRequestId: string; accountId: string; targetIds: string[]; text: string; imageAssetIds: string[]; dueAtUtc?: string; name?: string; targetKind?: "Group" | "Profile"; rewriteContent?: boolean }
+export interface FacebookDraftInput { draftId?: string; name: string; accountId: string; text: string; targetIds: string[]; imageAssetIds: string[]; dueAtUtc?: string; rewriteContent?: boolean }
+export interface FacebookRewriteChunk { chunkId: string; ordinal: number; count: number; state: string; reason: string | null; applied: boolean; canRetry: boolean; uncertain: boolean; jobId?: string | null }
+export interface FacebookPost { batchId: string; name: string; accountId: string; paused: boolean; revision: number; createdAtUtc: string; tasks: FacebookTask[]; originalText?: string | null; rewriteChunks?: FacebookRewriteChunk[] | null }
 export interface FacebookApi {
+  retryRewrite?(batchId: string, chunkId: string, revision: number): Promise<void>;
+  postAction?(batchId: string, revision: number, action: string, dueAtUtc?: string): Promise<FacebookPost>;
   list(): Promise<FacebookList>;
   sync(accountId: string): Promise<FacebookSync>;
   create(request: FacebookBatchRequest): Promise<FacebookTask[]>;
@@ -24,6 +29,8 @@ export interface FacebookApi {
   deleteDraft(draftId: string): Promise<void>;
 }
 export const facebookApi: FacebookApi = {
+  retryRewrite: (batchId, chunkId, revision) => bridgeClient.invoke("facebook.rewrite.retry", { batchId, chunkId, revision }),
+  postAction: (batchId, revision, action, dueAtUtc) => bridgeClient.invoke("facebook.posts.action", { batchId, revision, action, dueAtUtc }),
   list: () => bridgeClient.invoke("facebook.list", {}),
   sync: accountId => bridgeClient.invoke("facebook.groups.sync", { accountId }, { timeoutMs: 300000 }),
   create: request => bridgeClient.invoke("facebook.tasks.create", request, { timeoutMs: 60000 }),
@@ -36,6 +43,20 @@ export const facebookApi: FacebookApi = {
 };
 export function facebookError(error: unknown): string {
   return error && typeof error === "object" && "message" in error ? String(error.message) : "Không thể xử lý yêu cầu Facebook. Hãy tải lại để kiểm tra.";
+}
+export function rewriteReasonMessage(reason: string): string {
+  const messages: Record<string, string> = {
+    InvalidRewriteResult: "AI trả nội dung chưa đúng định dạng, độ dài hoặc dữ kiện. Nội dung nhóm chưa được thay.",
+    RewriteDuplicateResult: "Có nội dung trùng với lượt AI đã lưu. Hãy thử lại lượt này.",
+    RewriteTaskChanged: "Bài hoặc nhóm đã đổi trạng thái; hãy kiểm tra trước khi tiếp tục.",
+    RewriteSaveFailed: "Chưa lưu được nội dung. Kết quả AI đã được giữ; thử lại sẽ lưu từ kết quả này, không gửi AI lần nữa.",
+    RewriteRestarted: "Ứng dụng đã khởi động lại. Chọn tiếp tục khi bạn sẵn sàng.",
+    provider_account_required: "Chưa có tài khoản AI sẵn sàng. Kiểm tra tài khoản trong Cài đặt.",
+    reconcile_required: "Chưa xác định được kết quả gửi AI. Kiểm tra tác vụ trong Tiến trình.",
+    global_job_budget_reached: "Đang chờ chỗ trống trong giới hạn tác vụ đồng thời.",
+    user_canceled: "Lượt AI đã hủy; chỉ thử lại nếu bạn vẫn muốn xử lý bài này.",
+  };
+  return messages[reason] ?? "Lượt AI cần được kiểm tra trong Tiến trình hoặc Cài đặt trước khi tiếp tục.";
 }
 export const facebookStateLabels: Record<string, string> = {
   Queued: "Đang chờ", Preparing: "Đang chuẩn bị", Submitting: "Đã gửi lệnh đăng", Published: "Đã đăng",

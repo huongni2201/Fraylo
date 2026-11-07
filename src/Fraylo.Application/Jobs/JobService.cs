@@ -70,7 +70,9 @@ public sealed class JobService
             throw new JobValidationException("Trường 'projectId' không được để trống.", nameof(request.ProjectId));
         }
 
-        if (!JobTaskType.IsValid(request.TaskType))
+        if (!JobTaskType.IsValid(request.TaskType) ||
+            (string.Equals(request.TaskType, JobTaskType.AnalyticsAnalysis, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(request.TaskType, JobTaskType.FacebookContentRewrite, StringComparison.OrdinalIgnoreCase)))
         {
             throw new JobValidationException($"Loại tác vụ '{request.TaskType}' không hợp lệ. Các loại cho phép: {string.Join(", ", JobTaskType.All)}.", nameof(request.TaskType));
         }
@@ -476,6 +478,9 @@ public sealed class JobService
                 jobId);
         }
 
+        if ((job.TaskType is JobTaskType.AnalyticsAnalysis or JobTaskType.FacebookContentRewrite) && job.SideEffectSubmitted == 1)
+            throw new JobValidationException("Lượt phân tích có thể đã được gửi. Kiểm tra kết quả trước khi tạo yêu cầu mới.", jobId);
+
         if (JobRetryAndCancelPolicy.IsAutomationUnavailable(job.ReasonCode))
         {
             throw new JobValidationException(
@@ -611,6 +616,9 @@ public sealed class JobService
     private static async Task<JobValidationException?> EvaluateRetryEligibilityAsync(
         FrayloDbContext dbContext, Job job, CancellationToken cancellationToken)
     {
+        if (job.TaskType == JobTaskType.FacebookContentRewrite)
+            return new JobValidationException("Thử lại đúng lượt AI trong Chi tiết bài đăng nhóm Facebook để giữ nội dung đã lưu.", job.Id);
+
         // Render MuseAI hết thời gian chờ sau khi đã gửi: chỉ thử lại bằng cách tiếp tục chờ side chat đã lưu, không gửi lại.
         bool resumableRender = JobRetryAndCancelPolicy.IsResumableRenderReason(job.ReasonCode)
             && await Fraylo.Application.Providers.MuseAiPlaywrightAutomation.CanResumeRenderAsync(dbContext, job, cancellationToken).ConfigureAwait(false);

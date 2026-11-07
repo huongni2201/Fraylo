@@ -3,7 +3,11 @@ namespace Fraylo.Infrastructure.Persistence.Entities;
 public class Job
 {
     public string Id { get; set; } = string.Empty;
-    public string ProjectId { get; set; } = string.Empty;
+    public string? ProjectId { get; set; }
+    public string? AnalyticsReportId { get; set; }
+    public string? FacebookRewriteChunkId { get; set; }
+    public FacebookRewriteChunk? FacebookRewriteChunk { get; set; }
+    public AnalyticsAnalysisReport? AnalyticsReport { get; set; }
     public string? SceneId { get; set; }
     public string TaskType { get; set; } = string.Empty; // Script | Image | VideoPrompt | VideoRender
     public string State { get; set; } = "Queued"; // Queued | Reserved | Running | AwaitingUser | Succeeded | Failed | Canceled

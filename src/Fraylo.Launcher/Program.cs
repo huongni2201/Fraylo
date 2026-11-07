@@ -26,6 +26,9 @@ int Update(string[] updateArgs)
     var pid = int.Parse(Arg("--pid"));
     var zip = Arg("--zip");
     var version = Arg("--version");
+    if (!Version.TryParse(version, out _) || version != Path.GetFileName(version)) return 1;
+    var current = ReadCurrentVersion();
+    if (Version.TryParse(current, out var installed) && Version.Parse(version) <= installed) return 1;
     var dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Fraylo");
     var logFile = Path.Combine(dataDir, "logs", "updater.log");
 
@@ -62,7 +65,9 @@ int Update(string[] updateArgs)
         Directory.Move(staging, target);
 
         var previous = ReadCurrentVersion();
-        File.WriteAllText(currentJson, $"{{\"version\":\"{version}\",\"previous_version\":\"{previous}\"}}");
+        var pointer = currentJson + ".tmp";
+        File.WriteAllText(pointer, JsonSerializer.Serialize(new { version, previous_version = previous }));
+        File.Move(pointer, currentJson, overwrite: true);
 
         // Giữ bản hiện hành + bản liền trước để có đường lùi thủ công.
         foreach (var dir in Directory.GetDirectories(versionsDir))
@@ -74,6 +79,7 @@ int Update(string[] updateArgs)
     catch (Exception ex)
     {
         Log($"LỖI: {ex}");
+        if (ex is TimeoutException) return 1;
     }
 
     // Dù lỗi hay không vẫn mở lại app (current.json chỉ đổi khi cài thành công).

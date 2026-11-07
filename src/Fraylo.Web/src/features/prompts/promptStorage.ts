@@ -108,7 +108,21 @@ export const DEFAULT_PRESET_PROMPTS: Record<PromptPurpose, CustomPromptItem[]> =
       isPreset: true,
     },
   ],
-  Storyboard: [],
+  Storyboard: [
+    {
+      id: "preset-storyboard-grid9",
+      name: "Storyboard 9 phân cảnh nhất quán",
+      purpose: "Storyboard",
+      templateText:
+        "Bạn là đạo diễn hình ảnh cho video ngắn. Dựa trên kịch bản, yêu cầu nội dung, thời lượng và ảnh tham chiếu được cung cấp, xây dựng storyboard gồm đúng 9 phân cảnh theo thứ tự kể chuyện.\n\n" +
+        "Mở đầu bằng hình ảnh thu hút, phát triển nội dung mạch lạc và kết thúc bằng điểm nhấn phù hợp. Chia mốc thời gian liên tục, không chồng lấn, bao phủ đúng thời lượng video. Mỗi phân cảnh mô tả rõ bối cảnh, góc máy, cỡ cảnh, hành động, prompt tạo ảnh và chuyển động phù hợp.\n\n" +
+        "Giữ cùng nhân vật, trang phục, sản phẩm, màu sắc, ánh sáng và phong cách giữa các phân cảnh. Bảo toàn chi tiết từ ảnh nguồn; không tự thêm tính năng, giá, ưu đãi hoặc công dụng sản phẩm chưa được cung cấp. Mỗi phân cảnh có hành động đơn giản, khả thi khi tạo video.\n\n" +
+        "Thứ tự 9 ô storyboard là trái sang phải, trên xuống dưới. Viết mô tả bằng tiếng Việt; prompt tạo ảnh hoặc chuyển động bằng tiếng Anh khi được yêu cầu. Tuân thủ OUTPUT_CONTRACT của ứng dụng, không thêm văn bản ngoài cấu trúc yêu cầu.",
+      createdAtUtc: new Date().toISOString(),
+      updatedAtUtc: new Date().toISOString(),
+      isPreset: true,
+    },
+  ],
   TikTokContent: [
     {
       id: "preset-tiktok-content-natural",

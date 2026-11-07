@@ -10,10 +10,13 @@ public sealed class FacebookDraftConfiguration : IEntityTypeConfiguration<Facebo
     {
         builder.ToTable("FacebookDraft");
         builder.HasKey(p => p.Id);
+        builder.Property(p => p.DueAtUtc).HasColumnName("due_at_utc").HasColumnType("TEXT");
+
         builder.Property(p => p.Id).HasColumnName("id").HasColumnType("TEXT").IsRequired();
         builder.Property(p => p.Name).HasColumnName("name").HasColumnType("TEXT").IsRequired();
         builder.Property(p => p.ProfileId).HasColumnName("profile_id").HasColumnType("TEXT").IsRequired();
         builder.Property(p => p.Text).HasColumnName("text").HasColumnType("TEXT").IsRequired();
+        builder.Property(p => p.RewriteContent).HasColumnName("rewrite_content").HasColumnType("INTEGER").HasDefaultValue(true).IsRequired();
         builder.Property(p => p.TargetIdsJson).HasColumnName("target_ids_json").HasColumnType("TEXT").IsRequired();
         builder.Property(p => p.ImageAssetIdsJson).HasColumnName("image_asset_ids_json").HasColumnType("TEXT").IsRequired();
         builder.Property(p => p.Revision).HasColumnName("revision").HasColumnType("INTEGER").IsRequired();

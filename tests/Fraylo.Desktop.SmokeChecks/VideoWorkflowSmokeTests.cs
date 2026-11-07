@@ -128,6 +128,12 @@ public static class VideoWorkflowSmokeTests
         await RunCaseAsync("28. Retry bước: thiếu tệp đầu vào bị chặn; khi Paused vẫn retry được nhưng không sinh bước sau cho tới khi Tiếp tục",
             TestCase28_RetryMissingInputAndPausedRunAsync);
 
+        await RunCaseAsync("29. Ba workflow × hai chiến lược: đúng ảnh nguồn, mẫu prompt và bước kế tiếp",
+            TestCase29_ThreeWorkflowsRouteSceneJobsAsync);
+
+        await RunCaseAsync("30. Đổi ảnh chung: mỗi workflow làm mới đúng bước và giữ ảnh độc lập của cảnh",
+            TestCase30_ThreeWorkflowsInvalidateImagesAsync);
+
         Console.WriteLine("\n-----------------------------------------------------------------");
         Console.WriteLine($"Kết quả kiểm thử Video Workflow: {_passCount} PASS, {_failCount} FAIL.");
         Console.WriteLine("=================================================================\n");
@@ -333,10 +339,10 @@ public static class VideoWorkflowSmokeTests
             }
             Assert(failedReady, "Chế độ Ảnh đã sẵn sàng thiếu ready image phải ném ProjectWorkflowValidationException.");
 
-            // 3. ProductOnly thiếu ProductAssetId -> Báo lỗi rõ
+            // 3. ReferenceVideo thiếu ảnh/video -> báo lỗi đúng chế độ mới.
             await service.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
                 ProjectId: prjId,
-                WorkflowMode: WorkflowModes.ProductOnly,
+                WorkflowMode: WorkflowModes.ReferenceVideo,
                 GoalPrompt: "Test validation",
                 ModelAssetId: null,
                 ProductAssetId: null, // Thiếu!
@@ -352,11 +358,11 @@ public static class VideoWorkflowSmokeTests
             {
                 await service.StartWorkflowAsync(new StartProjectWorkflowRequest(prjId));
             }
-            catch (ProjectWorkflowValidationException ex) when (ex.Message.Contains("Chỉ sản phẩm"))
+            catch (ProjectWorkflowValidationException ex) when (ex.Message.Contains("video mẫu"))
             {
                 failedProduct = true;
             }
-            Assert(failedProduct, "Chế độ Chỉ sản phẩm thiếu product image phải ném ProjectWorkflowValidationException.");
+            Assert(failedProduct, "Chế độ video theo mẫu thiếu input phải bị từ chối.");
         }
         finally
         {
@@ -609,7 +615,7 @@ public static class VideoWorkflowSmokeTests
             {
                 await service.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
                     ProjectId: prjId,
-                    WorkflowMode: WorkflowModes.ProductOnly,
+                    WorkflowMode: WorkflowModes.ReadyImage,
                     GoalPrompt: "Test audio",
                     ModelAssetId: null,
                     ProductAssetId: productAssetId,
@@ -629,7 +635,7 @@ public static class VideoWorkflowSmokeTests
             // 2. Không gửi audio (AudioOption = None): Hợp lệ 100%
             var validConfig = await service.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
                 ProjectId: prjId,
-                WorkflowMode: WorkflowModes.ProductOnly,
+                WorkflowMode: WorkflowModes.ReadyImage,
                 GoalPrompt: "Test không gửi audio",
                 ModelAssetId: null,
                 ProductAssetId: productAssetId,
@@ -1568,6 +1574,120 @@ public static class VideoWorkflowSmokeTests
         finally
         {
             CleanupTestEnvironment(tempDir);
+        }
+    }
+
+    private static async Task TestCase29_ThreeWorkflowsRouteSceneJobsAsync()
+    {
+        foreach (var mode in new[] { WorkflowModes.ModelAndProduct, WorkflowModes.ReadyImage })
+        foreach (var strategy in VideoStrategies.All)
+        {
+            var (dbOptions, tempDir, projectId, workflow) = await CreateGridEnvironmentAsync(
+                mode, withComposeTemplate: mode == WorkflowModes.ModelAndProduct);
+            try
+            {
+                var modelId = mode == WorkflowModes.ModelAndProduct ? SeedAsset(dbOptions, "Image", "models/model.jpg") : null;
+                var productId = mode != WorkflowModes.ReadyImage ? SeedAsset(dbOptions, "Image", "products/product.jpg") : null;
+                var readyId = mode == WorkflowModes.ReadyImage ? SeedAsset(dbOptions, "Image", "ready/ready.jpg") : null;
+                await workflow.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
+                    projectId, mode, "Giữ đúng sản phẩm", modelId, productId, readyId,
+                    AudioOptions.None, null, 1, 15, VideoStrategy: strategy));
+                var sceneId = SeedScene(dbOptions, projectId, "Cảnh kiểm chứng", 1, null, null);
+                await workflow.StartWorkflowAsync(new StartProjectWorkflowRequest(projectId));
+
+                var generatesImage = mode == WorkflowModes.ModelAndProduct ||
+                    (mode == WorkflowModes.ProductOnly && strategy == VideoStrategies.MultiVideo);
+                string firstJobId;
+                using (var db = new FrayloDbContext(dbOptions))
+                {
+                    var job = await db.Jobs.SingleAsync(j => j.ProjectId == projectId);
+                    firstJobId = job.Id;
+                    Assert(job.TaskType == (generatesImage ? JobTaskType.Image : JobTaskType.VideoPrompt),
+                        $"{mode}/{strategy}: bước đầu của cảnh không đúng.");
+                    Assert(job.SceneId == sceneId, $"{mode}/{strategy}: job phải thuộc đúng cảnh.");
+                    var text = Rendered(job);
+                    using var snapshot = JsonDocument.Parse(job.ConfigSnapshotJson!);
+                    var media = snapshot.RootElement.GetProperty("MediaSnapshot");
+                    if (mode == WorkflowModes.ModelAndProduct)
+                    {
+                        Assert(text.Contains("COMPOSE_DANG_DUNG") && text.Contains("Ảnh đính kèm thứ nhất là người mẫu"),
+                            "Mẫu + sản phẩm phải dùng prompt ghép và mô tả hai vai trò ảnh.");
+                        Assert(media.GetProperty("ModelAssetId").GetString() == modelId && media.GetProperty("ProductAssetId").GetString() == productId,
+                            "Job ghép phải giữ đúng cả ảnh người mẫu và sản phẩm trong snapshot.");
+                    }
+                    else if (generatesImage)
+                    {
+                        Assert(text.Contains("IMAGE_DANG_DUNG") && text.Contains("Tạo một ảnh sản phẩm") && !text.Contains("Ảnh đính kèm thứ nhất là người mẫu"),
+                            "Chỉ sản phẩm nhiều video phải tạo ảnh sản phẩm, không dùng prompt ghép người mẫu.");
+                    }
+                    else
+                    {
+                        var expectedSource = mode == WorkflowModes.ReadyImage ? readyId : productId;
+                        Assert(media.GetProperty("SourceImageAssetId").GetString() == expectedSource,
+                            $"{mode}/{strategy}: VideoPrompt phải nhận đúng ảnh trực tiếp.");
+                        Assert((await db.Scenes.SingleAsync(s => s.Id == sceneId)).ImageAssetId == expectedSource,
+                            $"{mode}/{strategy}: cảnh phải kế thừa đúng ảnh trực tiếp.");
+                    }
+                }
+
+                if (generatesImage)
+                {
+                    var generatedId = SeedAsset(dbOptions, "Image", "generated/scene.png");
+                    await SucceedJobAsync(dbOptions, firstJobId, null, generatedId);
+                    Assert(await workflow.ApplyJobOutputAsync(firstJobId), $"{mode}/{strategy}: phải áp dụng được ảnh vừa tạo.");
+                    using var db = new FrayloDbContext(dbOptions);
+                    var prompt = await db.Jobs.SingleAsync(j => j.ProjectId == projectId && j.TaskType == JobTaskType.VideoPrompt);
+                    using var snapshot = JsonDocument.Parse(prompt.ConfigSnapshotJson!);
+                    Assert(snapshot.RootElement.GetProperty("MediaSnapshot").GetProperty("SourceImageAssetId").GetString() == generatedId,
+                        $"{mode}/{strategy}: bước prompt phải dùng ảnh kết quả của cảnh.");
+                }
+            }
+            finally { CleanupTestEnvironment(tempDir); }
+        }
+    }
+
+    private static async Task TestCase30_ThreeWorkflowsInvalidateImagesAsync()
+    {
+        foreach (var mode in new[] { WorkflowModes.ModelAndProduct, WorkflowModes.ReadyImage })
+        foreach (var strategy in VideoStrategies.All)
+        {
+            var (dbOptions, tempDir, projectId, workflow) = await CreateGridEnvironmentAsync(
+                mode, withComposeTemplate: mode == WorkflowModes.ModelAndProduct);
+            try
+            {
+                var modelId = mode == WorkflowModes.ModelAndProduct ? SeedAsset(dbOptions, "Image", "models/model.jpg") : null;
+                var originalId = SeedAsset(dbOptions, "Image", "inputs/original.jpg");
+                var replacementId = SeedAsset(dbOptions, "Image", "inputs/replacement.jpg");
+                SaveProjectWorkflowConfigRequest Config(string imageId) => new(
+                    projectId, mode, "Giữ đúng sản phẩm", modelId,
+                    mode == WorkflowModes.ReadyImage ? null : imageId,
+                    mode == WorkflowModes.ReadyImage ? imageId : null,
+                    AudioOptions.None, null, 1, 15, VideoStrategy: strategy);
+                await workflow.SaveWorkflowConfigAsync(Config(originalId));
+                var generatesImage = mode == WorkflowModes.ModelAndProduct ||
+                    (mode == WorkflowModes.ProductOnly && strategy == VideoStrategies.MultiVideo);
+                var sceneImage = generatesImage ? SeedAsset(dbOptions, "Image", "generated/old-scene.png") : originalId;
+                var sceneId = SeedScene(dbOptions, projectId, "Cảnh đã có ảnh", 1, sceneImage, "Old motion prompt");
+                await workflow.SaveWorkflowConfigAsync(Config(replacementId));
+
+                var detail = (await workflow.ListSceneWorkflowDetailsAsync(projectId)).Single();
+                var staleTasks = detail.StaleTaskTypes ?? Array.Empty<string>();
+                Assert(staleTasks.Contains(JobTaskType.VideoPrompt) && staleTasks.Contains(JobTaskType.VideoRender),
+                    $"{mode}/{strategy}: thay ảnh phải làm mới prompt và video.");
+                Assert(staleTasks.Contains(JobTaskType.Image) == generatesImage,
+                    $"{mode}/{strategy}: chỉ workflow cần tạo ảnh mới đánh dấu Image stale.");
+                using (var db = new FrayloDbContext(dbOptions))
+                {
+                    Assert((await db.Scenes.SingleAsync(s => s.Id == sceneId)).ImageAssetId == (generatesImage ? sceneImage : replacementId),
+                        $"{mode}/{strategy}: giữ ảnh riêng hoặc thay ảnh trực tiếp theo đúng workflow.");
+                }
+                await workflow.StartWorkflowAsync(new StartProjectWorkflowRequest(projectId));
+                using var verify = new FrayloDbContext(dbOptions);
+                var next = await verify.Jobs.SingleAsync(j => j.ProjectId == projectId);
+                Assert(next.TaskType == (generatesImage ? JobTaskType.Image : JobTaskType.VideoPrompt),
+                    $"{mode}/{strategy}: dữ liệu stale phải được chạy lại đúng bước.");
+            }
+            finally { CleanupTestEnvironment(tempDir); }
         }
     }
 

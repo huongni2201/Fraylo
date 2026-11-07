@@ -16,12 +16,12 @@ public sealed class GeminiWebAdapter : IProviderAdapter
     public IReadOnlyList<ProviderTaskCapabilityDto> GetCapabilities() =>
         ProviderCapabilities.GetDefaultCapabilities(ProviderKey)
             .Select(capability => GeminiTrialMode.Enabled && _automation is not null &&
-                capability.TaskType is JobTaskType.Script or JobTaskType.Image or JobTaskType.VideoPrompt
+                capability.TaskType is JobTaskType.Script or JobTaskType.Image or JobTaskType.VideoPrompt or JobTaskType.AnalyticsAnalysis or JobTaskType.FacebookContentRewrite
                 ? capability with
                 {
                     VerificationStatus = ProviderVerificationStatus.Trial,
                     AutomationSupported = true,
-                    EvidenceId = "user-enabled-gemini-playwright-trial"
+                    EvidenceId = capability.TaskType is JobTaskType.AnalyticsAnalysis or JobTaskType.FacebookContentRewrite ? null : "user-enabled-gemini-playwright-trial"
                 }
                 : capability).ToArray();
 
@@ -46,7 +46,7 @@ public sealed class GeminiWebAdapter : IProviderAdapter
                 ErrorMessage: $"Gemini Web không hỗ trợ tác vụ '{context.TaskType}'."));
         }
 
-        if (_automation is not null && context.TaskType is JobTaskType.Script or JobTaskType.Image or JobTaskType.VideoPrompt)
+        if (_automation is not null && context.TaskType is JobTaskType.Script or JobTaskType.Image or JobTaskType.VideoPrompt or JobTaskType.AnalyticsAnalysis or JobTaskType.FacebookContentRewrite)
             return _automation.ExecuteTextAsync(context, onPreSideEffectCommitAsync, onProgressAsync, ct);
 
         return Task.FromResult(new JobExecutionResult(

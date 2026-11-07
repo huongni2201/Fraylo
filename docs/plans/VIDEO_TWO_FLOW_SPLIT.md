@@ -1,5 +1,7 @@
 # Tách luồng tạo video: nhiều video và một video nhiều phân cảnh
 
+> **Delta hiện hành 2026-11-07:** [ReferenceVideo](20261107-reference-video-workflow.md) đã thay lựa chọn **Chỉ sản phẩm** cho run mới. Luồng này luôn một output/Direct từ ảnh mặc sản phẩm + video mẫu, không sinh ảnh/storyboard. MuseAI phân tích động tác gần đúng và tự ghép/co giãn audio gốc; thời lượng được phép khác mẫu. **ReadyImage / ModelAndProduct giữ nguyên** các quy tắc đang dùng. ProductOnly phía dưới chỉ là baseline legacy. Trial và qualification tại [evidence](REFERENCE_VIDEO_EVIDENCE.md)/[STATUS](../agents/STATUS.md); không có direct motion transfer.
+
 > **Bổ sung đang lập kế hoạch 2026-10-30:** [Ảnh storyboard 9 ô](20261030-storyboard-contact-sheet.md) thêm lựa chọn cho `SingleVideo`: tạo một ảnh 3×3 rồi gửi nguyên ảnh để render một video 15 giây. Khi lựa chọn này được triển khai, nó thay quy định dùng ảnh sản phẩm gốc tại §3.3/D2 trong phạm vi đó; luồng Direct giữ hành vi hiện tại. Chưa phải tính năng đã triển khai.
 
 Cập nhật 2026-10-30. Trạng thái: **ĐÃ TRIỂN KHAI backend và web (chưa kiểm chứng render thật)**; chi tiết và phần còn lại ở [STATUS](../agents/STATUS.md) mục 2026-10-30. Liên quan: [MULTISCENE_SINGLE_VIDEO](MULTISCENE_SINGLE_VIDEO.md), [VIDEO_FIRST_ARCHITECTURE_PLAN](VIDEO_FIRST_ARCHITECTURE_PLAN.md), [STATUS](../agents/STATUS.md).

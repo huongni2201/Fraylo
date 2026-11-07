@@ -17,7 +17,9 @@ public sealed record SettingsDto(
     long Revision = 1,
     int MaxOpenBrowsers = 4,
     int MaxConcurrentJobs = 8,
-    IReadOnlyList<string>? VisibleBrowserProviders = null
+    IReadOnlyList<string>? VisibleBrowserProviders = null,
+    string? AnalyticsProvider = null,
+    string? FacebookRewriteProvider = null
 );
 
 public sealed record SettingsSaveRequest(
@@ -31,7 +33,9 @@ public sealed record SettingsSaveRequest(
     int? MaxOpenBrowsers = null,
     int? MaxConcurrentJobs = null,
     string? ClientRequestId = null,
-    IReadOnlyList<string>? VisibleBrowserProviders = null
+    IReadOnlyList<string>? VisibleBrowserProviders = null,
+    string? AnalyticsProvider = null,
+    string? FacebookRewriteProvider = null
 );
 
 public sealed record BrowseFolderRequest(

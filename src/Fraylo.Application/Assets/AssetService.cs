@@ -259,7 +259,7 @@ public sealed class AssetService
     /// Đọc cấu trúc hộp MP4: phải có ftyp, mdat và moov với mvhd có thời lượng dương cùng một track 'vide'.
     /// Không dùng FFmpeg; chỉ đọc header hộp và phần moov (nhỏ) vào bộ nhớ.
     /// </summary>
-    private static void VerifyPlayableMp4(string path)
+    internal static void VerifyPlayableMp4(string path)
     {
         using var stream = File.OpenRead(path);
         byte[]? moov = null;
@@ -272,6 +272,7 @@ public sealed class AssetService
             if (type == "mdat") hasMdat = true;
             if (type == "moov")
             {
+                if (size - headerSize > 4 * 1024 * 1024) throw InvalidMp4();
                 moov = new byte[size - headerSize];
                 stream.Position = position + headerSize;
                 stream.ReadExactly(moov);
@@ -282,7 +283,7 @@ public sealed class AssetService
         if (moov is null || !hasMdat || !HasPlayableVideoTrack(moov)) throw InvalidMp4();
     }
 
-    private static (string Type, int HeaderSize, long Size) ReadMp4BoxHeader(Stream stream, long position)
+    internal static (string Type, int HeaderSize, long Size) ReadMp4BoxHeader(Stream stream, long position)
     {
         Span<byte> header = stackalloc byte[16];
         stream.Position = position;
@@ -327,7 +328,7 @@ public sealed class AssetService
         return false;
     }
 
-    private static List<(string Type, int Start, int End)> Mp4Children(byte[] data, int start, int end)
+    internal static List<(string Type, int Start, int End)> Mp4Children(byte[] data, int start, int end)
     {
         var children = new List<(string Type, int Start, int End)>();
         var position = start;
@@ -464,11 +465,14 @@ public sealed class AssetService
         var assetType = string.IsNullOrWhiteSpace(request.AssetType) ? "Image" : request.AssetType.Trim();
         bool isAudio = assetType.Equals("Audio", StringComparison.OrdinalIgnoreCase);
         bool isImage = assetType.Equals("Image", StringComparison.OrdinalIgnoreCase);
+        bool isVideo = assetType.Equals("Video", StringComparison.OrdinalIgnoreCase);
 
-        if (!isAudio && !isImage)
+        if (!isAudio && !isImage && !isVideo)
         {
-            throw new AssetValidationException($"Chỉ hỗ trợ loại tài nguyên 'Image' hoặc 'Audio'. Loại nhận được: '{request.AssetType}'.");
+            throw new AssetValidationException($"Chỉ hỗ trợ loại tài nguyên Image, Audio hoặc Video. Loại nhận được: '{request.AssetType}'.");
         }
+        if (isVideo && (!string.IsNullOrWhiteSpace(request.Base64Data) || request.Multiple))
+            throw new AssetValidationException("Video mẫu phải được chọn một tệp qua hộp thoại, không gửi Base64 hoặc nhiều video.");
 
         await using var dbContext = new FrayloDbContext(_dbOptions);
 
@@ -504,8 +508,8 @@ public sealed class AssetService
         else
         {
             var currentRoots = await _rootRegistry.GetCurrentRootsAsync(cancellationToken).ConfigureAwait(false);
-            storageRootId = currentRoots.ImagesRootId;
-            storageRootPath = currentRoots.ImagesPath;
+            storageRootId = isVideo ? currentRoots.VideosRootId : currentRoots.ImagesRootId;
+            storageRootPath = isVideo ? currentRoots.VideosPath : currentRoots.ImagesPath;
         }
 
         AssetFileResult saveResult;
@@ -610,8 +614,9 @@ public sealed class AssetService
             {
                 ValidateAudioFile(request.SourceFilePath, extension);
             }
+            if (isVideo) ReferenceVideoMedia.ReadInfo(request.SourceFilePath);
 
-            var subDir = isAudio ? "audio" : "images";
+            var subDir = isAudio ? "audio" : isVideo ? "videos" : "images";
             var relativePath = BuildUploadRelativePath(projectId, subDir, assetId, extension);
 
             saveResult = await _fileStore.SaveFileFromPathAsync(
@@ -621,13 +626,13 @@ public sealed class AssetService
                 cancellationToken
             ).ConfigureAwait(false);
 
-            mimeType = ResolveMimeType(extension, isAudio);
+            mimeType = isVideo ? "video/mp4" : ResolveMimeType(extension, isAudio);
 
             var asset = new Asset
             {
                 Id = assetId,
                 ProjectId = projectId,
-                AssetType = isAudio ? "Audio" : "Image",
+                AssetType = isAudio ? "Audio" : isVideo ? "Video" : "Image",
                 StorageRootId = storageRootId,
                 RelativePath = relativePath,
                 ByteSize = saveResult.ByteSize,
@@ -807,7 +812,7 @@ public sealed class AssetService
         if (!string.IsNullOrWhiteSpace(request.ProjectId))
         {
             var projectId = NormalizeGuid(request.ProjectId, nameof(request.ProjectId));
-            query = query.Where(a => a.ProjectId == projectId);
+            query = query.Where(a => a.ProjectId == projectId || (request.IncludeShared && a.ProjectId == null));
         }
 
         if (!string.IsNullOrWhiteSpace(request.AssetType) &&

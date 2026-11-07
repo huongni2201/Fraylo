@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Fraylo.Application.Content.Workflows;
+using Fraylo.Application.Assets;
 using Fraylo.Application.Prompts;
 using Fraylo.Contracts.Content;
 using Fraylo.Contracts.Jobs;
@@ -105,11 +107,34 @@ public sealed partial class ProjectWorkflowService
                 steps = run.Steps;
             }
         }
+        var availability = await ReferenceAvailabilityAsync(stored, cancellationToken).ConfigureAwait(false);
         return stored with
         {
             FinalVideoAssetId = finalVideoAssetId,
-            Steps = steps
+            Steps = steps,
+            ReferenceVideoAvailable = availability.Available,
+            ReferenceVideoUnavailableReason = availability.Reason
         };
+    }
+
+    private async Task<(bool Available, string? Reason)> ReferenceAvailabilityAsync(ProjectWorkflowConfigDto config, CancellationToken ct)
+    {
+        var capability = Fraylo.Application.Providers.ProviderCapabilities.GetDefaultCapability("museai", JobTaskType.VideoRender);
+        if (capability?.SupportsReferenceVideoApproximation != true) return (false, "MuseAI chưa xác minh mô phỏng chuyển động từ video mẫu.");
+        if (config.ReferenceVideoAssetId is null) return (true, null);
+        try
+        {
+            await using var db = new FrayloDbContext(_dbOptions);
+            var asset = await db.Assets.AsNoTracking().SingleOrDefaultAsync(a => a.Id == config.ReferenceVideoAssetId && a.AssetType == "Video" && a.Status == "Linked" && (a.ProjectId == null || a.ProjectId == config.ProjectId), ct);
+            if (asset is null) return (false, "Video mẫu không còn hoặc không thuộc dự án.");
+            var root = await new Fraylo.Infrastructure.Storage.StorageRootRegistry(_dbOptions).ResolveRootPathAsync(asset.StorageRootId, ct);
+            var path = Fraylo.Infrastructure.Storage.StoragePathGuard.CombineAndVerify(root, asset.RelativePath);
+            if (ReferenceVideoAudio.HasAudio(path) && !capability.SupportsReferenceVideoAudioFit)
+                return (false, "MuseAI chưa xác minh tự ghép/co giãn âm thanh từ mẫu. Bạn có thể lưu nháp hoặc chọn video mẫu không có âm thanh.");
+            return (true, null);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or AssetValidationException or KeyNotFoundException or System.Security.SecurityException)
+        { return (false, "Không thể đọc video mẫu: kiểm tra tệp và thư mục lưu trữ."); }
     }
 
     /// <summary>
@@ -165,7 +190,7 @@ public sealed partial class ProjectWorkflowService
     /// Ghi cấu hình vào AppSettings theo dạng lưu: trường tính toán (video cuối) không được ghi.
     /// </summary>
     private static string SerializeStoredConfig(ProjectWorkflowConfigDto config) =>
-        JsonSerializer.Serialize(config with { FinalVideoAssetId = null }, JsonOptions);
+        JsonSerializer.Serialize(config with { FinalVideoAssetId = null, ReferenceVideoAvailable = false, ReferenceVideoUnavailableReason = null }, JsonOptions);
 
     /// <summary>
     /// Lưu cấu hình quy trình sản xuất video cấp Dự án.
@@ -195,6 +220,10 @@ public sealed partial class ProjectWorkflowService
         await ValidateAssetBelongsToProjectAsync(dbContext, normalizedProjectId, request.ModelAssetId, "ảnh mẫu", cancellationToken);
         await ValidateAssetBelongsToProjectAsync(dbContext, normalizedProjectId, request.ProductAssetId, "ảnh sản phẩm", cancellationToken);
         await ValidateAssetBelongsToProjectAsync(dbContext, normalizedProjectId, request.ReadyImageAssetId, "ảnh có sẵn", cancellationToken);
+        await ValidateAssetBelongsToProjectAsync(dbContext, normalizedProjectId, request.ReferenceVideoAssetId, "video mẫu", cancellationToken);
+        if (request.ReferenceVideoAssetId is not null &&
+            !await dbContext.Assets.AnyAsync(a => a.Id == request.ReferenceVideoAssetId && a.AssetType == "Video" && a.Status == "Linked", cancellationToken))
+            throw new ProjectWorkflowValidationException("Tài nguyên video mẫu phải là video đang được liên kết.");
         if (request.AudioOption == AudioOptions.CustomAudio)
         {
             await ValidateAssetBelongsToProjectAsync(dbContext, normalizedProjectId, request.AudioAssetId, "tệp âm thanh", cancellationToken);
@@ -231,6 +260,7 @@ public sealed partial class ProjectWorkflowService
                                      existing.ModelAssetId != request.ModelAssetId ||
                                      existing.ProductAssetId != request.ProductAssetId ||
                                      existing.ReadyImageAssetId != request.ReadyImageAssetId ||
+                                     existing.ReferenceVideoAssetId != request.ReferenceVideoAssetId ||
                                      existing.AudioOption != (request.AudioOption ?? AudioOptions.None) ||
                                      existing.AudioAssetId != (request.AudioOption == AudioOptions.CustomAudio ? request.AudioAssetId : null) ||
                                      (request.TargetDurationPerSceneSeconds > 0 && existing.TargetDurationPerSceneSeconds != request.TargetDurationPerSceneSeconds) ||
@@ -251,6 +281,7 @@ public sealed partial class ProjectWorkflowService
             ModelAssetId = request.ModelAssetId,
             ProductAssetId = request.ProductAssetId,
             ReadyImageAssetId = request.ReadyImageAssetId,
+            ReferenceVideoAssetId = request.ReferenceVideoAssetId,
             AudioOption = request.AudioOption ?? AudioOptions.None,
             AudioAssetId = request.AudioOption == AudioOptions.CustomAudio ? request.AudioAssetId : null,
             TargetSceneCount = request.TargetSceneCount > 0 ? request.TargetSceneCount : (existing.TargetSceneCount > 0 ? existing.TargetSceneCount : 1),
@@ -284,7 +315,8 @@ public sealed partial class ProjectWorkflowService
         // Chỉ áp dụng khi không phải là lần đầu tạo cấu hình dự án
         bool modelOrProductChanged = existing.ModelAssetId != request.ModelAssetId ||
                                      existing.ProductAssetId != request.ProductAssetId ||
-                                     existing.ReadyImageAssetId != request.ReadyImageAssetId;
+                                     existing.ReadyImageAssetId != request.ReadyImageAssetId ||
+                                     existing.ReferenceVideoAssetId != request.ReferenceVideoAssetId;
         bool workflowModeChanged = existing.WorkflowMode != updated.WorkflowMode;
         bool durationChanged = request.TargetDurationPerSceneSeconds > 0 && existing.TargetDurationPerSceneSeconds != request.TargetDurationPerSceneSeconds;
         bool audioChanged = existing.AudioOption != request.AudioOption || existing.AudioAssetId != request.AudioAssetId;
@@ -319,12 +351,9 @@ public sealed partial class ProjectWorkflowService
                 bool commonImageChanged = modelOrProductChanged || workflowModeChanged;
                 if (commonImageChanged && !independentImageOverride)
                 {
-                    string? oldCommonImage = existing.WorkflowMode == WorkflowModes.ReadyImage
-                        ? existing.ReadyImageAssetId
-                        : existing.WorkflowMode == WorkflowModes.ProductOnly ? existing.ProductAssetId : null;
-                    string? newCommonImage = updated.WorkflowMode == WorkflowModes.ReadyImage
-                        ? updated.ReadyImageAssetId
-                        : updated.WorkflowMode == WorkflowModes.ProductOnly ? updated.ProductAssetId : null;
+                    var oldCommonImage = VideoWorkflows.For(existing.WorkflowMode).PlanImages(existing).CommonImageAssetId;
+                    var updatedImages = VideoWorkflows.For(updated.WorkflowMode).PlanImages(updated);
+                    var newCommonImage = updatedImages.CommonImageAssetId;
 
                     // Chế độ 9 ô: ảnh của cảnh là ảnh storyboard sinh từ nguồn cũ nên phải đặt lại để sinh lại từ nguồn mới.
                     if (sc.ImageAssetId == oldCommonImage || string.IsNullOrWhiteSpace(sc.ImageAssetId) ||
@@ -334,18 +363,21 @@ public sealed partial class ProjectWorkflowService
                         sc.UpdatedAtUtc = updated.UpdatedAtUtc;
                     }
 
-                    if (CanGenerateImage(updated.WorkflowMode, videoStrategy) || updated.ReferenceImageMode == ReferenceImageModes.StoryboardGrid9)
+                    if (updatedImages.GenerationPromptPurpose != null || updated.ReferenceImageMode == ReferenceImageModes.StoryboardGrid9)
                     {
                         staleTasks.Add(JobTaskType.Image);
                     }
                 }
                 if (commonImageChanged || durationChanged || audioChanged || briefChanged || strategyChanged || guidanceChanged)
                 {
-                    staleTasks.Add(JobTaskType.VideoPrompt);
+                    if (VideoWorkflows.For(updated.WorkflowMode).PlanImages(updated).RequiresPromptTemplates)
+                        staleTasks.Add(JobTaskType.VideoPrompt);
+                    else
+                        sc.PromptText = null;
                     staleTasks.Add(JobTaskType.VideoRender);
                 }
 
-                string reason = commonImageChanged ? "Ảnh mẫu/sản phẩm dùng cho cảnh đã thay đổi." :
+                string reason = commonImageChanged ? "Ảnh hoặc video đầu vào dùng cho cảnh đã thay đổi." :
                                 durationChanged ? "Thời lượng clip đã thay đổi." :
                                 audioChanged ? "Âm thanh dùng cho clip đã thay đổi." :
                                 strategyChanged ? "Chiến lược video đã thay đổi." :
@@ -390,13 +422,7 @@ public sealed partial class ProjectWorkflowService
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
-        return updated;
+        var availability = await ReferenceAvailabilityAsync(updated, cancellationToken).ConfigureAwait(false);
+        return updated with { ReferenceVideoAvailable = availability.Available, ReferenceVideoUnavailableReason = availability.Reason };
     }
-
-    /// <summary>
-    /// Cảnh cần job Image riêng: Mẫu + sản phẩm (cả hai luồng); Chỉ sản phẩm chỉ khi nhiều video (D1 của VIDEO_TWO_FLOW_SPLIT).
-    /// </summary>
-    private static bool CanGenerateImage(string workflowMode, string videoStrategy) =>
-        workflowMode == WorkflowModes.ModelAndProduct ||
-        (workflowMode == WorkflowModes.ProductOnly && videoStrategy == VideoStrategies.MultiVideo);
 }

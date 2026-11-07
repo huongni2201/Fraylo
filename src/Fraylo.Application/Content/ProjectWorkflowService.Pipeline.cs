@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Fraylo.Application.Content.Workflows;
 using Fraylo.Application.Jobs;
 using Fraylo.Application.Providers;
 using Fraylo.Contracts.Content;
@@ -8,6 +9,7 @@ using Fraylo.Contracts.Jobs;
 using Fraylo.Contracts.Scenes;
 using Fraylo.Infrastructure.Persistence;
 using Fraylo.Infrastructure.Persistence.Entities;
+using static Fraylo.Application.Content.Workflows.WorkflowSceneJobs;
 
 namespace Fraylo.Application.Content;
 
@@ -59,7 +61,7 @@ public sealed partial class ProjectWorkflowService
     {
         await using var dbContext = new FrayloDbContext(_dbOptions);
         var job = await dbContext.Jobs.FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken).ConfigureAwait(false);
-        if (job == null || job.State != JobState.Succeeded)
+        if (job?.ProjectId == null || job.State != JobState.Succeeded)
         {
             return false;
         }
@@ -180,8 +182,7 @@ public sealed partial class ProjectWorkflowService
                         TargetDurationSeconds = item.TargetDurationSeconds > 0 ? item.TargetDurationSeconds : config.TargetDurationPerSceneSeconds,
                         // Nhiều video: prompt video do Script trả sẵn; ảnh theo cảnh tạo riêng, trừ ReadyImage.
                         PromptText = config.VideoStrategy == VideoStrategies.MultiVideo && !string.IsNullOrWhiteSpace(item.MotionPromptDraft) ? item.MotionPromptDraft : null,
-                        ImageAssetId = config.WorkflowMode == WorkflowModes.ReadyImage ? config.ReadyImageAssetId :
-                                       config.WorkflowMode == WorkflowModes.ProductOnly && config.VideoStrategy == VideoStrategies.SingleVideo ? config.ProductAssetId : null,
+                        ImageAssetId = VideoWorkflows.For(config.WorkflowMode).PlanImages(config).InitialSceneImageAssetId,
                         AudioAssetId = config.AudioOption == AudioOptions.CustomAudio ? config.AudioAssetId : null,
                         Status = "Draft",
                         CreatedAtUtc = nowIso,
@@ -368,7 +369,7 @@ public sealed partial class ProjectWorkflowService
             if (!isPaused && gridMode && !isGridJob)
             {
                 // Ảnh ghép xong -> job tạo ảnh 3×3 từ ảnh ghép.
-                var gridRequest = await BuildGridImageRequestAsync(dbContext, config, scene, cancellationToken).ConfigureAwait(false);
+                var gridRequest = await _sceneJobs.BuildGridImageRequestAsync(dbContext, config, scene, cancellationToken).ConfigureAwait(false);
                 continuationIntent = new WorkflowContinuationIntent(
                     IntentId: Guid.NewGuid().ToString("D").ToLowerInvariant(),
                     ProjectId: job.ProjectId,
@@ -466,6 +467,24 @@ public sealed partial class ProjectWorkflowService
         // 4. Áp dụng kết quả VideoRender -> Lưu video và kiểm tra hoàn tất run
         else if (job.TaskType == JobTaskType.VideoRender)
         {
+            if (config.WorkflowMode == WorkflowModes.ReferenceVideo)
+            {
+                string actualPrompt = "";
+                string caption = "";
+                try
+                {
+                    using var response = JsonDocument.Parse(job.ResultText ?? "{}");
+                    actualPrompt = response.RootElement.TryGetProperty("video_prompt", out var p) && p.ValueKind == JsonValueKind.String ? p.GetString()! : "";
+                    caption = response.RootElement.TryGetProperty("tiktok_content", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString()! : "";
+                }
+                catch (JsonException) { }
+                scene.PromptText = actualPrompt;
+                await SaveOrUpdateContentItemAsync(dbContext, job.ProjectId, new VideoContentItemDto(
+                    Id: scene.Id, ProjectId: job.ProjectId, SceneId: scene.Id, SequenceOrder: scene.SequenceOrder,
+                    Idea: "Video theo mẫu — chuyển động gần đúng", Hook: "", VideoScript: "", VideoPrompt: actualPrompt,
+                    TikTokContent: caption, ImageAssetId: config.ReadyImageAssetId, VideoAssetId: job.ResultReference,
+                    AudioAssetId: null, Status: "Completed", CreatedAtUtc: scene.CreatedAtUtc, UpdatedAtUtc: nowIso), cancellationToken).ConfigureAwait(false);
+            }
             scene.VideoAssetId = job.ResultReference;
             scene.Status = "Completed";
             scene.UpdatedAtUtc = nowIso;
@@ -477,7 +496,7 @@ public sealed partial class ProjectWorkflowService
             if (projectScenes.Count == 1 && !string.IsNullOrWhiteSpace(job.ResultReference))
             {
                 var outputAsset = await dbContext.Assets.FirstOrDefaultAsync(
-                    a => a.Id == job.ResultReference && a.AssetType == "Video" && a.Status == "Linked",
+                    a => a.Id == job.ResultReference && a.AssetType == "Video" && a.Status == "Linked" && (a.ProjectId == null || a.ProjectId == job.ProjectId),
                     cancellationToken).ConfigureAwait(false);
                 var project = await dbContext.Projects.FirstOrDefaultAsync(
                     p => p.Id == job.ProjectId, cancellationToken).ConfigureAwait(false);
@@ -496,7 +515,12 @@ public sealed partial class ProjectWorkflowService
                         State = "Ready",
                         AssetId = outputAsset.Id,
                         ContentHash = outputAsset.Sha256Hash,
-                        CreatedAtUtc = nowIso
+                        CreatedAtUtc = nowIso,
+                        ProvenanceJson = config.WorkflowMode == WorkflowModes.ReferenceVideo ? JsonSerializer.Serialize(new
+                        {
+                            job.Id, job.ProviderKey, job.ConfigSnapshotJson, job.PromptSnapshotText, job.ResultText,
+                            MotionMode = "PromptApproximation", PreserveReferenceDuration = false, AudioSource = "ReferenceVideo", AudioPolicy = "FitOriginalAudioByAI", AudioIdentityVerification = "ProviderReported_UserReview"
+                        }, JsonOptions) : null
                     };
                     dbContext.VideoRevisions.Add(videoRevision);
                     project.CurrentVideoRevisionId = videoRevision.Id;
@@ -663,7 +687,8 @@ public sealed partial class ProjectWorkflowService
         "AI từ chối hoặc phản hồi thiếu prompt video hợp lệ. Prompt cũ (nếu có) không được render cho đến khi tạo lại.";
 
     private Task TryAutoEnqueueVideoRenderAsync(Job job, CancellationToken cancellationToken) =>
-        TryAutoEnqueueVideoRenderForProjectAsync(job.ProjectId, GetWorkflowRunId(job.ConfigSnapshotJson) ?? "none", job.Id, cancellationToken);
+        job.ProjectId is null ? Task.CompletedTask :
+            TryAutoEnqueueVideoRenderForProjectAsync(job.ProjectId, GetWorkflowRunId(job.ConfigSnapshotJson) ?? "none", job.Id, cancellationToken);
 
     /// <summary>
     /// Khởi động lại app: nếu run đang chạy mà render tự động chưa được đưa vào hàng đợi (app dừng sau khi apply VideoPrompt,
@@ -1062,7 +1087,7 @@ public sealed partial class ProjectWorkflowService
             StringComparer.Ordinal);
 
         var succeededJobs = await dbContext.Jobs.AsNoTracking()
-            .Where(job => job.State == JobState.Succeeded && job.ConfigSnapshotJson != null)
+            .Where(job => job.ProjectId != null && job.State == JobState.Succeeded && job.ConfigSnapshotJson != null)
             .Select(job => new { job.Id, job.ConfigSnapshotJson })
             .ToListAsync(cancellationToken).ConfigureAwait(false);
 

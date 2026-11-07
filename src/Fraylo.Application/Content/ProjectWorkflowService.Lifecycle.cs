@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Fraylo.Application.Content.Workflows;
 using Fraylo.Application.Jobs;
 using Fraylo.Application.Providers;
 using Fraylo.Contracts.Content;
@@ -100,7 +101,7 @@ public sealed partial class ProjectWorkflowService
         }
 
         // Kiểm tra thời lượng cấu hình có được provider video hỗ trợ hay không (§2, CD04, CD05)
-        if (!IsVideoDurationSupported(config.TargetDurationPerSceneSeconds))
+        if (config.WorkflowMode != WorkflowModes.ReferenceVideo && !IsVideoDurationSupported(config.TargetDurationPerSceneSeconds))
         {
             var supported = GetSupportedVideoDurations();
             throw new ProjectWorkflowValidationException(
@@ -108,35 +109,9 @@ public sealed partial class ProjectWorkflowService
         }
 
         // 1. Kiểm tra tính hợp lệ của đầu vào theo chế độ (§2)
-        switch (config.WorkflowMode)
-        {
-            case WorkflowModes.ModelAndProduct:
-                if (string.IsNullOrWhiteSpace(config.ModelAssetId) || string.IsNullOrWhiteSpace(config.ProductAssetId))
-                {
-                    throw new ProjectWorkflowValidationException(
-                        "Chế độ 'Mẫu + sản phẩm' yêu cầu cung cấp đầy đủ cả Ảnh mẫu và Ảnh sản phẩm có vai trò rõ ràng.");
-                }
-                break;
-
-            case WorkflowModes.ReadyImage:
-                if (string.IsNullOrWhiteSpace(config.ReadyImageAssetId))
-                {
-                    throw new ProjectWorkflowValidationException(
-                        "Chế độ 'Ảnh đã sẵn sàng' yêu cầu cung cấp Ảnh hoàn thiện (đã mặc/cầm sản phẩm).");
-                }
-                break;
-
-            case WorkflowModes.ProductOnly:
-                if (string.IsNullOrWhiteSpace(config.ProductAssetId))
-                {
-                    throw new ProjectWorkflowValidationException(
-                        "Chế độ 'Chỉ sản phẩm' yêu cầu cung cấp ít nhất một Ảnh sản phẩm.");
-                }
-                break;
-
-            default:
-                throw new ProjectWorkflowValidationException($"Chế độ '{config.WorkflowMode}' không được hỗ trợ.");
-        }
+        var workflow = VideoWorkflows.For(config.WorkflowMode);
+        workflow.ValidateInputs(config);
+        var images = workflow.PlanImages(config);
 
         var nowIso = DateTimeOffset.UtcNow.ToString("o");
         var runId = Guid.NewGuid().ToString("D").ToLowerInvariant();
@@ -165,7 +140,7 @@ public sealed partial class ProjectWorkflowService
 
         // Kiểm tra thời lượng của từng cảnh hiện có theo capability provider (§2, CD04, CD08)
         var supportedDurations = GetSupportedVideoDurations();
-        var invalidDurationScene = existingScenes.FirstOrDefault(s => !IsVideoDurationSupported(Convert.ToInt32(s.TargetDurationSeconds)));
+        var invalidDurationScene = config.WorkflowMode == WorkflowModes.ReferenceVideo ? null : existingScenes.FirstOrDefault(s => !IsVideoDurationSupported(Convert.ToInt32(s.TargetDurationSeconds)));
         if (invalidDurationScene != null)
         {
             throw new ProjectWorkflowValidationException(
@@ -180,25 +155,27 @@ public sealed partial class ProjectWorkflowService
             throw new ProjectWorkflowValidationException(
                 $"Ảnh storyboard {ReferenceImageModes.GridShotCount} ô chỉ dùng cho chế độ một video.");
         }
-        bool composeFirst = !gridMode && singleVideo && config.WorkflowMode == WorkflowModes.ModelAndProduct && existingScenes.Count == 0 && _jobService != null;
+        bool composeFirst = images.ComposeBeforePlanning && existingScenes.Count == 0 && _jobService != null;
+        bool prepareSceneFirst = composeFirst || (images.CreateSceneBeforePlanning && existingScenes.Count == 0 && _jobService != null);
 
         // Prompt dự án > mẫu toàn cục: báo thiếu ngay lúc bấm chạy, không đợi tới giữa pipeline.
-        if (existingScenes.Count == 0 && !composeFirst)
+        if (existingScenes.Count == 0 && !prepareSceneFirst)
         {
             await VideoWorkflowPromptComposer.ResolvePromptAsync(dbContext, config, JobTaskType.Script, cancellationToken);
         }
-        if (CanGenerateImage(config.WorkflowMode, config.VideoStrategy))
+        if (images.GenerationPromptPurpose != null)
         {
-            await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(dbContext, VideoWorkflowPromptComposer.ImagePurposeFor(config.WorkflowMode), cancellationToken);
+            await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(dbContext, images.GenerationPromptPurpose, cancellationToken);
         }
         if (gridMode)
         {
             // Prompt ảnh 3×3 dùng mẫu Image đang chọn, kể cả khi chế độ Mẫu + sản phẩm còn mẫu Ghép ảnh riêng.
             await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(dbContext, JobTaskType.Image, cancellationToken);
         }
-        await VideoWorkflowPromptComposer.ResolvePromptAsync(dbContext, config, JobTaskType.VideoPrompt, cancellationToken);
+        if (images.RequiresPromptTemplates)
+            await VideoWorkflowPromptComposer.ResolvePromptAsync(dbContext, config, JobTaskType.VideoPrompt, cancellationToken);
 
-        if (composeFirst)
+        if (prepareSceneFirst)
         {
             var composeScene = new Scene
             {
@@ -246,6 +223,15 @@ public sealed partial class ProjectWorkflowService
             // Cập nhật audio từ project cho các cảnh hiện có nếu scene chưa có audio riêng
             foreach (var s in existingScenes)
             {
+                if (images.CreateSceneBeforePlanning)
+                {
+                    // Keep candidates/revisions in history, but do not present the previous render as this run's output.
+                    s.VideoAssetId = null;
+                    s.PromptText = null;
+                    s.TargetDurationSeconds = Fraylo.Application.Assets.ReferenceVideoMedia.OutputSeconds;
+                    s.Status = "Draft";
+                    s.UpdatedAtUtc = nowIso;
+                }
                 if (config.AudioOption == AudioOptions.CustomAudio && s.AudioAssetId == null && config.AudioAssetId != null)
                 {
                     s.AudioAssetId = config.AudioAssetId;
@@ -306,7 +292,8 @@ public sealed partial class ProjectWorkflowService
             ClientRequestId: request.ClientRequestId,
             SelectedSceneIds: existingScenes.Select(s => s.Id).ToList(),
             CreatedAtUtc: nowIso,
-            UpdatedAtUtc: nowIso
+            UpdatedAtUtc: nowIso,
+            ReferenceVideoAssetId: runConfig.ReferenceVideoAssetId
         );
         var activeRunKey = $"workflow.active_run.{normalizedProjectId}";
         var activeRunSetting = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == activeRunKey, cancellationToken);

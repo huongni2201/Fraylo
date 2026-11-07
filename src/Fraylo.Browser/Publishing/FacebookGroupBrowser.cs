@@ -9,7 +9,7 @@ namespace Fraylo.Browser.Publishing;
 public sealed record FacebookJoinedGroup(string GroupId, string Name, string Url);
 public sealed record FacebookGroupDiscovery(IReadOnlyList<FacebookJoinedGroup> Groups, bool IsComplete, string Message);
 public sealed record FacebookGroupPostInput(string ProfileId, string AccountIdentity, string GroupUrl,
-    string GroupName, string Text, IReadOnlyList<string> ImagePaths);
+    string GroupName, string Text, IReadOnlyList<string> ImagePaths, Func<string, string, Task>? ReportStage = null);
 
 public interface IFacebookGroupBrowser
 {
@@ -108,6 +108,7 @@ public sealed class FacebookGroupBrowser(IBrowserProcessController controller) :
         var url = NormalizeGroupUrl(input.GroupUrl);
         return await WithProfileAsync(input.ProfileId, input.AccountIdentity, async (page, context) =>
         {
+            if (input.ReportStage != null) await input.ReportStage("checking_target", "Đang xác minh tài khoản và mở nhóm cần đăng.");
             // /me lấy đúng URL actor của phiên; không suy danh tính từ tên hiển thị có thể trùng.
             await page.GotoAsync("https://www.facebook.com/me/", new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 45000 });
             EnsureSessionPage(page);
@@ -155,6 +156,7 @@ public sealed class FacebookGroupBrowser(IBrowserProcessController controller) :
         await heading.WaitForAsync(new() { Timeout = 20000 });
         if (await heading.CountAsync() != 1 || await page.GetByRole(AriaRole.Button, new() { NameRegex = JoinedButton }).CountAsync() != 1)
             throw new FacebookPostException("target_not_found", "Nhóm đổi tên, chưa tham gia hoặc không có quyền đăng; hãy đồng bộ lại.");
+        if (input.ReportStage != null) await input.ReportStage("opening_composer", "Đang mở khung soạn bài trong nhóm.");
         var entry = page.GetByRole(AriaRole.Button, new() { NameRegex = WriteEntryButton });
         if (await entry.CountAsync() != 1) throw new FacebookPostException("composer_not_found", "Không thấy duy nhất một nút soạn bài trong nhóm.");
         await entry.ClickAsync(new() { Timeout = 10000 });
@@ -170,6 +172,7 @@ public sealed class FacebookGroupBrowser(IBrowserProcessController controller) :
         onEmptyComposer?.Invoke();
         if (input.ImagePaths.Count > 0)
         {
+            if (input.ReportStage != null) await input.ReportStage("uploading_media", "Đang đính kèm ảnh vào bài đăng.");
             await dialog.GetByRole(AriaRole.Button, new() { NameRegex = PhotoVideoButton }).ClickAsync();
             // E7: Facebook có hai input; chọn input trong composer thay vì input bất kỳ trên trang.
             var files = dialog.Locator("input[type=file]");
@@ -185,6 +188,7 @@ public sealed class FacebookGroupBrowser(IBrowserProcessController controller) :
         }
         var textbox = dialog.GetByRole(AriaRole.Textbox);
         if (await textbox.CountAsync() != 1) throw new FacebookPostException("composer_not_found", "Composer có nhiều ô nhập; chưa đăng.");
+        if (input.ReportStage != null) await input.ReportStage("checking_composer", "Đang điền và kiểm tra nội dung trước khi gửi.");
         await textbox.FillAsync(input.Text);
         if (NormalizeText(await textbox.InnerTextAsync()) != NormalizeText(input.Text))
             throw new FacebookPostException("content_mismatch", "Nội dung trong composer không khớp; chưa đăng.");
@@ -197,7 +201,7 @@ public sealed class FacebookGroupBrowser(IBrowserProcessController controller) :
     }
 
     // Facebook hiện tối đa 5 ảnh; từ ảnh thứ 6 ô cuối phủ "+N" với N = tổng − 4 (quan sát live với 6 và 8 ảnh, VI).
-    private static async Task<int> AttachedMediaCountAsync(ILocator dialog)
+    internal static async Task<int> AttachedMediaCountAsync(ILocator dialog)
     {
         var group = dialog.GetByRole(AriaRole.Group, new() { NameRegex = AttachedMediaGroup });
         if (await group.CountAsync() != 1) return 0;

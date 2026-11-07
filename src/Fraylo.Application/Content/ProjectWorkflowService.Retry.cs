@@ -187,7 +187,7 @@ public sealed partial class ProjectWorkflowService
     {
         if (media == null) return;
 
-        var assetIds = new[] { media.ModelAssetId, media.ProductAssetId, media.ReadyImageAssetId, media.SourceImageAssetId, media.AudioAssetId }
+        var assetIds = new[] { media.ModelAssetId, media.ProductAssetId, media.ReadyImageAssetId, media.SourceImageAssetId, media.AudioAssetId, media.ReferenceVideoAssetId }
             .Concat(media.ImageAssetIds ?? Array.Empty<string>())
             .Concat(media.MediaRoles?.Values ?? Enumerable.Empty<string>())
             .Where(id => !string.IsNullOrWhiteSpace(id))

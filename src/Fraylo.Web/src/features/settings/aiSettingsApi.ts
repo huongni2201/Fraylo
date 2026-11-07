@@ -9,6 +9,8 @@ export interface SettingsDto {
   videosRootId?: string;
   imageProvider: string | null;
   scriptProvider: string | null;
+  analyticsProvider?: string | null;
+  facebookRewriteProvider?: string | null;
   videoPromptProvider: string | null;
   themePreference?: string;
   effectiveTheme?: string;
@@ -23,6 +25,8 @@ export interface AiSettingsSaveRequest {
   clientRequestId?: string;
   imageProvider?: string | null;
   scriptProvider?: string | null;
+  analyticsProvider?: string | null;
+  facebookRewriteProvider?: string | null;
   videoPromptProvider?: string | null;
   maxOpenBrowsers: number;
   maxConcurrentJobs: number;

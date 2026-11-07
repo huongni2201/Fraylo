@@ -65,7 +65,7 @@ export type JobReasonCode =
 
 export interface JobSummaryDto {
   id: string;
-  projectId: string;
+  projectId: string | null;
   sceneId: string | null;
   taskType: JobTaskType | string;
   state: JobState;
@@ -87,7 +87,7 @@ export interface JobSummaryDto {
 
 export interface JobDetailDto {
   id: string;
-  projectId: string;
+  projectId: string | null;
   sceneId: string | null;
   taskType: JobTaskType | string;
   state: JobState;
@@ -196,7 +196,7 @@ export interface JobListHistoryResponseData {
 
 export interface JobProgressUpdatedPayload {
   jobId: string;
-  projectId: string;
+  projectId: string | null;
   sceneId: string | null;
   state: JobState;
   progressPercent: number;
@@ -225,6 +225,10 @@ export interface TaskTypeMetadata {
 
 export function getTaskTypeInfo(taskType: string): TaskTypeMetadata {
   switch (taskType) {
+    case "FacebookContentRewrite":
+      return { label: "AI viết lại bài nhóm", icon: FileText, description: "Tối đa 10 phiên bản cho mỗi lượt" };
+    case "AnalyticsAnalysis":
+      return { label: "AI phân tích số liệu", icon: HelpCircle, description: "Báo cáo Analytics" };
     case "Script":
       return { label: "Kịch bản", icon: FileText, description: "Tạo cấu trúc kịch bản và phân cảnh" };
     case "Image":
@@ -320,6 +324,10 @@ export function getStateBadgeInfo(state: JobState, cancelRequested?: boolean): S
 export function formatReasonCode(reasonCode?: string | null): string {
   if (!reasonCode) return "";
   switch (reasonCode.toLowerCase()) {
+    case "provider_account_required":
+      return "Chưa có tài khoản AI đủ điều kiện cho nhà cung cấp của tác vụ. Trong Cài đặt → Tài khoản, hãy thêm tài khoản nếu cần, xác minh phiên đăng nhập và chọn Bật hoạt động.";
+    case "analysisrestarted":
+      return "Fraylo đã khởi động lại. Bấm Tiếp tục để đưa lượt phân tích trở lại hàng đợi.";
     case "login_required":
       return "Cần đăng nhập tài khoản provider để tiếp tục.";
     case "session_expired":
@@ -460,6 +468,15 @@ export function getRecommendedAction(
       label: "",
       icon: AlertCircle,
       description: "Tự động hóa chưa sẵn sàng. Kiểm tra nhà cung cấp trước khi tạo yêu cầu mới.",
+    };
+  }
+
+  if (job.state === "Queued" && job.reasonCode === "provider_account_required") {
+    return {
+      type: "navigate_settings_accounts",
+      label: "Đến Cài đặt Tài khoản",
+      icon: Settings,
+      variant: "default",
     };
   }
 

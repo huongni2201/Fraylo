@@ -49,6 +49,8 @@ public sealed class SettingsService
 {
     public const string KeyTheme = "ui.theme";
     public const string KeyImageProvider = "ai.providers.image";
+    public const string KeyFacebookRewriteProvider = "ai.providers.facebookRewrite";
+    public const string KeyAnalyticsProvider = "ai.providers.analytics";
     public const string KeyScriptProvider = "ai.providers.script";
     public const string KeyVideoPromptProvider = "ai.providers.videoPrompt";
     public const string KeyRevision = "settings.revision";
@@ -85,6 +87,8 @@ public sealed class SettingsService
             .Where(s => s.Key == KeyTheme ||
                         s.Key == KeyImageProvider ||
                         s.Key == KeyScriptProvider ||
+                        s.Key == KeyAnalyticsProvider ||
+                        s.Key == KeyFacebookRewriteProvider ||
                         s.Key == KeyVideoPromptProvider ||
                         s.Key == KeyRevision ||
                         s.Key == KeyMaxOpenBrowsers ||
@@ -129,7 +133,9 @@ public sealed class SettingsService
             Revision: revision,
             MaxOpenBrowsers: maxOpenBrowsers,
             MaxConcurrentJobs: maxConcurrentJobs,
-            VisibleBrowserProviders: ParseVisibleBrowserProviders(settings.GetValueOrDefault(KeyVisibleBrowserProviders))
+            VisibleBrowserProviders: ParseVisibleBrowserProviders(settings.GetValueOrDefault(KeyVisibleBrowserProviders)),
+            AnalyticsProvider: settings.GetValueOrDefault(KeyAnalyticsProvider),
+            FacebookRewriteProvider: settings.GetValueOrDefault(KeyFacebookRewriteProvider)
         );
     }
 
@@ -168,6 +174,8 @@ public sealed class SettingsService
         // Validate AI Provider keys
         ValidateProviderKey("imageProvider", request.ImageProvider, fieldErrors);
         ValidateProviderKey("scriptProvider", request.ScriptProvider, fieldErrors);
+        ValidateProviderKey("analyticsProvider", request.AnalyticsProvider, fieldErrors);
+        ValidateProviderKey("facebookRewriteProvider", request.FacebookRewriteProvider, fieldErrors);
         ValidateProviderKey("videoPromptProvider", request.VideoPromptProvider, fieldErrors);
 
         // Validate budgets
@@ -230,6 +238,13 @@ public sealed class SettingsService
             if (request.ImageProvider is not null)
             {
                 await UpsertSettingAsync(dbContext, KeyImageProvider, request.ImageProvider.Trim(), now, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (request.FacebookRewriteProvider is not null)
+                await UpsertSettingAsync(dbContext, KeyFacebookRewriteProvider, request.FacebookRewriteProvider.Trim(), now, cancellationToken).ConfigureAwait(false);
+            if (request.AnalyticsProvider is not null)
+            {
+                await UpsertSettingAsync(dbContext, KeyAnalyticsProvider, request.AnalyticsProvider.Trim(), now, cancellationToken).ConfigureAwait(false);
             }
 
             if (request.ScriptProvider is not null)

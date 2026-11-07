@@ -174,6 +174,8 @@ export function AiProviderSettingsPanel({
 
   // Form draft state
   const [scriptProvider, setScriptProvider] = useState<string>("");
+  const [analyticsProvider, setAnalyticsProvider] = useState("");
+  const [facebookRewriteProvider, setFacebookRewriteProvider] = useState("");
   const [imageProvider, setImageProvider] = useState<string>("");
   const [videoPromptProvider, setVideoPromptProvider] = useState<string>("");
   const [maxOpenBrowsers, setMaxOpenBrowsers] = useState<number>(4);
@@ -204,6 +206,8 @@ export function AiProviderSettingsPanel({
 
       setSavedSettings(settingsRes);
       setScriptProvider(settingsRes.scriptProvider ?? "");
+      setAnalyticsProvider(settingsRes.analyticsProvider ?? "");
+      setFacebookRewriteProvider(settingsRes.facebookRewriteProvider ?? "");
       setImageProvider(settingsRes.imageProvider ?? "");
       setVideoPromptProvider(settingsRes.videoPromptProvider ?? "");
       setMaxOpenBrowsers(settingsRes.maxOpenBrowsers ?? 4);
@@ -231,6 +235,8 @@ export function AiProviderSettingsPanel({
     if (!savedSettings) return false;
     return (
       (scriptProvider || null) !== (savedSettings.scriptProvider || null) ||
+      analyticsProvider !== (savedSettings.analyticsProvider ?? "") ||
+      facebookRewriteProvider !== (savedSettings.facebookRewriteProvider ?? "") ||
       (imageProvider || null) !== (savedSettings.imageProvider || null) ||
       (videoPromptProvider || null) !== (savedSettings.videoPromptProvider || null) ||
       maxOpenBrowsers !== (savedSettings.maxOpenBrowsers ?? 4) ||
@@ -240,6 +246,8 @@ export function AiProviderSettingsPanel({
   }, [
     savedSettings,
     scriptProvider,
+    analyticsProvider,
+    facebookRewriteProvider,
     imageProvider,
     videoPromptProvider,
     maxOpenBrowsers,
@@ -256,6 +264,8 @@ export function AiProviderSettingsPanel({
   const handleDiscard = useCallback(() => {
     if (savedSettings) {
       setScriptProvider(savedSettings.scriptProvider ?? "");
+      setAnalyticsProvider(savedSettings.analyticsProvider ?? "");
+      setFacebookRewriteProvider(savedSettings.facebookRewriteProvider ?? "");
       setImageProvider(savedSettings.imageProvider ?? "");
       setVideoPromptProvider(savedSettings.videoPromptProvider ?? "");
       setMaxOpenBrowsers(savedSettings.maxOpenBrowsers ?? 4);
@@ -360,6 +370,8 @@ export function AiProviderSettingsPanel({
       const res = await aiSettingsApi.saveSettings({
         expectedRevision: savedSettings?.revision ?? 0,
         scriptProvider: scriptProvider || null,
+        analyticsProvider,
+    facebookRewriteProvider,
         imageProvider: imageProvider || null,
         videoPromptProvider: videoPromptProvider || null,
         maxOpenBrowsers,
@@ -374,6 +386,8 @@ export function AiProviderSettingsPanel({
       // Thành công: cập nhật state đã lưu
       setSavedSettings(res);
       setScriptProvider(res.scriptProvider ?? "");
+      setAnalyticsProvider(res.analyticsProvider ?? "");
+      setFacebookRewriteProvider(res.facebookRewriteProvider ?? "");
       setImageProvider(res.imageProvider ?? "");
       setVideoPromptProvider(res.videoPromptProvider ?? "");
       setMaxOpenBrowsers(res.maxOpenBrowsers ?? 4);
@@ -558,6 +572,34 @@ export function AiProviderSettingsPanel({
                   <p className="text-xs text-destructive">{fieldErrors.scriptProvider[0]}</p>
                 )}
                 {renderProviderStatus(scriptProvider, "Script")}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="analytics-provider">AI phân tích số liệu</Label>
+                <select id="analytics-provider" value={analyticsProvider} aria-describedby="analytics-provider-desc"
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:ring-1 focus-visible:ring-ring"
+                  onChange={event => { setAnalyticsProvider(event.target.value); setSaveSuccessMessage(null); }}>
+                  <option value="">Chưa chọn</option>
+                  <option value="gemini-web">Gemini Web</option>
+                  <option value="chatgpt-web">ChatGPT Web</option>
+                </select>
+                <p id="analytics-provider-desc" className="text-xs text-muted-foreground">
+                  Khi chọn AI, Fraylo tự gửi bản tóm tắt sau mỗi lần lưu số liệu TikTok hoặc Fanpage. Kết nối web đang ở chế độ thử nghiệm.
+                </p>
+                {fieldErrors.analyticsProvider && <p className="text-xs text-destructive">{fieldErrors.analyticsProvider[0]}</p>}
+                {renderProviderStatus(analyticsProvider, "AnalyticsAnalysis")}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="facebook-rewrite-provider">AI viết lại bài nhóm Facebook</Label>
+                <select id="facebook-rewrite-provider" value={facebookRewriteProvider} aria-describedby="facebook-rewrite-desc"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:ring-2 focus-visible:ring-ring"
+                  onChange={event => { setFacebookRewriteProvider(event.target.value); setSaveSuccessMessage(null); }}>
+                  <option value="">Chưa chọn</option><option value="gemini-web">Gemini Web</option><option value="chatgpt-web">ChatGPT Web</option>
+                </select>
+                <p id="facebook-rewrite-desc" className="text-xs text-muted-foreground">Khi chọn Viết lại nội dung trong bài nhóm có chữ, AI tạo nội dung riêng cho từng nhóm, tối đa 10 bản/lượt. Chọn Đăng nguyên bản để bỏ qua AI. Các lượt dùng số tác vụ đồng thời của tài khoản AI. Kết nối web đang thử nghiệm.</p>
+                {fieldErrors.facebookRewriteProvider && <p role="alert" className="text-xs text-destructive">{fieldErrors.facebookRewriteProvider[0]}</p>}
+                {renderProviderStatus(facebookRewriteProvider, "FacebookContentRewrite")}
               </div>
 
               {/* Dropdown 2: Image Provider */}

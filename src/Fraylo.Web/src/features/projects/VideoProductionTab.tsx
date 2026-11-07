@@ -1,6 +1,7 @@
 import { jobApi } from "../jobs/jobApi";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { StoryboardPanel } from "./StoryboardPanel";
+import { ReferenceVideoInputs } from "./ReferenceVideoInputs";
 import { ProjectActivityLog } from "./ProjectActivityLog";
 import { StoryboardGridProgress } from "./StoryboardGridProgress";
 import { WorkflowStepIssues } from "./WorkflowStepRetry";
@@ -217,6 +218,7 @@ export function VideoProductionTab({
 
   const scriptPromptSource = appliedPromptSource(config?.scriptGuidance, activeTemplateInfo?.name);
   const videoPromptSource = appliedPromptSource(config?.videoGuidance, videoPromptTemplateInfo?.name);
+  const isReferenceVideo = config?.workflowMode === WorkflowModes.ReferenceVideo;
 
   const isGridMode =
     (config?.videoStrategy ?? VideoStrategies.MultiVideo) === VideoStrategies.SingleVideo &&
@@ -232,6 +234,7 @@ export function VideoProductionTab({
       modelAssetId: config.modelAssetId,
       productAssetId: config.productAssetId,
       readyImageAssetId: config.readyImageAssetId,
+      referenceVideoAssetId: isReferenceVideo ? config.referenceVideoAssetId : null,
       audioOption: config.audioOption,
       audioAssetId: config.audioAssetId,
       videoStrategy: strategy,
@@ -440,6 +443,14 @@ export function VideoProductionTab({
     setConfig({
       ...config,
       workflowMode: mode,
+      ...(mode === WorkflowModes.ReferenceVideo ? {
+        videoStrategy: VideoStrategies.SingleVideo,
+        referenceImageMode: ReferenceImageModes.Direct,
+        targetSceneCount: 1,
+        targetDurationPerSceneSeconds: 10,
+        audioOption: AudioOptions.None,
+        audioAssetId: null,
+      } : {}),
     });
     setIsDirty(true);
   };
@@ -609,7 +620,7 @@ export function VideoProductionTab({
       setErrorMessage(null);
 
       const isSupportedDuration = DEFAULT_SUPPORTED_DURATIONS.includes(config.targetDurationPerSceneSeconds as (typeof DEFAULT_SUPPORTED_DURATIONS)[number]);
-      if (!isSupportedDuration) {
+      if (!isSupportedDuration && !isReferenceVideo) {
         setErrorMessage(`Thời lượng ${config.targetDurationPerSceneSeconds}s không được nhà cung cấp video hỗ trợ. Vui lòng chọn lại thời lượng hợp lệ (${DEFAULT_SUPPORTED_DURATIONS.join("s hoặc ")}s) trước khi bắt đầu.`);
         setIsStarting(false);
         return;
@@ -911,19 +922,22 @@ export function VideoProductionTab({
 
                   {/* Mode 3: Chỉ sản phẩm */}
                   <div
-                    onClick={() => handleModeChange(WorkflowModes.ProductOnly)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleModeChange(WorkflowModes.ReferenceVideo); } }}
+                    onClick={() => handleModeChange(WorkflowModes.ReferenceVideo)}
                     className={`p-4 rounded-lg border cursor-pointer transition-[color,background-color,border-color,box-shadow,opacity,transform] ${
-                      config.workflowMode === WorkflowModes.ProductOnly
+                      config.workflowMode === WorkflowModes.ReferenceVideo
                         ? "border-primary bg-primary/5 ring-2 ring-primary/20"
                         : "border-border hover:border-primary/40 bg-card"
                     }`}
                   >
                     <div className="flex items-center gap-2.5 font-semibold text-sm mb-1.5 text-foreground">
                       <Film className="h-4 w-4 text-primary" />
-                      <span>Chỉ sản phẩm</span>
+                      <span>Làm theo video mẫu</span>
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      Chỉ đưa ảnh sản phẩm, không bắt ảnh mẫu. Dùng trực tiếp hoặc AI tự đổi nền/bố cục theo cảnh.
+                      Ảnh mặc sản phẩm + video mẫu. Mô phỏng chuyển động, dùng nhạc gốc theo độ dài kết quả; thời lượng có thể khác mẫu.
                     </p>
                   </div>
                 </div>
@@ -932,6 +946,8 @@ export function VideoProductionTab({
               <Separator />
 
               {/* Ô gán vai trò hình ảnh theo chế độ */}
+              {isReferenceVideo ? <ReferenceVideoInputs key={projectId} config={config} disabled={isStarting}
+                onChange={patch => { setConfig(previous => previous?.projectId === projectId ? { ...previous, ...patch } : previous); setIsDirty(true); }} /> : <>
               <div>
                 <Label className="text-sm font-medium mb-3 block">Hình ảnh đầu vào:</Label>
 
@@ -1422,6 +1438,8 @@ export function VideoProductionTab({
                   </p>
                 </div>
               </div>
+              </>}
+              {config.workflowMode === WorkflowModes.ProductOnly && <p role="alert" className="text-sm text-warning">Chế độ Chỉ sản phẩm cũ đã được thay thế. Hãy chọn một trong ba chế độ hiện hành và lưu nháp.</p>}
             </CardContent>
 
             <CardFooter className="flex items-center justify-between border-t pt-4">
@@ -1439,7 +1457,7 @@ export function VideoProductionTab({
                 type="button"
                 size="lg"
                 onClick={handleStartWorkflow}
-                disabled={isStarting}
+                disabled={isStarting || (isReferenceVideo && (!config.readyImageAssetId || !config.referenceVideoAssetId || !config.referenceVideoAvailable)) || config.workflowMode === WorkflowModes.ProductOnly}
                 className="gap-2 bg-primary text-primary-foreground font-semibold px-6 shadow-md hover:shadow-lg transition-[color,background-color,border-color,box-shadow,opacity,transform]"
               >
                 {isStarting ? (
@@ -1450,7 +1468,7 @@ export function VideoProductionTab({
                 ) : (
                   <>
                     <Sparkles className="h-4 w-4" />
-                    Bắt đầu tạo video
+                    {isReferenceVideo ? "Tạo video theo mẫu" : "Bắt đầu tạo video"}
                   </>
                 )}
               </Button>

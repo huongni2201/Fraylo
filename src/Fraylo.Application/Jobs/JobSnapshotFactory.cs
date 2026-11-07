@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Fraylo.Application.Prompts;
+using Fraylo.Application.Assets;
 using Fraylo.Application.Prompts.Models;
 using Fraylo.Application.Settings;
 using Fraylo.Contracts.Jobs;
@@ -144,6 +145,7 @@ public sealed class JobSnapshotFactory
             if (!string.IsNullOrWhiteSpace(request.MediaSnapshot.ReadyImageAssetId)) assetIds.Add(request.MediaSnapshot.ReadyImageAssetId);
             if (!string.IsNullOrWhiteSpace(request.MediaSnapshot.SourceImageAssetId)) assetIds.Add(request.MediaSnapshot.SourceImageAssetId);
             if (!string.IsNullOrWhiteSpace(request.MediaSnapshot.AudioAssetId)) assetIds.Add(request.MediaSnapshot.AudioAssetId);
+            if (!string.IsNullOrWhiteSpace(request.MediaSnapshot.ReferenceVideoAssetId)) assetIds.Add(request.MediaSnapshot.ReferenceVideoAssetId);
             if (request.MediaSnapshot.ImageAssetIds is { } imageIds) assetIds.AddRange(imageIds);
 
             if (assetIds.Count > 0)
@@ -182,9 +184,19 @@ public sealed class JobSnapshotFactory
             }
         }
 
+        if (resolvedMediaSnapshot?.ReferenceVideoAssetId is not null || resolvedMediaSnapshot?.ReferenceVideoMode is not null)
+        {
+            if (_dbOptions is null || request.TaskType != JobTaskType.VideoRender)
+                throw new JobValidationException("Video mẫu chỉ được dùng trong job render có kiểm chứng media.");
+            var validated = await ReferenceVideoMedia.ValidateAsync(_dbOptions, request.ProjectId, resolvedMediaSnapshot!,
+                requireSnapshotHashes: false, cancellationToken).ConfigureAwait(false);
+            ReferenceVideoMedia.EnsureProviderSupported(validated.Snapshot);
+            resolvedMediaSnapshot = validated.Snapshot;
+        }
+
         var configSnapshot = new
         {
-            ConfigVersion = 1,
+            ConfigVersion = resolvedMediaSnapshot?.ReferenceVideoAssetId is null ? 1 : 3,
             WorkflowVersion = 1,
             TimeoutSeconds = 60,
             MaxAttempts = 3,

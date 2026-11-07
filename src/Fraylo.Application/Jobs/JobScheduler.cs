@@ -201,7 +201,7 @@ public sealed class JobScheduler : IJobWakeupNotifier, IAsyncDisposable
             var candidateJobs = await dbContext.Jobs
                 .AsNoTracking()
                 .Where(j => j.State == JobState.Queued &&
-                            !pausedWorkflowProjectIds.Contains(j.ProjectId) &&
+                            (j.ProjectId == null || !pausedWorkflowProjectIds.Contains(j.ProjectId)) &&
                             (j.RetryAfterUtc == null || string.Compare(j.RetryAfterUtc, nowIso) <= 0))
                 .OrderBy(j => j.CreatedAtUtc)
                 .ThenBy(j => j.Id)
@@ -472,9 +472,11 @@ public sealed class JobScheduler : IJobWakeupNotifier, IAsyncDisposable
     {
         try
         {
-            // Chỉ render video đã gửi mới cần giữ ranh giới side effect (không gửi lại mù, khôi phục từ side chat);
+            // Video và báo cáo chưa rõ kết quả giữ checkpoint để tránh gửi lại mù.
             // Script/Image/VideoPrompt lỗi sau khi gửi chỉ là lỗi thường: xóa cờ để thử lại được, không có bước đối soát.
-            var keepSideEffect = sideEffectCommitted && job.TaskType == JobTaskType.VideoRender;
+            var keepSideEffect = sideEffectCommitted && (job.TaskType == JobTaskType.VideoRender ||
+                job.TaskType == JobTaskType.AnalyticsAnalysis && reason != Analytics.AnalyticsAnalysisResultParser.InvalidResult ||
+                job.TaskType == JobTaskType.FacebookContentRewrite && reason != Facebook.FacebookContentRewriteResultParser.InvalidResult);
             var decision = JobRetryAndCancelPolicy.EvaluateFailure(job, reason, keepSideEffect);
 
             if (decision.TargetState == JobState.AwaitingUser)

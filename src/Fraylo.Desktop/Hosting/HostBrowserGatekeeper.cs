@@ -126,6 +126,8 @@ public sealed class HostBrowserGatekeeper : IBrowserGatekeeper, IDisposable
         await launchLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            var analytics = role is JobTaskType.AnalyticsAnalysis or JobTaskType.FacebookContentRewrite;
+            if (analytics && _processController?.TryGetContext(profileId) is { IsHeadless: false }) return null;
             if (_processController != null && !_processController.IsRunning(profileId))
             {
                 try
@@ -133,7 +135,7 @@ public sealed class HostBrowserGatekeeper : IBrowserGatekeeper, IDisposable
                     if (_activity != null)
                         await _activity.WriteAsync(jobId, "browser", "Đang khởi động browser cho tác vụ.", cancellationToken).ConfigureAwait(false);
                     var profile = _isBrowserVisible == null ? null : await _profileRegistry.GetProfileAsync(profileId, cancellationToken).ConfigureAwait(false);
-                    if (profile != null && _isBrowserVisible!(profile.ProviderKey))
+                    if (!analytics && profile != null && _isBrowserVisible!(profile.ProviderKey))
                         await _processController.LaunchVisibleAutomationContextAsync(profileId, cancellationToken).ConfigureAwait(false);
                     else
                         await _processController.LaunchPersistentContextAsync(profileId, isHeadless: true, cancellationToken: cancellationToken).ConfigureAwait(false);

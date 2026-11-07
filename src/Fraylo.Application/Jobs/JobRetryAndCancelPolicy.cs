@@ -233,7 +233,8 @@ public static class JobRetryAndCancelPolicy
         }
 
         // 4. Hết lượt thử (Attempts >= MaxAttempts) -> Chuyển sang Failed vĩnh viễn
-        if (job.Attempts >= job.MaxAttempts)
+        // Analytics only creates new attempts on explicit requests. Keep the actionable failure code on this report.
+        if (job.TaskType is not (JobTaskType.AnalyticsAnalysis or JobTaskType.FacebookContentRewrite) && job.Attempts >= job.MaxAttempts)
         {
             string finalReason = (string.Equals(reasonCode, JobReasonCode.LeaseExpiredRetry, StringComparison.OrdinalIgnoreCase) ||
                                   string.Equals(reasonCode, JobReasonCode.LeaseExpiredMaxAttempts, StringComparison.OrdinalIgnoreCase))

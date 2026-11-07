@@ -10,8 +10,10 @@ public static class JobTaskType
     public const string Image = "Image";
     public const string VideoPrompt = "VideoPrompt";
     public const string VideoRender = "VideoRender";
+    public const string AnalyticsAnalysis = "AnalyticsAnalysis";
+    public const string FacebookContentRewrite = "FacebookContentRewrite";
 
-    public static readonly string[] All = [Script, Image, VideoPrompt, VideoRender];
+    public static readonly string[] All = [Script, Image, VideoPrompt, VideoRender, AnalyticsAnalysis, FacebookContentRewrite];
     public static bool IsValid(string type) => All.Contains(type, StringComparer.OrdinalIgnoreCase);
 }
 
@@ -57,7 +59,7 @@ public static class JobReasonCode
 
 public sealed record JobSummaryDto(
     string Id,
-    string ProjectId,
+    string? ProjectId,
     string? SceneId,
     string TaskType,
     string State,
@@ -78,7 +80,7 @@ public sealed record JobSummaryDto(
 
 public sealed record JobDetailDto(
     string Id,
-    string ProjectId,
+    string? ProjectId,
     string? SceneId,
     string TaskType,
     string State,
@@ -119,7 +121,15 @@ public sealed record JobMediaSnapshotDto(
     int DurationSeconds = 15,
     string? InputRevision = null,
     IReadOnlyDictionary<string, string>? MediaRoles = null,
-    IReadOnlyList<string>? ImageAssetIds = null
+    IReadOnlyList<string>? ImageAssetIds = null,
+    string? ReferenceVideoAssetId = null,
+    string? ReferenceVideoAssetHash = null,
+    string? ReferenceVideoMode = null,
+    double? ReferenceVideoDurationSeconds = null,
+    int? ReferenceVideoWidth = null,
+    int? ReferenceVideoHeight = null,
+    bool? ReferenceVideoHasAudio = null,
+    string? ReferenceAudioPolicy = null
 );
 
 public sealed record JobEnqueueRequest(
@@ -209,7 +219,7 @@ public sealed record JobRecoverOutputRequest(string JobId);
 
 public sealed record JobProgressUpdatedPayload(
     string JobId,
-    string ProjectId,
+    string? ProjectId,
     string? SceneId,
     string State,
     int ProgressPercent,

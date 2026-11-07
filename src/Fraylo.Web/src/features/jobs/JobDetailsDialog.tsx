@@ -142,7 +142,7 @@ export function JobDetailsDialog({
     sceneId: job.sceneId,
     taskType: job.taskType,
     state: detailData?.state ?? job.state,
-    reasonCode: detailData?.reasonCode ?? job.reasonCode,
+    reasonCode: detailData ? detailData.reasonCode : job.reasonCode,
     providerKey: detailData?.providerKey ?? ("providerKey" in job ? (job as JobDetailDto).providerKey : "Đang kiểm tra..."),
     storageRootId: detailData?.storageRootId ?? ("storageRootId" in job ? (job as JobDetailDto).storageRootId : "Mặc định"),
     attempts: detailData?.attempts ?? job.attempts,

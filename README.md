@@ -5,11 +5,13 @@
 <h1 align="center">Fraylo</h1>
 
 <p align="center"><strong>Ideas into motion.</strong></p>
-<p align="center">Ứng dụng Windows hỗ trợ sản xuất video với AI và quản lý đăng TikTok.</p>
+<p align="center">Ứng dụng Windows hỗ trợ sản xuất video với AI và quản lý đăng TikTok, Facebook.</p>
 
-Fraylo tập hợp kịch bản, ảnh tham chiếu, prompt, video và lịch sử xử lý trong một ứng dụng desktop. Dự án, tài nguyên và phiên làm việc được quản lý trên máy; các bước tạo nội dung AI và đăng TikTok kết nối đến dịch vụ bên ngoài qua trình duyệt.
+Fraylo tập hợp kịch bản, ảnh tham chiếu, prompt, video và lịch sử xử lý trong một ứng dụng desktop. Dự án, tài nguyên và phiên làm việc được quản lý trên máy. Fraylo kết nối AI, TikTok và Facebook qua trình duyệt.
 
-> **Trạng thái:** đang phát triển. Các adapter ChatGPT, Gemini và MuseAI đang ở chế độ thử nghiệm; luồng đăng TikTok chưa được nghiệm thu đầy đủ với tài khoản thật. Xem [checkpoint hiện hành](docs/agents/STATUS.md) để biết phạm vi đã kiểm chứng và các giới hạn còn mở.
+Tải bộ cài Windows từ [trang phát hành Fraylo](https://github.com/huongni2201/Fraylo/releases/latest).
+
+> **Trạng thái** · Các adapter ChatGPT, Gemini và MuseAI đang ở chế độ thử nghiệm. Xem phạm vi hỗ trợ và kiểm thử Facebook trong [tài liệu đăng bài](docs/plans/FACEBOOK_PUBLISHING_PLAN.md).
 
 ## Tính năng chính
 
@@ -19,6 +21,7 @@ Fraylo tập hợp kịch bản, ảnh tham chiếu, prompt, video và lịch s�
 - **Theo dõi tác vụ:** xem hàng đợi, tiến trình, kết quả và nhật ký; hủy hoặc thử lại thủ công khi cần.
 - **Quản lý tài khoản:** tách phiên trình duyệt cho tài khoản AI và TikTok, đăng nhập thủ công.
 - **Đăng TikTok theo yêu cầu:** chọn video, tài khoản và nội dung đăng. Video tạo xong không tự động được đăng.
+- **Facebook:** đăng nhóm và cá nhân, hẹn giờ, xem nhật ký từng lượt và cập nhật số liệu Fanpage.
 
 ## Bắt đầu với mã nguồn
 
@@ -61,7 +64,7 @@ pnpm --dir .\src\Fraylo.Web build
 pnpm --dir .\src\Fraylo.Web test
 ```
 
-Các bộ smoke test backend nằm trong [tests/](tests). Kết quả kiểm thử và phạm vi chưa chạy được ghi tại [STATUS](docs/agents/STATUS.md); kiểm thử bằng fixture không thay thế việc xác nhận trên dịch vụ thật.
+Các bộ smoke test backend nằm trong [tests/](tests). Kết quả kiểm thử bằng fixture và trên dịch vụ thật được ghi riêng trong tài liệu của từng tính năng.
 
 ## Quy trình sử dụng
 

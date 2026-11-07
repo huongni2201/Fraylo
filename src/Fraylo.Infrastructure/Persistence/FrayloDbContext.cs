@@ -29,10 +29,14 @@ public class FrayloDbContext : DbContext
 
     public DbSet<FacebookTarget> FacebookTargets => Set<FacebookTarget>();
     public DbSet<FacebookPostBatch> FacebookPostBatches => Set<FacebookPostBatch>();
+    public DbSet<FacebookRewriteChunk> FacebookRewriteChunks => Set<FacebookRewriteChunk>();
     public DbSet<FacebookPostTask> FacebookPostTasks => Set<FacebookPostTask>();
     public DbSet<FacebookPostTaskMedia> FacebookPostTaskMedia => Set<FacebookPostTaskMedia>();
     public DbSet<FacebookTaskSchedule> FacebookTaskSchedules => Set<FacebookTaskSchedule>();
     public DbSet<FacebookDraft> FacebookDrafts => Set<FacebookDraft>();
+    public DbSet<FacebookAnalyticsPage> FacebookAnalyticsPages => Set<FacebookAnalyticsPage>();
+    public DbSet<FacebookAnalyticsCapture> FacebookAnalyticsCaptures => Set<FacebookAnalyticsCapture>();
+    public DbSet<FacebookContentMetricSnapshot> FacebookContentMetricSnapshots => Set<FacebookContentMetricSnapshot>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {

@@ -11,7 +11,9 @@ public class JobConfiguration : IEntityTypeConfiguration<Job>
         builder.ToTable("Job", t =>
         {
             t.HasCheckConstraint("CK_Job_TaskType_Scene",
-                "(task_type = 'Script' AND scene_id IS NULL) OR task_type IN ('Image', 'VideoPrompt', 'VideoRender')");
+                "(task_type = 'AnalyticsAnalysis' AND project_id IS NULL AND scene_id IS NULL AND analytics_report_id IS NOT NULL AND facebook_rewrite_chunk_id IS NULL) OR " +
+                "(task_type = 'FacebookContentRewrite' AND project_id IS NULL AND scene_id IS NULL AND analytics_report_id IS NULL AND facebook_rewrite_chunk_id IS NOT NULL) OR " +
+                "(project_id IS NOT NULL AND analytics_report_id IS NULL AND facebook_rewrite_chunk_id IS NULL AND ((task_type = 'Script' AND scene_id IS NULL) OR task_type IN ('Image', 'VideoPrompt', 'VideoRender')))");
         });
 
         builder.HasKey(j => j.Id);
@@ -23,8 +25,16 @@ public class JobConfiguration : IEntityTypeConfiguration<Job>
 
         builder.Property(j => j.ProjectId)
             .HasColumnName("project_id")
-            .HasColumnType("TEXT")
-            .IsRequired();
+            .HasColumnType("TEXT");
+
+        builder.Property(j => j.AnalyticsReportId).HasColumnName("analytics_report_id");
+        builder.Property(j => j.FacebookRewriteChunkId).HasColumnName("facebook_rewrite_chunk_id");
+        builder.HasOne(j => j.FacebookRewriteChunk).WithOne(c => c.Job)
+            .HasForeignKey<Job>(j => j.FacebookRewriteChunkId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasIndex(j => j.FacebookRewriteChunkId).IsUnique().HasDatabaseName("ux_job_facebook_rewrite_chunk");
+        builder.HasOne(j => j.AnalyticsReport).WithOne(r => r.Job)
+            .HasForeignKey<Job>(j => j.AnalyticsReportId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasIndex(j => j.AnalyticsReportId).IsUnique().HasDatabaseName("ux_job_analysis_report");
 
         builder.Property(j => j.SceneId)
             .HasColumnName("scene_id")

@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Fraylo.Application.Providers;
+using Fraylo.Application.Analytics;
 using Fraylo.Contracts.Providers;
 
 namespace Fraylo.Application.Jobs;
@@ -31,6 +32,9 @@ public sealed class ProductionJobExecutor : IJobExecutor
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
+
+        if (context.TaskType == Fraylo.Contracts.Jobs.JobTaskType.FacebookContentRewrite && !string.IsNullOrWhiteSpace(context.ExistingResultText))
+            return Facebook.FacebookContentRewriteResultParser.Validate(context, new(true, ResultReference: context.ExistingResultReference, ResultText: context.ExistingResultText));
 
         var providerKey = context.ProviderKey;
         if (string.IsNullOrWhiteSpace(providerKey))
@@ -70,7 +74,8 @@ public sealed class ProductionJobExecutor : IJobExecutor
                 );
             }
 
-            return await adapter.ExecuteAsync(context, onPreSideEffectCommitAsync, onProgressAsync, cancellationToken).ConfigureAwait(false);
+            var result = await adapter.ExecuteAsync(context, onPreSideEffectCommitAsync, onProgressAsync, cancellationToken).ConfigureAwait(false);
+            return Facebook.FacebookContentRewriteResultParser.Validate(context, AnalyticsAnalysisResultParser.Validate(context, result));
         }
 
         return new JobExecutionResult(

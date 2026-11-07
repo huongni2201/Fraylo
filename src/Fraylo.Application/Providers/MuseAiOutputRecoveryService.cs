@@ -56,7 +56,7 @@ public sealed class MuseAiOutputRecoveryService
             ?? throw new JobNotFoundException(jobId);
 
         var hasResult = !string.IsNullOrWhiteSpace(job.ResultReference) || !string.IsNullOrWhiteSpace(job.ResultText);
-        if (job.TaskType != JobTaskType.VideoRender || job.ProviderKey != ProviderKeys.MuseAI ||
+        if (job.ProjectId is null || job.TaskType != JobTaskType.VideoRender || job.ProviderKey != ProviderKeys.MuseAI ||
             job.State != JobState.AwaitingUser || job.SideEffectSubmitted != 1 || hasResult)
         {
             throw new JobValidationException(

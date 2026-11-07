@@ -1,13 +1,13 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Fraylo.Application.Content.Workflows;
 using Fraylo.Application.Jobs;
-using Fraylo.Application.Prompts;
 using Fraylo.Contracts.Content;
 using Fraylo.Contracts.Jobs;
-using Fraylo.Contracts.Prompts;
 using Fraylo.Contracts.Scenes;
 using Fraylo.Infrastructure.Persistence;
 using Fraylo.Infrastructure.Persistence.Entities;
+using static Fraylo.Application.Content.Workflows.WorkflowSceneJobs;
 
 namespace Fraylo.Application.Content;
 
@@ -349,7 +349,8 @@ public sealed partial class ProjectWorkflowService
     {
         if (_jobService == null) return 0;
         int count = 0;
-        var composer = new VideoWorkflowPromptComposer(_dbOptions);
+        var workflow = VideoWorkflows.For(config.WorkflowMode);
+        var images = workflow.PlanImages(config);
 
         foreach (var scene in scenes)
         {
@@ -357,17 +358,10 @@ public sealed partial class ProjectWorkflowService
             var scenePurpose = dbContext.AppSettings.Local.FirstOrDefault(setting => setting.Key == planKey)?.Value
                 ?? await dbContext.AppSettings.AsNoTracking().Where(setting => setting.Key == planKey)
                     .Select(setting => setting.Value).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-            // Tự gán ảnh cho ReadyImage / ProductOnly nếu cảnh chưa có
-            if (string.IsNullOrWhiteSpace(scene.ImageAssetId))
+            // Workflow quyết định dùng ảnh chung hay tạo ảnh riêng cho cảnh.
+            if (string.IsNullOrWhiteSpace(scene.ImageAssetId) && !string.IsNullOrWhiteSpace(images.InitialSceneImageAssetId))
             {
-                if (config.WorkflowMode == WorkflowModes.ReadyImage && !string.IsNullOrWhiteSpace(config.ReadyImageAssetId))
-                {
-                    scene.ImageAssetId = config.ReadyImageAssetId;
-                }
-                else if (config.WorkflowMode == WorkflowModes.ProductOnly && config.VideoStrategy == VideoStrategies.SingleVideo && !string.IsNullOrWhiteSpace(config.ProductAssetId))
-                {
-                    scene.ImageAssetId = config.ProductAssetId;
-                }
+                scene.ImageAssetId = images.InitialSceneImageAssetId;
             }
 
             var snapshot = BuildMediaSnapshot(config, scene);
@@ -380,52 +374,8 @@ public sealed partial class ProjectWorkflowService
                 try { sceneMeta = JsonSerializer.Deserialize<SceneWorkflowDetailDto>(sceneSetting.Value, JsonOptions); } catch { }
             }
             var staleTasks = new HashSet<string>(sceneMeta?.StaleTaskTypes ?? Array.Empty<string>(), StringComparer.Ordinal);
-            JobEnqueueRequest? nextRequest = null;
-
-            // 1. Cảnh chưa có ảnh và ở chế độ ModelAndProduct: Enqueue Job Image
-            if ((staleTasks.Contains(JobTaskType.Image) || string.IsNullOrWhiteSpace(scene.ImageAssetId)) &&
-                CanGenerateImage(config.WorkflowMode, config.VideoStrategy))
-            {
-                // Chế độ 9 ô: ghép ảnh chỉ ghép mẫu với sản phẩm; nội dung 9 shot dành cho bước ảnh 3×3.
-                var prompt = VideoWorkflowPromptComposer.IsGridMode(config) ? config.GoalPrompt : scenePurpose ?? scene.PromptText ?? config.GoalPrompt;
-                var imageTemplate = await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(dbContext, VideoWorkflowPromptComposer.ImagePurposeFor(config.WorkflowMode), cancellationToken).ConfigureAwait(false);
-                var imageInstruction = (await new PromptTemplateService(dbContext).PreviewAsync(
-                    new PromptPreviewRequest(imageTemplate.Id, null, null, null), cancellationToken).ConfigureAwait(false)).RenderedText + "\n\n";
-                nextRequest = new JobEnqueueRequest(
-                    ProjectId: projectId,
-                    SceneId: scene.Id,
-                    TaskType: JobTaskType.Image,
-                    CustomPromptText: imageInstruction + (config.WorkflowMode == WorkflowModes.ProductOnly
-                        ? $"Tạo một ảnh sản phẩm cho cảnh: {scene.Name}. Ảnh đính kèm là sản phẩm cần giữ đúng màu sắc, hình dáng và chi tiết nhìn thấy. {prompt}"
-                        : $"Ảnh đính kèm thứ nhất là người mẫu, ảnh thứ hai là sản phẩm. Cảnh: {scene.Name}. {prompt}"),
-                    WorkflowRunId: config.CurrentRunId,
-                    WorkflowStepKey: $"image.{scene.Id}.{scene.UpdatedAtUtc}",
-                    MediaSnapshot: snapshot
-                );
-            }
-            // 1b. Chế độ ảnh 9 ô: cảnh đã có ảnh nguồn (ảnh ghép / ảnh sẵn sàng / ảnh sản phẩm) nhưng chưa có ảnh 3×3: Enqueue Job Image 3×3
-            else if (await NeedsGridImageAsync(dbContext, config, scene, cancellationToken).ConfigureAwait(false))
-            {
-                nextRequest = await BuildGridImageRequestAsync(dbContext, config, scene, cancellationToken).ConfigureAwait(false);
-            }
-            // 2. Cảnh đã có ảnh nhưng chưa có PromptText chuyển động: Enqueue Job VideoPrompt
-            // Nối dữ liệu qua VideoWorkflowPromptComposer: Template VideoPrompt đã render + Clip Context
-            else if (!string.IsNullOrWhiteSpace(scene.ImageAssetId) &&
-                     (staleTasks.Contains(JobTaskType.VideoPrompt) || string.IsNullOrWhiteSpace(scene.PromptText)))
-            {
-                var composition = await composer.ComposeVideoPromptAiRequestAsync(config, scene, cancellationToken, scenePurpose).ConfigureAwait(false);
-
-                nextRequest = new JobEnqueueRequest(
-                    ProjectId: projectId,
-                    SceneId: scene.Id,
-                    TaskType: JobTaskType.VideoPrompt,
-                    CustomPromptText: composition.ComposedPrompt,
-                    WorkflowRunId: config.CurrentRunId,
-                    WorkflowStepKey: $"prompt.{scene.Id}.{scene.UpdatedAtUtc}",
-                    MediaSnapshot: snapshot
-                );
-            }
-            // Stop at ReadyForVideo. VideoRender is enabled only when the real adapter is ready.
+            var context = new WorkflowSceneContext(dbContext, projectId, config, scene, scenePurpose, staleTasks, snapshot);
+            var nextRequest = await workflow.CreateNextSceneJobAsync(context, _sceneJobs, cancellationToken).ConfigureAwait(false);
 
             if (nextRequest != null)
             {
@@ -449,54 +399,7 @@ public sealed partial class ProjectWorkflowService
         return count;
     }
 
-    private static string GridMarkerKey(string sceneId) => $"scene.grid.{sceneId}";
-
     private static string ComposedMarkerKey(string sceneId) => $"scene.compose.{sceneId}";
-
-    /// <summary>
-    /// Chế độ ảnh 9 ô: ảnh của cảnh là ảnh 3×3 khi marker của cảnh trỏ đúng ảnh đó. Có ảnh nguồn mà chưa có marker khớp thì cần job 3×3.
-    /// </summary>
-    private static async Task<bool> NeedsGridImageAsync(
-        FrayloDbContext dbContext, ProjectWorkflowConfigDto config, Scene scene, CancellationToken cancellationToken)
-    {
-        if (!VideoWorkflowPromptComposer.IsGridMode(config) || string.IsNullOrWhiteSpace(scene.ImageAssetId)) return false;
-        var key = GridMarkerKey(scene.Id);
-        var marker = dbContext.AppSettings.Local.FirstOrDefault(setting => setting.Key == key)?.Value
-            ?? await dbContext.AppSettings.AsNoTracking().Where(setting => setting.Key == key)
-                .Select(setting => setting.Value).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-        return !string.Equals(marker, scene.ImageAssetId, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Job Image tạo MỘT ảnh storyboard 3×3 từ 9 shot đã lưu. Chỉ đính kèm ảnh nguồn của cảnh (không đính kèm mẫu/sản phẩm riêng).
-    /// </summary>
-    private async Task<JobEnqueueRequest> BuildGridImageRequestAsync(
-        FrayloDbContext dbContext, ProjectWorkflowConfigDto config, Scene scene, CancellationToken cancellationToken)
-    {
-        var storyboard = await new StoryboardContentService(_dbOptions).GetAsync(scene.ProjectId, cancellationToken).ConfigureAwait(false);
-        if (storyboard == null || storyboard.Shots.Count != ReferenceImageModes.GridShotCount)
-        {
-            throw new ProjectWorkflowValidationException("Chưa có storyboard đủ 9 shot nên chưa thể tạo ảnh 3×3.");
-        }
-        var template = await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(dbContext, JobTaskType.Image, cancellationToken).ConfigureAwait(false);
-        var rendered = (await new PromptTemplateService(dbContext).PreviewAsync(
-            new PromptPreviewRequest(template.Id, null, null, null), cancellationToken).ConfigureAwait(false)).RenderedText;
-        var source = scene.ImageAssetId!;
-        return new JobEnqueueRequest(
-            ProjectId: scene.ProjectId,
-            SceneId: scene.Id,
-            TaskType: JobTaskType.Image,
-            CustomPromptText: VideoWorkflowPromptComposer.ComposeGridImagePrompt(rendered, storyboard),
-            WorkflowRunId: config.CurrentRunId,
-            WorkflowStepKey: $"{GridStepPrefix}{scene.Id}.{scene.UpdatedAtUtc}",
-            MediaSnapshot: new JobMediaSnapshotDto(
-                SourceImageAssetId: source,
-                DurationSeconds: config.TargetDurationPerSceneSeconds,
-                MediaRoles: new Dictionary<string, string> { ["SourceImage"] = source }));
-    }
-
-    /// <summary>Tiền tố step key của job Image 3×3, để apply phân biệt với job Ghép ảnh.</summary>
-    private const string GridStepPrefix = "grid.";
 
     private static void AddContinuationIntent(FrayloDbContext dbContext, JobEnqueueRequest request, string nowIso)
     {

@@ -26,7 +26,7 @@ public sealed class MuseAiPlaywrightAutomation
     private const string AttachSnapshotScript = "() => JSON.stringify({ blobImages: document.querySelectorAll('img[src^=\"blob:\"]').length, fileInputs: [...document.querySelectorAll(\"input[type='file']\")].map(i => ({ multiple: i.multiple, files: i.files.length })) })";
     private static readonly Regex ThreadUrl = new(@"/thread/[0-9a-f-]{36}$", RegexOptions.IgnoreCase);
     private static readonly float RenderTimeoutMs = (float)TimeSpan.FromMinutes(30).TotalMilliseconds;
-    private static readonly Regex OpenVideoName = new("^Open animated video", RegexOptions.IgnoreCase);
+    private static readonly Regex OpenVideoName = new("^Open .*video", RegexOptions.IgnoreCase);
     private const string VideoReadyScript = "() => !document.querySelector('[aria-label=\"Assistant is typing\"]') && !!document.querySelector(\"[data-message-role='assistant'] video\")";
     private const string ThreadUrlKeyPrefix = "job.museai.thread.";
 
@@ -56,20 +56,29 @@ public sealed class MuseAiPlaywrightAutomation
         Func<int, string, Task>? progress,
         CancellationToken ct)
     {
+        if (job.ProjectId is null) return new(false, ReasonCode: "invalid_input", ErrorMessage: "Tác vụ video cần dự án.");
         await _activity.WriteAsync(job.JobId, "validate", "Bắt đầu kiểm tra prompt, ảnh và phiên MuseAI.", ct).ConfigureAwait(false);
+        var referenceMedia = ReadReferenceMedia(job.ConfigSnapshotJson);
+        if (referenceMedia is not null) ReferenceVideoMedia.EnsureProviderSupported(referenceMedia);
         // Đã có side chat nghĩa là prompt đã gửi: chỉ chờ lại video, tuyệt đối không gửi lại.
         await using var db = new FrayloDbContext(_dbOptions);
         var savedThreadUrl = await ReadSavedThreadUrlAsync(db, job.JobId, ct).ConfigureAwait(false);
         if (savedThreadUrl is not null)
-            return await ResumeRenderAsync(job, savedThreadUrl, progress, ct).ConfigureAwait(false);
+            return await ResumeRenderAsync(job, savedThreadUrl, progress, ct, referenceMedia is not null).ConfigureAwait(false);
 
         var prompt = ReadPrompt(job.PromptSnapshotText);
         var (durationSeconds, imageIds) = ReadRenderInput(job.ConfigSnapshotJson);
         if (string.IsNullOrWhiteSpace(job.ProfileId) || string.IsNullOrWhiteSpace(prompt) || durationSeconds <= 0 || imageIds.Count == 0)
             return new(false, ReasonCode: "invalid_input", ErrorMessage: "Thiếu profile, prompt, thời lượng hoặc ảnh tham chiếu của job.");
 
-        var imagePaths = await ResolveImagePathsAsync(job, imageIds, ct).ConfigureAwait(false);
-        var fullPrompt = $"{prompt}\n\nThời lượng yêu cầu: {durationSeconds} giây.";
+        var referenceFiles = referenceMedia is null ? null : await ReferenceVideoMedia.ValidateAsync(
+            _dbOptions, job.ProjectId, referenceMedia, requireSnapshotHashes: true, ct).ConfigureAwait(false);
+        if (referenceFiles is not null) ReferenceVideoMedia.EnsureProviderSupported(referenceFiles.Snapshot);
+        var imagePaths = referenceFiles is null ? await ResolveImagePathsAsync(job, imageIds, ct).ConfigureAwait(false) : new[] { referenceFiles.ImagePath };
+        var fullPrompt = referenceFiles is null ? $"{prompt}\n\nThời lượng yêu cầu: {durationSeconds} giây."
+            : $"{prompt}\n\nReference duration (informational only): {referenceFiles.Snapshot.ReferenceVideoDurationSeconds?.ToString(System.Globalization.CultureInfo.InvariantCulture)} seconds. Output may have a different duration, targeting about 10 seconds. Extract the original audio from the attached reference and automatically fit/merge it to the generated video yourself; no substitute music. Leave silent if reference has no audio.";
+        if (referenceFiles is not null)
+            fullPrompt += $"\nInput 1 PHOTO filename: {Path.GetFileName(referenceFiles.ImagePath)}. Input 2 VIDEO filename: {Path.GetFileName(referenceFiles.VideoPath)}. This is PromptApproximation, not direct motion transfer.";
 
         var profile = await _profiles.GetProfileAsync(job.ProfileId, ct).ConfigureAwait(false);
         if (profile is null || !string.Equals(profile.ProviderKey, job.ProviderKey, StringComparison.OrdinalIgnoreCase) ||
@@ -96,18 +105,33 @@ public sealed class MuseAiPlaywrightAutomation
             // Muse uploads attachments asynchronously; sending before the upload finishes drops the image, so track in-flight write requests.
             // A set (not a counter) so a request that began before we subscribed cannot drive the count negative and hide a real upload.
             var pendingRequests = new System.Collections.Concurrent.ConcurrentDictionary<IRequest, byte>();
-            void UploadStarted(object? _, IRequest r) { if (r.Method is "POST" or "PUT" or "PATCH") pendingRequests[r] = 0; }
+            void UploadStarted(object? _, IRequest r)
+            {
+                var uri = new Uri(r.Url);
+                if (uri.Host == "muse.ai" && uri.AbsolutePath == "/api/auth/save-account") return;
+                if (r.Method is "POST" or "PUT" or "PATCH") pendingRequests[r] = 0;
+            }
             void UploadEnded(object? _, IRequest r) => pendingRequests.TryRemove(r, out var _);
             page.Request += UploadStarted;
             page.RequestFinished += UploadEnded;
             page.RequestFailed += UploadEnded;
             step = "đính kèm ảnh";
-            await page.Locator("input[type='file']").First.SetInputFilesAsync(imagePaths.ToArray()).WaitAsync(ct).ConfigureAwait(false);
+            if (referenceFiles is not null)
+            {
+                // Live TM0: mixed files selected together can overwrite the first preview. Add them one at a time.
+                foreach (var file in new[] { referenceFiles.ImagePath, referenceFiles.VideoPath })
+                {
+                    await page.Locator("input[type='file']").First.SetInputFilesAsync(file).WaitAsync(ct).ConfigureAwait(false);
+                    await page.GetByAltText(Path.GetFileName(file), new() { Exact = true }).WaitForAsync(
+                        new() { State = WaitForSelectorState.Visible, Timeout = 30000 }).WaitAsync(ct).ConfigureAwait(false);
+                }
+            }
+            else await page.Locator("input[type='file']").First.SetInputFilesAsync(imagePaths.ToArray()).WaitAsync(ct).ConfigureAwait(false);
             step = "chờ ảnh xem trước";
             try
             {
                 await page.WaitForFunctionAsync("n => document.querySelectorAll('img[src^=\"blob:\"]').length >= n",
-                    imagePaths.Count, new() { Timeout = 15000 }).WaitAsync(ct).ConfigureAwait(false);
+                    imagePaths.Count + (referenceFiles is null ? 0 : 1), new() { Timeout = 15000 }).WaitAsync(ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -116,7 +140,7 @@ public sealed class MuseAiPlaywrightAutomation
                 // The page may render previews without blob: URLs; the file input still holding every file means the picker accepted them.
                 var inputHolds = await page.EvaluateAsync<bool>(
                     "n => [...document.querySelectorAll(\"input[type='file']\")].some(i => i.files.length >= n)", imagePaths.Count).ConfigureAwait(false);
-                if (!inputHolds)
+                if (!inputHolds || referenceFiles is not null)
                 {
                     await _activity.WriteAsync(job.JobId, "media", $"Không thấy đủ ảnh đính kèm: {snapshot}", ct).ConfigureAwait(false);
                     throw new InvalidOperationException($"Không xác nhận được {imagePaths.Count} ảnh trong composer MuseAI: {snapshot}", ex);
@@ -135,6 +159,7 @@ public sealed class MuseAiPlaywrightAutomation
             page.RequestFailed -= UploadEnded;
             if (!pendingRequests.IsEmpty)
             {
+                if (referenceFiles is not null) throw new TimeoutException("Ảnh/video mẫu chưa tải xong; chưa gửi yêu cầu.");
                 // shortcut: a long-lived POST (telemetry/stream) also keeps this set non-empty, so it must not abort the render;
                 // blob previews + the enabled Send button below gate the send. Upgrade by filtering to the real upload URL once logged.
                 var stuck = string.Join(", ", pendingRequests.Keys.Take(5).Select(r => $"{r.Method} {new Uri(r.Url).GetLeftPart(UriPartial.Path)}"));
@@ -154,11 +179,18 @@ public sealed class MuseAiPlaywrightAutomation
             step = "bấm Gửi";
             await page.Locator("button[aria-label='Send']").ClickAsync().WaitAsync(ct).ConfigureAwait(false);
             step = "chờ chuyển sang side chat";
-            await page.WaitForURLAsync(ThreadUrl, new() { Timeout = 30000 }).WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                await page.WaitForURLAsync(ThreadUrl, new() { Timeout = 120000, WaitUntil = WaitUntilState.DOMContentLoaded }).WaitAsync(ct).ConfigureAwait(false);
+            }
+            catch (TimeoutException) when (ThreadUrl.IsMatch(new Uri(page.Url).AbsolutePath))
+            {
+                // The route itself is durable evidence even if the page's loading event never completes.
+            }
             await SaveThreadUrlAsync(job.JobId, page.Url, ct).ConfigureAwait(false);
             threadSaved = true;
             await _activity.WriteAsync(job.JobId, "submit", $"Đã gửi trong side chat {page.Url}.", ct).ConfigureAwait(false);
-            return await FinishRenderAsync(page, job.JobId, job.ProjectId, job.StorageRootId, progress, ct).ConfigureAwait(false);
+            return await FinishRenderAsync(page, job.JobId, job.ProjectId, job.StorageRootId, progress, ct, referenceFiles?.VideoPath).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -204,6 +236,11 @@ public sealed class MuseAiPlaywrightAutomation
         try
         {
             ct.ThrowIfCancellationRequested();
+            await using var recoveryDb = new FrayloDbContext(_dbOptions);
+            var recoveryJob = await recoveryDb.Jobs.AsNoTracking().SingleOrDefaultAsync(j => j.Id == jobId && j.ProjectId == projectId && j.ExecutionBinding != null && j.ExecutionBinding.ProfileId == profileId, ct).ConfigureAwait(false);
+            if (recoveryJob is null) return new(false, ReasonCode: "invalid_input", ErrorMessage: "Không tìm thấy job thuộc dự án/profile cần khôi phục.");
+            var reference = ReadReferenceMedia(recoveryJob.ConfigSnapshotJson);
+            var referenceFiles = reference is null ? null : await ReferenceVideoMedia.ValidateAsync(_dbOptions, projectId, reference, requireSnapshotHashes: true, ct).ConfigureAwait(false);
             // Sau khi mở lại app profile có thể chưa chạy: gatekeeper mở đúng profile và cấp tab lease (cùng đường với scheduler) trước khi tải.
             using var lease = await _gatekeeper.TryAcquireTabLeaseAsync(profileId, JobTaskType.VideoRender, jobId, ct).ConfigureAwait(false);
             if (lease is null)
@@ -217,9 +254,7 @@ public sealed class MuseAiPlaywrightAutomation
             {
                 page = await handle.Context.NewPageAsync().ConfigureAwait(false);
                 await page.GotoAsync(threadUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 }).WaitAsync(ct).ConfigureAwait(false);
-                await WaitForVideoAsync(page, ct).ConfigureAwait(false);
-                var assetId = await DownloadVideoAssetAsync(page, jobId, projectId, storageRootId, ct).ConfigureAwait(false);
-                return new(true, ResultReference: assetId, SideEffectSubmitted: true);
+                return await FinishRenderAsync(page, jobId, projectId, storageRootId, null, ct, referenceFiles?.VideoPath).ConfigureAwait(false);
             }
             finally
             {
@@ -249,7 +284,7 @@ public sealed class MuseAiPlaywrightAutomation
     }
 
     /// <summary>Opens the video preview, downloads it and stores it as the Project's Video Asset.</summary>
-    private async Task<string> DownloadVideoAssetAsync(IPage page, string jobId, string projectId, string storageRootId, CancellationToken ct)
+    private async Task<string> DownloadVideoAssetAsync(IPage page, string jobId, string projectId, string storageRootId, CancellationToken ct, string? referencePath = null)
     {
         // Match the accessible name, not aria-label: the button's label may come from its text or title.
         await page.GetByRole(AriaRole.Button, new() { NameRegex = OpenVideoName })
@@ -263,6 +298,7 @@ public sealed class MuseAiPlaywrightAutomation
         try
         {
             await download.SaveAsAsync(downloaded).WaitAsync(ct).ConfigureAwait(false);
+            if (referencePath is not null) ReferenceVideoAudio.VerifyOutput(referencePath, downloaded);
             var asset = await _assets.SaveVideoAssetAsync(projectId, downloaded, storageRootId, ct).ConfigureAwait(false);
             await _activity.WriteAsync(jobId, "result", "Đã lưu video MuseAI thành Asset.", ct).ConfigureAwait(false);
             return asset.AssetId;
@@ -323,8 +359,9 @@ public sealed class MuseAiPlaywrightAutomation
     }
 
     /// <summary>Mở lại side chat đã lưu rồi chờ video. Không gửi lại prompt; hết thời gian thì trả render_timeout.</summary>
-    private async Task<JobExecutionResult> ResumeRenderAsync(JobExecutionContext job, string threadUrl, Func<int, string, Task>? progress, CancellationToken ct)
+    private async Task<JobExecutionResult> ResumeRenderAsync(JobExecutionContext job, string threadUrl, Func<int, string, Task>? progress, CancellationToken ct, bool referenceVideo = false)
     {
+        if (job.ProjectId is null) return new(false, ReasonCode: "invalid_input", ErrorMessage: "Tác vụ video cần dự án.");
         var handle = string.IsNullOrWhiteSpace(job.ProfileId) ? null : _browser.TryGetContext(job.ProfileId);
         if (handle is null)
             return new(false, ReasonCode: "automation_blocked", ErrorMessage: "Profile MuseAI chưa được mở để tiếp tục chờ video.");
@@ -336,7 +373,9 @@ public sealed class MuseAiPlaywrightAutomation
             await _activity.WriteAsync(job.JobId, "resume", "Đã gửi prompt trước đó: mở lại side chat để chờ video, không gửi lại.", ct).ConfigureAwait(false);
             page = await handle.Context.NewPageAsync().ConfigureAwait(false);
             await page.GotoAsync(threadUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 }).WaitAsync(ct).ConfigureAwait(false);
-            return await FinishRenderAsync(page, job.JobId, job.ProjectId, job.StorageRootId, progress, ct).ConfigureAwait(false);
+            var reference = referenceVideo ? await ReferenceVideoMedia.ValidateAsync(_dbOptions, job.ProjectId,
+                ReadReferenceMedia(job.ConfigSnapshotJson)!, requireSnapshotHashes: true, ct).ConfigureAwait(false) : null;
+            return await FinishRenderAsync(page, job.JobId, job.ProjectId, job.StorageRootId, progress, ct, reference?.VideoPath).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -361,12 +400,29 @@ public sealed class MuseAiPlaywrightAutomation
     }
 
     /// <summary>Chờ video trong side chat đang mở rồi tải về thành Asset. Hết thời gian chờ thì trả render_timeout (job Failed, có thể thử lại).</summary>
-    private async Task<JobExecutionResult> FinishRenderAsync(IPage page, string jobId, string projectId, string storageRootId, Func<int, string, Task>? progress, CancellationToken ct)
+    private async Task<JobExecutionResult> FinishRenderAsync(IPage page, string jobId, string projectId, string storageRootId, Func<int, string, Task>? progress, CancellationToken ct, string? referencePath = null)
     {
         if (progress is not null) await progress(50, "Đang chờ MuseAI tạo video").ConfigureAwait(false);
         try
         {
-            await WaitForVideoAsync(page, ct).ConfigureAwait(false);
+            if (referencePath is null) await WaitForVideoAsync(page, ct).ConfigureAwait(false);
+            else
+            {
+                await page.WaitForFunctionAsync("""
+                    () => {
+                      const busy = !!document.querySelector('[aria-label="Assistant is typing"]') || [...document.querySelectorAll('button')].some(b => ['Stop task','Stop'].includes((b.getAttribute('aria-label')||b.innerText).trim()));
+                      if (busy) return false;
+                      if (document.querySelector('[data-message-role="assistant"] video')) return true;
+                      const messages=[...document.querySelectorAll('[data-message-role="assistant"]')];
+                      return /can.t|cannot|unable|failed|không thể|không hỗ trợ/i.test(messages.at(-1)?.innerText||'');
+                    }
+                    """, null, new() { Timeout = RenderTimeoutMs }).WaitAsync(ct).ConfigureAwait(false);
+                if (await page.Locator("[data-message-role='assistant'] video").CountAsync().ConfigureAwait(false) == 0)
+                {
+                    var reply = (await page.Locator("[data-message-role='assistant']").Last.InnerTextAsync().ConfigureAwait(false)).Trim();
+                    return new(false, ReasonCode: "provider_reference_unavailable", ErrorMessage: "MuseAI chưa tạo được video theo mẫu: " + reply[..Math.Min(1500, reply.Length)], SideEffectSubmitted: true);
+                }
+            }
         }
         catch (TimeoutException ex)
         {
@@ -376,8 +432,26 @@ public sealed class MuseAiPlaywrightAutomation
         }
         await _activity.WriteAsync(jobId, "result", "MuseAI đã trả về video.", ct).ConfigureAwait(false);
 
-        var assetId = await DownloadVideoAssetAsync(page, jobId, projectId, storageRootId, ct).ConfigureAwait(false);
-        return new(true, ResultReference: assetId, SideEffectSubmitted: true);
+        string assetId;
+        try { assetId = await DownloadVideoAssetAsync(page, jobId, projectId, storageRootId, ct, referencePath).ConfigureAwait(false); }
+        catch (AssetValidationException ex) when (referencePath is not null)
+        { return new(false, ReasonCode: "reference_output_mismatch", ErrorMessage: ex.Message, SideEffectSubmitted: true); }
+        string? referenceResult = null;
+        if (referencePath is not null)
+        {
+            var actualText = string.Join("\n\n", await page.Locator("[data-message-role='assistant']").AllInnerTextsAsync().WaitAsync(ct).ConfigureAwait(false));
+            referenceResult = JsonSerializer.Serialize(new
+            {
+                reference_mode = ReferenceVideoMedia.ApproximationMode,
+                audio_policy = ReferenceVideoAudio.FitByAi,
+                audio_source = "ReferenceVideo",
+                audio_identity_verification = "ProviderReported_UserReview",
+                video_prompt = ExtractMarkedText(actualText, "MOTION_PROMPT"),
+                tiktok_content = ExtractMarkedText(actualText, "TIKTOK_CONTENT"),
+                provider_response = actualText
+            });
+        }
+        return new(true, ResultReference: assetId, ResultText: referenceResult, SideEffectSubmitted: true);
     }
 
     private async Task RecordFailureAsync(string jobId, string message)
@@ -427,6 +501,27 @@ public sealed class MuseAiPlaywrightAutomation
                 .Where(id => !string.IsNullOrWhiteSpace(id)).ToArray()
             : Array.Empty<string>();
         return (duration, ids);
+    }
+
+    internal static string? ExtractMarkedText(string text, string label)
+    {
+        var begin = text.IndexOf(label + "_BEGIN", StringComparison.Ordinal);
+        if (begin < 0) return null;
+        begin += label.Length + "_BEGIN".Length;
+        var end = text.IndexOf(label + "_END", begin, StringComparison.Ordinal);
+        return end > begin ? text[begin..end].Trim() : null;
+    }
+
+    private static JobMediaSnapshotDto? ReadReferenceMedia(string? snapshot)
+    {
+        if (string.IsNullOrWhiteSpace(snapshot)) return null;
+        using var doc = JsonDocument.Parse(snapshot);
+        if (!doc.RootElement.TryGetProperty("MediaSnapshot", out var media) || media.ValueKind != JsonValueKind.Object) return null;
+        var value = JsonSerializer.Deserialize<JobMediaSnapshotDto>(media.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        if (value?.ReferenceVideoAssetId is null && value?.ReferenceVideoMode is null) return null;
+        if (value?.ReferenceVideoMode != ReferenceVideoMedia.ApproximationMode || value.ReferenceAudioPolicy != ReferenceVideoAudio.FitByAi)
+            throw new InvalidOperationException("Snapshot mô phỏng video mẫu không hợp lệ hoặc chưa hỗ trợ.");
+        return value;
     }
 
     /// <summary>Resolves ordered image assets to files; rejects missing, out-of-scope or modified files.</summary>

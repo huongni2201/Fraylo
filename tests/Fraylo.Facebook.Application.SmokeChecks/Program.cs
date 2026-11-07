@@ -11,6 +11,8 @@ using Fraylo.Infrastructure.Persistence.Entities;
 using Fraylo.Infrastructure.Persistence.Interceptors;
 using Fraylo.Infrastructure.Storage;
 
+if (args.FirstOrDefault() == "rewrite") return await FacebookRewriteSmokeTests.RunAsync();
+
 var root = Path.Combine(Path.GetTempPath(), "Fraylo_facebook_application_" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 var database = Path.Combine(root, "test.db");
@@ -51,6 +53,25 @@ try
         foreach (var id in new[] { "p1", "p2" }) db.ProviderAccounts.Add(new() { Id = "account-" + id, ProfileId = id, ProviderKey = "facebook", Enabled = true, DisplayName = "Facebook test", CreatedAtUtc = DateTimeOffset.UtcNow.ToString("O"), UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("O") });
         await db.SaveChangesAsync();
     }
+    var poster = new FakePersonalPoster();
+    var personalService = new FacebookPublishingService(options, roots, registry, browser, controller, personalPoster: poster);
+    var personalRequest = Request("p1", ["personal:p1"]) with { TargetKind = "Profile" };
+    var personalTask = (await personalService.CreateBatchAsync(personalRequest))[0];
+    Check((await personalService.CreateBatchAsync(personalRequest))[0].TaskId == personalTask.TaskId, "Cá nhân: replay không tạo bài trùng");
+    await Throws(async () => await personalService.CreateBatchAsync(personalRequest with { BatchRequestId = Guid.NewGuid().ToString(), TargetIds = ["personal:p2"] }), "Cá nhân: từ chối trang cá nhân tài khoản khác");
+    await Throws(async () => await personalService.CreateBatchAsync(personalRequest with { BatchRequestId = Guid.NewGuid().ToString(), TargetKind = "Group" }), "Không nhận trang cá nhân như nhóm");
+    Check(await personalService.ProcessNextAsync() && poster.Calls == 1 && browser.Calls == 0, "Cá nhân: dùng adapter cá nhân qua hàng đợi");
+    Check((await personalService.ListAsync()).Tasks.Single(t => t.TaskId == personalTask.TaskId).State == "Published", "Cá nhân: lưu kết quả Published");
+    await personalService.CreateBatchAsync(personalRequest with { BatchRequestId = Guid.NewGuid().ToString() });
+    Check(!await personalService.ProcessNextAsync() && poster.Calls == 1, "Cá nhân: giữ giãn cách theo tài khoản");
+    await ResetWork();
+    poster.Unknown = true;
+    personalTask = (await personalService.CreateBatchAsync(personalRequest with { BatchRequestId = Guid.NewGuid().ToString() }))[0];
+    Check(await personalService.ProcessNextAsync(), "Cá nhân: xử lý kết quả chưa rõ");
+    Check((await personalService.ListAsync()).Tasks.Single(t => t.TaskId == personalTask.TaskId).State == "Unknown", "Cá nhân: không báo thành công khi chưa có bằng chứng");
+    var calls = poster.Calls;
+    Check(!await personalService.ProcessNextAsync() && poster.Calls == calls, "Cá nhân: Unknown không tự gửi lại");
+    await ResetWork();
     browser.Discovery = new([new("a", "Nhóm A", "https://web.facebook.com/groups/a/?ref=tracking"), new("a", "Nhóm A", "https://www.facebook.com/groups/a/"), new("b", "Nhóm B", "https://www.facebook.com/groups/b/")], true, "Đủ nhóm");
     var sync = await service.SyncGroupsAsync(new("p1"));
     Check(sync.Groups.Count == 2 && sync.Groups.All(g => g.Url.StartsWith("https://www.facebook.com/groups/")), "Sync chuẩn hóa URL, gộp trùng");
@@ -65,6 +86,91 @@ try
     p1 = (await service.SyncGroupsAsync(new("p1"))).Groups.ToArray();
     foreach (var url in new[] { "javascript:alert(1)", "https://facebook.com.evil.test/groups/a/", "https://x@facebook.com/groups/a/", "https://facebook.com/groups/feed/", "https://facebook.com/groups/a/posts/1/" })
         await Throws(() => Task.Run(() => FacebookPublishingService.NormalizeGroupUrl(url)), "Từ chối URL lạ: " + url);
+
+    await ResetWork();
+    var clock = new TestClock(DateTimeOffset.UtcNow.AddDays(1));
+    await using (var db = new FrayloDbContext(options))
+    {
+        db.FacebookAnalyticsPages.Add(new() { Id = "analytics-page-test", ProfileId = "p1", FacebookPageId = "100", Name = "Page test" });
+        db.FacebookAnalyticsCaptures.Add(new() { Id = "analytics-busy", PageId = "analytics-page-test", StartedAtUtc = DateTimeOffset.UtcNow.ToString("O"), Owner = "test" });
+        await db.SaveChangesAsync();
+    }
+    var waitingForAnalytics = (await service.CreateBatchAsync(Request("p1", [p1[0].TargetId]))).Single();
+    Check(!await service.ProcessNextAsync() && browser.Calls == 0 && (await TaskById(waitingForAnalytics.TaskId)).State == "Queued", "Analytics đang đọc thì bài đăng cùng profile giữ Queued, không Failed");
+    await service.ProcessNextAsync();
+    var waiting = await TaskById(waitingForAnalytics.TaskId);
+    Check(waiting.ReasonCode == "analytics_running" && waiting.ActivityLog?.Count(e => e.ReasonCode == "analytics_running") == 1,
+        "Lý do chờ Analytics được lưu một lần qua nhiều lần quét");
+    await service.CancelAsync(new(waitingForAnalytics.TaskId));
+    await using (var db = new FrayloDbContext(options))
+    {
+        await db.FacebookAnalyticsCaptures.Where(c => c.Id == "analytics-busy").ExecuteDeleteAsync();
+        await db.FacebookAnalyticsPages.Where(p => p.Id == "analytics-page-test").ExecuteDeleteAsync();
+    }
+    await ResetWork();
+    var timed = new FacebookPublishingService(options, roots, registry, browser, controller, clock);
+
+    browser.Discovery = new(Enumerable.Range(1, 50).Select(i => new FacebookJoinedGroup("g" + i, "Nhóm " + i, "https://www.facebook.com/groups/g" + i + "/")).ToArray(), true, "Đủ");
+    var fifty = (await timed.SyncGroupsAsync(new("p1"))).Groups;
+    var firstIds = fifty.Take(20).Select(g => g.TargetId).ToArray();
+    var secondIds = fifty.Skip(20).Select(g => g.TargetId).ToArray();
+    var dueA = clock.GetUtcNow().AddHours(1);
+    var a = await timed.CreateBatchAsync(Request("p1", firstIds, "Bài A") with { Name = "Bài A", DueAtUtc = dueA.ToString("O") });
+    var b = await timed.CreateBatchAsync(Request("p1", secondIds, "Bài B") with { Name = "Bài B", DueAtUtc = dueA.AddDays(1).ToString("O") });
+    Check(!await timed.ProcessNextAsync() && browser.Calls == 0, "Chưa đến giờ không mở browser");
+    var posts = (await timed.ListAsync()).Posts!;
+    Check(posts.Count == 2 && posts.Single(p => p.Name == "Bài A").Tasks.Count == 20 && posts.Single(p => p.Name == "Bài B").Tasks.Count == 30, "Hai bài 20/30 nhóm lưu độc lập");
+    var pa = posts.Single(p => p.Name == "Bài A");
+    var paused = await timed.PostActionAsync(new(pa.BatchId, pa.Revision, "pause"));
+    await Throws(async () => await timed.PostActionAsync(new(pa.BatchId, pa.Revision, "cancel")), "Revision cũ không được hủy bài");
+    clock.Current = dueA;
+    Check(!await timed.ProcessNextAsync(), "Pause chặn dispatch dù đã đến giờ");
+    await timed.PostActionAsync(new(paused.BatchId, paused.Revision, "resume"));
+    for (var i = 0; i < 20; i++)
+    {
+        Check(await timed.ProcessNextAsync(), "Bài A gửi nhóm " + (i + 1));
+        Check(!await timed.ProcessNextAsync(), "Không gửi dồn trong cùng mốc giờ");
+        clock.Current = clock.Current.AddSeconds(299);
+        Check(!await timed.ProcessNextAsync(), "Chưa đủ 5 phút thì chưa gửi");
+        clock.Current = clock.Current.AddSeconds(31); // 5 phút 30 giây: đủ cho mọi độ lệch 0–30 giây
+    }
+    var gaps = Enumerable.Range(0, 200).Select(i => FacebookPublishingService.PacingGap("task-" + i)).ToArray();
+    Check(gaps.All(g => g >= TimeSpan.FromMinutes(5) && g <= TimeSpan.FromSeconds(330)) && gaps.Distinct().Count() > 50, "Giãn cách 5 phút + 0–30 giây, có phân tán");
+    Check(FacebookPublishingService.PacingGap("task-1") == FacebookPublishingService.PacingGap("task-1"), "Độ lệch ổn định theo lượt gửi trước");
+    var publishedA = (await timed.ListAsync()).Posts!.Single(p => p.Name == "Bài A");
+    Check(publishedA.Tasks.Select(t => t.TargetId).SequenceEqual(firstIds), "Giữ đúng thứ tự nhóm đã xác nhận");
+    Check(DateTimeOffset.Parse(publishedA.Tasks.Last().SubmittedAtUtc!) == dueA.AddSeconds(19 * 330), "20 nhóm, mỗi lượt cách 5 phút 30 giây (đủ độ lệch tối đa)");
+    clock.Current = dueA.AddDays(1);
+    for (var i = 0; i < 30; i++) { Check(await timed.ProcessNextAsync(), "Bài B gửi nhóm " + (i + 1)); clock.Current = clock.Current.AddSeconds(330); }
+    var publishedB = (await timed.ListAsync()).Posts!.Single(p => p.Name == "Bài B");
+    Check(DateTimeOffset.Parse(publishedB.Tasks.Last().SubmittedAtUtc!) == dueA.AddDays(1).AddSeconds(29 * 330), "30 nhóm không bị quota chặn");
+    var overlap1 = await timed.CreateBatchAsync(Request("p1", firstIds.Take(2), "Trùng A"));
+    var overlap2 = await timed.CreateBatchAsync(Request("p1", secondIds.Take(2), "Trùng B"));
+    Check(await timed.ProcessNextAsync() && !await timed.ProcessNextAsync(), "Hai bài cùng giờ cùng profile vẫn cách 5 phút");
+    var independent = await timed.CreateBatchAsync(Request("p2", [other.Groups[0].TargetId], "Tài khoản khác"));
+    Check(await timed.ProcessNextAsync() && (await timed.ListAsync()).Tasks.Single(t => t.TaskId == independent[0].TaskId).State == "Published", "Cooldown p1 không chặn p2");
+    clock.Current = clock.Current.AddSeconds(330);
+    var overlapPosts = (await timed.ListAsync()).Posts!.Where(p => p.BatchId == overlap1[0].BatchId || p.BatchId == overlap2[0].BatchId).ToArray();
+    var preSubmitPost = overlapPosts.Single(p => p.Tasks.Any(t => t.State == "Published"));
+    var pauseAttempted = false;
+    browser.Post = async (_, before) =>
+    {
+        pauseAttempted = true;
+        await timed.PostActionAsync(new(preSubmitPost.BatchId, preSubmitPost.Revision, "pause"));
+        await before(); throw new InvalidOperationException("Không được click sau pause");
+    };
+    await timed.ProcessNextAsync();
+    Check(pauseAttempted && (await timed.ListAsync()).Posts!.Single(p => p.BatchId == preSubmitPost.BatchId).Tasks.Any(t => t.State == "Queued"), "Pause trong Preparing trả lượt về Queued, checkpoint không gửi");
+    browser.Post = null;
+    var otherPost = overlapPosts.Single(p => p.BatchId != preSubmitPost.BatchId);
+    await timed.PostActionAsync(new(otherPost.BatchId, otherPost.Revision, "cancel"));
+    Check((await timed.ListAsync()).Posts!.Single(p => p.BatchId == otherPost.BatchId).Tasks.All(t => t.State == "Canceled"), "Hủy nguyên bài chỉ hủy phần chưa gửi");
+    var scheduledDraft = await timed.SaveDraftAsync(new(null, "Nháp có lịch", "p1", "x", firstIds, [], clock.Current.AddDays(1).ToString("O")));
+    Check((await timed.ListAsync()).Drafts!.Single(d => d.DraftId == scheduledDraft.DraftId).DueAtUtc == scheduledDraft.DueAtUtc, "Nháp lưu cả giờ hẹn");
+    await timed.DeleteDraftAsync(new(scheduledDraft.DraftId));
+    await ResetWork();
+    browser.Discovery = new([new("a", "Nhóm A", "https://www.facebook.com/groups/a/"), new("b", "Nhóm B", "https://www.facebook.com/groups/b/")], true, "Đủ");
+    p1 = (await service.SyncGroupsAsync(new("p1"))).Groups.ToArray();
     var request = Request("p1", p1.Select(g => g.TargetId));
     var tasks = await service.CreateBatchAsync(request);
     var replay = await service.CreateBatchAsync(request);
@@ -88,13 +194,25 @@ try
     var clicked = false;
     browser.Post = async (_, before) => { await service.CancelAsync(new(cancelTask.TaskId)); await before(); clicked = true; return new(FacebookPostOutcome.Published, null, null); };
     await service.ProcessNextAsync();
-    Check(!clicked && (await TaskById(cancelTask.TaskId)).State == "Canceled", "Hủy trong Preparing làm CAS 0 dòng, không click");
+    var canceledBeforeSubmit = await TaskById(cancelTask.TaskId);
+    Check(!clicked && canceledBeforeSubmit.State == "Canceled" && canceledBeforeSubmit.ActivityLog?.Last().Code == "cancel", "Hủy trong Preparing làm CAS 0 dòng, không click");
 
     await ResetWork();
     var unknown = (await service.CreateBatchAsync(Request("p1", [p1[0].TargetId])))[0];
-    browser.Post = async (_, before) => { await before(); throw new IOException("Ngắt browser sau click"); };
+    browser.Post = async (input, before) =>
+    {
+        await input.ReportStage!("opening_composer", "Đang mở khung soạn bài.");
+        var running = await TaskById(unknown.TaskId);
+        Check(running.State == "Preparing" && running.ActivityLog?.Last().Code == "opening_composer", "Thấy bước hiện tại trong lúc đang chuẩn bị");
+        await before();
+        throw new IOException("private-path-should-not-be-logged");
+    };
     await service.ProcessNextAsync();
     Check((await TaskById(unknown.TaskId)).State == "Unknown" && !await service.ProcessNextAsync(), "Mất kết nối sau checkpoint -> Unknown, không tự retry");
+    var unknownLog = (await TaskById(unknown.TaskId)).ActivityLog!;
+    Check(unknownLog.Select(e => e.Code).SequenceEqual(["queued", "checking_input", "opening_browser", "opening_composer", "submit_checkpoint", "Unknown"]) &&
+        unknownLog[^1].ReasonCode == "outcome_unknown" && !unknownLog.Any(e => e.Message.Contains("private-path")),
+        "Nhật ký bền vững giữ đúng mốc gửi và lỗi, bỏ exception thô");
     await Throws(async () => { await service.ResumeAsync(new(unknown.TaskId)); }, "Không resume Unknown để tránh đăng trùng");
 
     await ResetWork();
@@ -160,7 +278,7 @@ try
         for (var i = 0; i < 20; i++) db.FacebookPostTasks.Add(new() { Id = Guid.NewGuid().ToString("N"), BatchId = batch.Id, TargetId = p1[0].TargetId, ProfileId = "p1", AccountIdentitySnapshot = "Facebook (1)", GroupNameSnapshot = "A", GroupUrlSnapshot = p1[0].Url, TextSnapshot = "đã đăng", State = "Published", SubmittedAtUtc = DateTimeOffset.UtcNow.AddMinutes(-6 - i).ToString("O"), CreatedAtUtc = DateTimeOffset.UtcNow.AddMinutes(-6 - i).ToString("O"), UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("O") });
         await db.SaveChangesAsync();
     }
-    Check(!await service.ProcessNextAsync() && browser.Calls == 0, "20 lần gửi/24h giữ các bài còn lại trong queue");
+    Check(await service.ProcessNextAsync() && browser.Calls == 1, "Lượt 21 vẫn đăng sau 5 phút, không còn quota ngày");
 
     await ResetWork();
     var lockedResult = (await service.CreateBatchAsync(Request("p1", [p1[0].TargetId])))[0];
@@ -284,6 +402,18 @@ finally
     Directory.Delete(root, recursive: true);
 }
 
+sealed class FakePersonalPoster : IFacebookPoster
+{
+    public int Calls { get; private set; }
+    public bool Unknown { get; set; }
+    public async Task<FacebookPostResult> PostAsync(FacebookPostInput input, Func<Task> beforeSubmit, CancellationToken ct)
+    {
+        Calls++;
+        await beforeSubmit();
+        if (Unknown) throw new FacebookUnknownOutcomeException("Không thấy kết quả");
+        return new(FacebookPostOutcome.Published, null, "published");
+    }
+}
 sealed class FakeBrowser : IFacebookGroupBrowser
 {
     public FacebookGroupDiscovery Discovery { get; set; } = new([], true, "Đủ");
@@ -311,3 +441,5 @@ sealed class FakeController : IBrowserProcessController
     public void Dispose() { }
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }
+
+sealed class TestClock(DateTimeOffset now) : TimeProvider { public DateTimeOffset Current { get; set; } = now; public override DateTimeOffset GetUtcNow() => Current; }

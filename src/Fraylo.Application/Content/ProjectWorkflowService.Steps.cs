@@ -4,6 +4,7 @@ using Fraylo.Contracts.Content;
 using Fraylo.Contracts.Jobs;
 using Fraylo.Infrastructure.Persistence;
 using Fraylo.Infrastructure.Persistence.Entities;
+using static Fraylo.Application.Content.Workflows.WorkflowSceneJobs;
 
 namespace Fraylo.Application.Content;
 

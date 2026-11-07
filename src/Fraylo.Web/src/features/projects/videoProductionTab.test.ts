@@ -8,6 +8,7 @@ const workflowReadPayloads = new Map<string, { payload: Record<string, unknown> 
 let executedCommands: string[] = [];
 const retryStepPayloads: Array<Record<string, unknown>> = [];
 let mockRetryFailure: { code: string; message: string } | null = null;
+let mockUploadedAsset: Record<string, unknown> | null = null;
 
 let mockConfig: Record<string, any> = {
   projectId: "prj_test_01",
@@ -57,6 +58,9 @@ window.chrome = {
         let responseError: unknown = null;
 
         switch (req.command) {
+          case "asset.list":
+            responseData = { assets: [], totalCount: 0, page: 1, pageSize: 20 };
+            break;
           case "prompt.get_template":
             responseData = mockPromptTemplate ?? {
               template: {
@@ -129,7 +133,7 @@ window.chrome = {
             break;
           case "asset.upload":
             responseData = {
-              asset: {
+              asset: mockUploadedAsset ?? {
                 assetId: "ast_uploaded_direct",
                 projectId: req.payload?.projectId,
                 assetType: req.payload?.assetType || "Image",
@@ -871,6 +875,66 @@ const gridStoppedScene = {
   gridImageAssetId: "ast_grid", composedImageAssetId: null, motionPromptText: "Prompt cũ còn trong bảng",
   isStale: true, activeJobId: null, videoAssetId: null,
 };
+
+test("Thay đúng Chỉ sản phẩm bằng video theo mẫu; giữ ảnh hoàn thiện và chặn capability chưa đạt", async () => {
+  const originalConfig = mockConfig;
+  const originalScenes = mockScenes;
+  mockConfig = { ...originalConfig, projectId: "prj_test_01", workflowMode: "ReadyImage", runState: "Idle", readyImageAssetId: "ready-existing", referenceVideoAssetId: null, referenceVideoAvailable: false };
+  mockScenes = [];
+  const { container, unmount } = await renderTab();
+  try {
+    const mode = Array.from(container.querySelectorAll('[role="button"]')).find(e => e.textContent?.includes("Làm theo video mẫu")) as HTMLElement;
+    assert(mode);
+    assert(container.querySelector('#video-strategy'), "Ảnh hoàn thiện giữ các tùy chọn video cũ.");
+    assert(!Array.from(container.querySelectorAll("span")).some(e => e.textContent === "Chỉ sản phẩm"));
+    await React.act(async () => mode.click());
+    assert(container.querySelector('[aria-label="Dữ liệu video theo mẫu"]'));
+    assert.equal(container.querySelector('#video-strategy'), null);
+    assert.equal(container.querySelector('#target-duration'), null);
+    assert.equal(container.querySelector('input[name="audioOption"]'), null);
+    assert.match(container.textContent ?? "", /Chuyển động gần đúng/);
+    assert.match(container.textContent ?? "", /tự tách, ghép và co giãn theo độ dài video mới/);
+    assert.match(container.textContent ?? "", /Thời lượng có thể khác video mẫu/);
+    const start = Array.from(container.querySelectorAll("button")).find(b => b.textContent?.includes("Tạo video theo mẫu"))!;
+    assert(start.disabled, "Chưa có video/capability thì không tạo.");
+    const oldMode = Array.from(container.querySelectorAll("span")).find(e => e.textContent === "Ảnh đã hoàn thiện")!;
+    await React.act(async () => (oldMode.parentElement!.parentElement as HTMLElement).click());
+    assert(container.querySelector('#video-strategy'));
+    assert(container.querySelector('img[alt="Ảnh đã hoàn thiện"]'), "Ảnh đã hoàn thiện cũ vẫn được giữ.");
+  } finally { await unmount(); mockConfig = originalConfig; mockScenes = originalScenes; }
+});
+
+test("Video theo mẫu nhập bằng host Video, lưu nháp và mở lại đủ hai đầu vào, không gửi render", async () => {
+  const originalConfig = mockConfig;
+  const originalScenes = mockScenes;
+  mockConfig = { ...originalConfig, projectId: "prj_test_01", workflowMode: "ReferenceVideo", runState: "Idle", videoStrategy: "SingleVideo", referenceImageMode: "Direct", readyImageAssetId: "photo", referenceVideoAssetId: null, referenceVideoAvailable: false };
+  mockScenes = [];
+  mockUploadedAsset = { assetId: "sample-video", assetType: "Video", projectId: mockConfig.projectId, relativePath: "library/videos/sample.mp4" };
+  executedCommands = [];
+  const first = await renderTab();
+  try {
+    const upload = Array.from(first.container.querySelectorAll("button")).find(b => b.textContent === "Tải video từ máy")!;
+    await React.act(async () => upload.click());
+    await React.act(async () => { await new Promise(r => setTimeout(r, 80)); });
+    assert.equal(lastBridgeCommand, "asset.upload");
+    assert.equal(lastBridgePayload!.assetType, "Video");
+    assert(!lastBridgePayload!.base64Data);
+    assert(first.container.querySelector('video[aria-label="Video mẫu chuyển động và âm thanh"]'));
+    const save = Array.from(first.container.querySelectorAll("button")).find(b => b.textContent === "Lưu cấu hình")!;
+    await React.act(async () => save.click());
+    await React.act(async () => { await new Promise(r => setTimeout(r, 80)); });
+    assert.equal(mockConfig.referenceVideoAssetId, "sample-video");
+    assert.equal(mockConfig.readyImageAssetId, "photo");
+    assert.equal(mockConfig.audioOption, "None", "Không lẫn audio riêng với âm thanh trong video mẫu.");
+    assert(!executedCommands.includes("workflow.start"));
+    await first.unmount();
+    const reopened = await renderTab();
+    try {
+      assert(reopened.container.querySelector('video[aria-label="Video mẫu chuyển động và âm thanh"]'));
+      assert(reopened.container.querySelector('img[alt="Ảnh người mẫu mặc sản phẩm"]'));
+    } finally { await reopened.unmount(); }
+  } finally { if (first.container.isConnected) await first.unmount(); mockUploadedAsset = null; mockConfig = originalConfig; mockScenes = originalScenes; }
+});
 
 async function renderTab(): Promise<{ container: HTMLElement; unmount: () => Promise<void> }> {
   const container = document.createElement("div");

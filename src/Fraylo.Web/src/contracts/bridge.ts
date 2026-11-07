@@ -6,8 +6,21 @@ export const maxBridgeEnvelopeBytes = 4 * 1024 * 1024;
  * Danh mục lệnh được phép trên Bridge (bao gồm Gate G1 và G2 Core Business)
  */
 export const bridgeCommandAllowlist = [
+  "analytics.analysis.list",
+  "analytics.analysis.get",
+  "analytics.analysis.start",
+  "analytics.analysis.retry",
+  "analytics.analysis.cancel",
+  "facebook.analytics.catalog",
+  "facebook.analytics.pages.sync",
+  "facebook.analytics.sync",
+  "facebook.analytics.cancel",
+  "facebook.analytics.dashboard",
+  "facebook.analytics.history",
   "facebook.list",
   "facebook.groups.sync",
+  "facebook.rewrite.retry",
+  "facebook.posts.action",
   "facebook.tasks.create",
   "facebook.tasks.cancel",
   "facebook.tasks.resume",

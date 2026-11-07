@@ -15,6 +15,7 @@ export interface SettingsPageProps {
   onDirtyChange?: (isDirty: boolean) => void;
   resetSignal?: number;
   accountsNavigationSignal?: number;
+  aiNavigationSignal?: number;
 }
 
 // shadcn UI compatible primitives local to Settings to avoid test-loader dual React declaration quirks
@@ -166,7 +167,7 @@ function AppUpdateCard() {
   );
 }
 
-export function SettingsPage({ initialTab = "accounts", onDirtyChange, resetSignal, accountsNavigationSignal }: SettingsPageProps) {
+export function SettingsPage({ initialTab = "accounts", onDirtyChange, resetSignal, accountsNavigationSignal, aiNavigationSignal }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [isStorageDirty, setIsStorageDirty] = useState<boolean>(false);
   const [isAiDirty, setIsAiDirty] = useState<boolean>(false);
@@ -177,6 +178,10 @@ export function SettingsPage({ initialTab = "accounts", onDirtyChange, resetSign
   useEffect(() => {
     if (accountsNavigationSignal) setActiveTab("accounts");
   }, [accountsNavigationSignal]);
+
+  useEffect(() => {
+    if (aiNavigationSignal) setActiveTab("ai");
+  }, [aiNavigationSignal]);
 
   useEffect(() => {
     onDirtyChange?.(isPageDirty);
@@ -378,6 +383,7 @@ export function SettingsPage({ initialTab = "accounts", onDirtyChange, resetSign
                   role="radio"
                   id="theme-option-system"
                   aria-checked={preference === "system"}
+                  tabIndex={preference === "system" ? 0 : -1}
                   className={cn(
                     "flex flex-col text-left rounded-xl border-2 p-4 transition-[color,background-color,border-color,box-shadow,opacity,transform] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     preference === "system"
@@ -389,7 +395,7 @@ export function SettingsPage({ initialTab = "accounts", onDirtyChange, resetSign
                 >
                   <div className="flex items-center justify-between w-full mb-1.5">
                     <span className="font-semibold text-sm text-foreground">Theo hệ thống (System)</span>
-                    {preference === "system" && <Check className="h-4 w-4 text-primary" />}
+                    {preference === "system" && <Check className="h-4 w-4 text-primary" aria-hidden="true" />}
                   </div>
                   <p className="text-xs text-muted-foreground">Tự động đồng bộ theo cấu hình sáng/tối của Windows.</p>
                 </button>
@@ -399,6 +405,7 @@ export function SettingsPage({ initialTab = "accounts", onDirtyChange, resetSign
                   role="radio"
                   id="theme-option-light"
                   aria-checked={preference === "light"}
+                  tabIndex={preference === "light" ? 0 : -1}
                   className={cn(
                     "flex flex-col text-left rounded-xl border-2 p-4 transition-[color,background-color,border-color,box-shadow,opacity,transform] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     preference === "light"
@@ -410,7 +417,7 @@ export function SettingsPage({ initialTab = "accounts", onDirtyChange, resetSign
                 >
                   <div className="flex items-center justify-between w-full mb-1.5">
                     <span className="font-semibold text-sm text-foreground">Giao diện Sáng (Light)</span>
-                    {preference === "light" && <Check className="h-4 w-4 text-primary" />}
+                    {preference === "light" && <Check className="h-4 w-4 text-primary" aria-hidden="true" />}
                   </div>
                   <p className="text-xs text-muted-foreground">Tông màu sáng, nền sạch, độ tương phản cao.</p>
                 </button>
@@ -420,6 +427,7 @@ export function SettingsPage({ initialTab = "accounts", onDirtyChange, resetSign
                   role="radio"
                   id="theme-option-dark"
                   aria-checked={preference === "dark"}
+                  tabIndex={preference === "dark" ? 0 : -1}
                   className={cn(
                     "flex flex-col text-left rounded-xl border-2 p-4 transition-[color,background-color,border-color,box-shadow,opacity,transform] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     preference === "dark"
@@ -431,15 +439,15 @@ export function SettingsPage({ initialTab = "accounts", onDirtyChange, resetSign
                 >
                   <div className="flex items-center justify-between w-full mb-1.5">
                     <span className="font-semibold text-sm text-foreground">Giao diện Tối (Dark)</span>
-                    {preference === "dark" && <Check className="h-4 w-4 text-primary" />}
+                    {preference === "dark" && <Check className="h-4 w-4 text-primary" aria-hidden="true" />}
                   </div>
-                  <p className="text-xs text-muted-foreground">Dark navy nhiều lớp, accent tím theo bố cục tham khảo.</p>
+                  <p className="text-xs text-muted-foreground">Nền tối ấm nhiều lớp, accent cam-đỏ; dịu mắt khi làm việc lâu.</p>
                 </button>
               </div>
 
               {persistenceWarning && (
                 <Alert variant="warning" role="alert" aria-live="polite">
-                  <Info className="h-4 w-4" />
+                  <Info className="h-4 w-4" aria-hidden="true" />
                   <AlertTitle>Giao diện chưa được lưu.</AlertTitle>
                   <AlertDescription className="flex flex-wrap items-center justify-between gap-2 mt-1">
                     <span>
@@ -460,7 +468,7 @@ export function SettingsPage({ initialTab = "accounts", onDirtyChange, resetSign
               )}
 
               <Alert variant="info">
-                <Info className="h-4 w-4" />
+                <Info className="h-4 w-4" aria-hidden="true" />
                 <AlertTitle>Giao diện:</AlertTitle>
                 <AlertDescription>
                   Thay đổi có hiệu lực ngay lập tức và được tự động lưu bền vững.

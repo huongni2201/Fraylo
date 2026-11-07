@@ -112,7 +112,7 @@ public sealed class GeminiPlaywrightAutomation
                         null, new() { Timeout = 5000 }).WaitAsync(ct).ConfigureAwait(false);
                     break;
                 }
-                catch (TimeoutException) when (attempt < 3)
+                catch (TimeoutException) when (attempt < 3 && job.TaskType is not (JobTaskType.AnalyticsAnalysis or JobTaskType.FacebookContentRewrite))
                 {
                     await _activity.WriteAsync(job.JobId, "submit", $"Gemini chưa nhận lệnh gửi, thử bấm lại (lần {attempt + 1}).", ct).ConfigureAwait(false);
                 }
@@ -201,7 +201,10 @@ public sealed class GeminiPlaywrightAutomation
             for (var i = 0; i < 30 && string.IsNullOrWhiteSpace(result); i++)
             {
                 if (i > 0) await Task.Delay(500, ct).ConfigureAwait(false);
-                result = (await replyBox.EvaluateAsync<string>(readReply).WaitAsync(ct).ConfigureAwait(false)).Trim();
+                var code = replyBox.Locator("pre code");
+                result = (job.TaskType is JobTaskType.AnalyticsAnalysis or JobTaskType.FacebookContentRewrite) && await code.CountAsync().WaitAsync(ct).ConfigureAwait(false) == 1
+                    ? (await code.InnerTextAsync().WaitAsync(ct).ConfigureAwait(false)).Trim()
+                    : (await replyBox.EvaluateAsync<string>(readReply).WaitAsync(ct).ConfigureAwait(false)).Trim();
             }
             if (string.IsNullOrWhiteSpace(result))
             {

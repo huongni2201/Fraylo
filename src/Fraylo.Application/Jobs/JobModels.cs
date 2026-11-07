@@ -41,7 +41,7 @@ public sealed record JobSnapshotResult(
 /// </summary>
 public sealed record JobExecutionContext(
     string JobId,
-    string ProjectId,
+    string? ProjectId,
     string? SceneId,
     string TaskType,
     string ProviderKey,

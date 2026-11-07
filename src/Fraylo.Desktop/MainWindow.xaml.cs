@@ -7,6 +7,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Fraylo.Application.Accounts;
 using Fraylo.Application.Analytics;
+using Fraylo.Application.FacebookAnalytics;
 using Fraylo.Application.Assets;
 using Fraylo.Application.Content;
 using Fraylo.Application.Documents;
@@ -20,6 +21,7 @@ using Fraylo.Application.Scenes;
 using Fraylo.Application.Settings;
 using Fraylo.Application.Workflows;
 using Fraylo.Browser;
+using Fraylo.Browser.Analytics;
 using Fraylo.Browser.Abstractions;
 using Fraylo.Browser.Models;
 using Fraylo.Browser.Publishing;
@@ -49,6 +51,9 @@ public partial class MainWindow : Window
     private AnalyticsHandlers? _analyticsHandlers;
     private PublishingHandlers? _publishingHandlers;
     private FacebookHandlers? _facebookHandlers;
+    private FacebookAnalyticsHandlers? _facebookAnalyticsHandlers;
+    private AnalyticsAnalysisHandlers? _analyticsAnalysisHandlers;
+    private FacebookAnalyticsService? _facebookAnalyticsService;
     private CancellationTokenSource? _facebookQueueCts;
     private Task? _facebookQueueTask;
     private UpdateHandlers? _updateHandlers;
@@ -349,7 +354,16 @@ public partial class MainWindow : Window
             _workflowHandlers = workflowHandlers;
             _workflowHandlers.Register(DispatcherInstance);
 
-            var analyticsService = new AnalyticsService(dbOptions);
+            var snapshotFactory = new JobSnapshotFactory(settingsService, dbOptions: dbOptions);
+            var reservation = new JobReservation(dbOptions);
+            var executor = new ProductionJobExecutor(providerRegistry);
+            var scheduler = new JobScheduler(dbOptions, reservation, executor, browserGatekeeper);
+            var jobService = new JobService(dbOptions, snapshotFactory, scheduler);
+            var analysisService = new AnalyticsAnalysisService(dbOptions, providerRegistry, jobService, scheduler);
+            _analyticsAnalysisHandlers = new AnalyticsAnalysisHandlers(analysisService);
+            _analyticsAnalysisHandlers.Register(DispatcherInstance);
+
+            var analyticsService = new AnalyticsService(dbOptions, analysis: analysisService);
             var tiktokCrawler = new TikTokAnalyticsSyncService(
                 dbOptions,
                 profileRegistry,
@@ -364,10 +378,16 @@ public partial class MainWindow : Window
                 new TikTokVideoUploader(processController, sessionProbe));
             _publishingHandlers = new PublishingHandlers(publishingService);
             _publishingHandlers.Register(DispatcherInstance);
+            var rewriteService = new Fraylo.Application.Facebook.FacebookContentRewriteService(dbOptions, providerRegistry, jobService, scheduler);
+            await rewriteService.HoldUnsentOnStartupAsync(ct);
             var facebookService = new FacebookPublishingService(dbOptions, rootRegistry, profileRegistry,
-                new FacebookGroupBrowser(processController), processController);
-            _facebookHandlers = new FacebookHandlers(facebookService);
+                new FacebookGroupBrowser(processController), processController, rewrite: rewriteService);
+            _facebookHandlers = new FacebookHandlers(facebookService, rewriteService);
             _facebookHandlers.Register(DispatcherInstance);
+            _facebookAnalyticsService = new FacebookAnalyticsService(dbOptions, profileRegistry, processController, new FacebookInsightsBrowser(processController), analysisService);
+            await _facebookAnalyticsService.RecoverInterruptedAsync(ct);
+            _facebookAnalyticsHandlers = new FacebookAnalyticsHandlers(_facebookAnalyticsService);
+            _facebookAnalyticsHandlers.Register(DispatcherInstance);
             var facebookQueueCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             _facebookQueueCts = facebookQueueCts;
             _facebookQueueTask = Task.Run(async () =>
@@ -380,18 +400,13 @@ public partial class MainWindow : Window
             _updateHandlers = new UpdateHandlers(new AppUpdateService(() => Dispatcher.BeginInvoke(() => System.Windows.Application.Current.Shutdown())));
             _updateHandlers.Register(DispatcherInstance);
 
-            var snapshotFactory = new JobSnapshotFactory(settingsService, dbOptions: dbOptions);
-            var reservation = new JobReservation(dbOptions);
-            var executor = new ProductionJobExecutor(providerRegistry);
-            var scheduler = new JobScheduler(dbOptions, reservation, executor, browserGatekeeper);
-            var jobService = new JobService(dbOptions, snapshotFactory, scheduler);
-
             var workflowService = new ProjectWorkflowService(dbOptions, jobService);
             var museAiOutputRecovery = new MuseAiOutputRecoveryService(dbOptions, museAiAutomation, jobService, workflowService);
 
             _videoWorkflowHandlers = new VideoWorkflowHandlers(workflowService);
             _videoWorkflowHandlers.Register(DispatcherInstance);
 
+            await analysisService.HoldUnsentOnStartupAsync(ct).ConfigureAwait(false);
             await jobService.RunCrashRecoverySweepAsync(ct).ConfigureAwait(false);
             await workflowService.RunWorkflowApplySweepAsync(ct).ConfigureAwait(false);
             await workflowService.RunWorkflowContinuationSweepAsync(ct).ConfigureAwait(false);
@@ -509,7 +524,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (string.Equals(payload.NewState, JobState.Succeeded, StringComparison.OrdinalIgnoreCase))
+            if (payload.ProjectId is not null && string.Equals(payload.NewState, JobState.Succeeded, StringComparison.OrdinalIgnoreCase))
             {
                 await workflowService.ApplyJobOutputAsync(payload.JobId).ConfigureAwait(false);
             }
@@ -610,6 +625,15 @@ public partial class MainWindow : Window
             _analyticsHandlers.Unregister(DispatcherInstance);
             _analyticsHandlers = null;
         }
+        _analyticsAnalysisHandlers?.Unregister(DispatcherInstance);
+        _analyticsAnalysisHandlers = null;
+        _facebookAnalyticsHandlers?.Unregister(DispatcherInstance);
+        _facebookAnalyticsHandlers = null;
+        if (_facebookAnalyticsService != null)
+        {
+            _ = _facebookAnalyticsService.DisposeAsync().AsTask();
+            _facebookAnalyticsService = null;
+        }
         if (_publishingHandlers != null)
         {
             _publishingHandlers.Unregister(DispatcherInstance);
@@ -664,6 +688,15 @@ public partial class MainWindow : Window
     private async Task CleanupG2HandlersAsync()
     {
         await StopFacebookQueueAsync().ConfigureAwait(true);
+        _analyticsAnalysisHandlers?.Unregister(DispatcherInstance);
+        _analyticsAnalysisHandlers = null;
+        _facebookAnalyticsHandlers?.Unregister(DispatcherInstance);
+        _facebookAnalyticsHandlers = null;
+        if (_facebookAnalyticsService != null)
+        {
+            await _facebookAnalyticsService.DisposeAsync();
+            _facebookAnalyticsService = null;
+        }
         _facebookHandlers?.Unregister(DispatcherInstance);
         _facebookHandlers = null;
         if (_providerAccountHandlers != null)

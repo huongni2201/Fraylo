@@ -40,7 +40,7 @@ test("Lô nhóm phải xác nhận, giữ mã lô khi timeout, không áp nhóm 
     await React.act(async () => root.render(render("compose")));
     await selectAccount("a");
     await input('[aria-label="Tìm nhóm"]', "Nhóm 0");
-    await React.act(async () => button("Chọn tất cả 4 nhóm").click());
+    await React.act(async () => button("Chọn tất cả").click());
     assert.match(container.textContent!, /Đã chọn 4 nhóm/);
     await input("#facebook-text", "Nội dung đã kiểm tra 😀");
     await React.act(async () => button("Xem lại lô đăng").click());

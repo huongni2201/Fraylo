@@ -14,6 +14,7 @@ export interface AssetItem {
 }
 
 export interface ListAssetsRequest {
+  includeShared?: boolean;
   projectId?: string;
   assetType?: string;
   page?: number;
@@ -56,6 +57,7 @@ export interface OpenFolderResponse {
 export async function listAssets(request: ListAssetsRequest): Promise<ListAssetsResponse> {
   return await bridgeClient.invoke<ListAssetsResponse>("asset.list", {
     projectId: request.projectId || undefined,
+    includeShared: request.includeShared || undefined,
     assetType: request.assetType || undefined,
     page: request.page ?? 1,
     pageSize: request.pageSize ?? 20,
@@ -77,15 +79,21 @@ export async function openAssetFolder(request: OpenFolderRequest): Promise<OpenF
 
 export interface UploadAssetRequest {
   projectId?: string;
-  assetType: "Image" | "Audio";
+  assetType: "Image" | "Audio" | "Video";
   fileName?: string;
   base64Data?: string;
   sourceFilePath?: string;
+  /** Chỉ cho Image khi host mở hộp thoại: cho chọn nhiều tệp một lần. */
+  multiple?: boolean;
 }
 
 export interface UploadAssetResponse {
   asset?: AssetItem | null;
   canceled?: boolean;
+  /** Có khi multiple: mọi tệp tải thành công. */
+  assets?: AssetItem[] | null;
+  /** Có khi multiple: lỗi của từng tệp không tải được. */
+  errors?: string[] | null;
 }
 
 export async function uploadAsset(request: UploadAssetRequest): Promise<UploadAssetResponse> {
@@ -95,5 +103,6 @@ export async function uploadAsset(request: UploadAssetRequest): Promise<UploadAs
     fileName: request.fileName || undefined,
     base64Data: request.base64Data || undefined,
     sourceFilePath: request.sourceFilePath || undefined,
+    multiple: request.multiple || undefined,
   });
 }

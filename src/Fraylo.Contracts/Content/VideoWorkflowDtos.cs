@@ -22,11 +22,14 @@ public static class WorkflowModes
     /// </summary>
     public const string ProductOnly = "ProductOnly";
 
+    /// <summary>Ảnh mặc sản phẩm + video mẫu; MuseAI mô phỏng chuyển động gần đúng từ prompt phân tích video.</summary>
+    public const string ReferenceVideo = "ReferenceVideo";
+
     public static readonly IReadOnlyList<string> All = new[]
     {
         ModelAndProduct,
         ReadyImage,
-        ProductOnly
+        ReferenceVideo
     };
 
     public static bool IsValid(string? mode) =>
@@ -201,7 +204,10 @@ public sealed record ProjectWorkflowConfigDto(
     [property: JsonPropertyName("videoStrategy")] string VideoStrategy = VideoStrategies.MultiVideo,
     [property: JsonPropertyName("referenceImageMode")] string ReferenceImageMode = ReferenceImageModes.Direct,
     // Chỉ điền khi đọc qua GetWorkflowConfigWithStepsAsync (bridge): lần thử hiện hành của từng bước logic trong run.
-    [property: JsonPropertyName("steps")] IReadOnlyList<WorkflowStepStateDto>? Steps = null);
+    [property: JsonPropertyName("steps")] IReadOnlyList<WorkflowStepStateDto>? Steps = null,
+    [property: JsonPropertyName("referenceVideoAssetId")] string? ReferenceVideoAssetId = null,
+    [property: JsonPropertyName("referenceVideoAvailable")] bool ReferenceVideoAvailable = false,
+    [property: JsonPropertyName("referenceVideoUnavailableReason")] string? ReferenceVideoUnavailableReason = null);
 
 /// <summary>
 /// Thông tin chi tiết quy trình của một Cảnh (Scene Workflow Detail).
@@ -256,7 +262,8 @@ public sealed record SaveProjectWorkflowConfigRequest(
     [property: JsonPropertyName("scriptGuidance")] string? ScriptGuidance = null,
     [property: JsonPropertyName("videoGuidance")] string? VideoGuidance = null,
     [property: JsonPropertyName("videoStrategy")] string? VideoStrategy = null,
-    [property: JsonPropertyName("referenceImageMode")] string? ReferenceImageMode = null);
+    [property: JsonPropertyName("referenceImageMode")] string? ReferenceImageMode = null,
+    [property: JsonPropertyName("referenceVideoAssetId")] string? ReferenceVideoAssetId = null);
 
 /// <summary>
 /// Yêu cầu bấm "Bắt đầu tạo video" một lần duy nhất cho toàn bộ dự án.

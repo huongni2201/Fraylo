@@ -16,9 +16,9 @@ const makeTask = (overrides: Partial<FacebookTask>): FacebookTask => ({
   createdAtUtc: new Date().toISOString(), updatedAtUtc: new Date().toISOString(), submittedAtUtc: null, ...overrides,
 });
 
-async function mountPage(api: FacebookApi, view: "compose" | "queue" | "history", onNavigate: (view: string) => void = () => {}) {
+async function mountPage(api: FacebookApi, view: "compose" | "queue" | "history", onNavigate: (view: string) => void = () => {}, openedDraft?: FacebookDraft) {
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
-  await React.act(async () => root.render(React.createElement(FacebookPage, { active: true, view, api, onNavigate, onOpenAccounts: () => {} })));
+  await React.act(async () => root.render(React.createElement(FacebookPage, { active: true, view, api, openedDraft, onNavigate, onOpenAccounts: () => {} })));
   const buttons = (label: string) => Array.from(container.querySelectorAll<HTMLButtonElement>("button")).filter(item => item.textContent?.trim() === label);
   const click = async (label: string, index = 0) => React.act(async () => buttons(label)[index].click());
   const setValue = async (selector: string, value: string) => React.act(async () => {
@@ -49,7 +49,7 @@ test("Hẹn giờ: chỉ tạo lô khi giờ hợp lệ ở tương lai và gử
   const page = await mountPage(api, "compose");
   try {
     await page.setValue("#facebook-account", "a");
-    await page.click("Chọn tất cả 4 nhóm");
+    await page.click("Chọn tất cả");
     await page.setValue("#facebook-text", "Bài hẹn giờ");
     assert.equal(page.buttons("Xem lại lô đăng")[0].disabled, false, "Đăng ngay không cần giờ");
     await React.act(async () => { page.container.querySelectorAll<HTMLInputElement>('input[name="facebook-mode"]')[1].click(); });
@@ -70,91 +70,62 @@ test("Hẹn giờ: chỉ tạo lô khi giờ hợp lệ ở tương lai và gử
 test("Nháp: lưu bền qua API, mở lại khôi phục nhóm/nội dung và bỏ nhóm không còn", async () => {
   const saved: FacebookDraftInput[] = [];
   const deleted: string[] = [];
-  const stored: FacebookDraft = { draftId: "d1", name: "Nháp cũ", accountId: "a", text: "Nội dung nháp", targetIds: ["a0", "gone"], imageAssetIds: [], updatedAtUtc: new Date().toISOString() };
+  const stored: FacebookDraft = { draftId: "d1", name: "Nháp cũ", accountId: "a", text: "Nội dung nháp", rewriteContent: false, targetIds: ["a0", "gone"], imageAssetIds: [], updatedAtUtc: new Date().toISOString() };
   const api: FacebookApi = {
     list: async () => ({ accounts: [account], groups, tasks: [], drafts: [stored] }), sync: unused, create: async () => [], cancel: unused, resume: unused, postNow: unused, reschedule: unused,
     saveDraft: async input => { saved.push(input); return { draftId: input.draftId ?? "d2", name: input.name, accountId: input.accountId, text: input.text, targetIds: input.targetIds, imageAssetIds: input.imageAssetIds, updatedAtUtc: new Date().toISOString() }; },
-    deleteDraft: async id => { deleted.push(id); },
+    deleteDraft: unused,
   };
-  const page = await mountPage(api, "compose");
+  const page = await mountPage(api, "compose", () => {}, stored);
   try {
-    await page.setValue("#facebook-account", "a");
-    assert.match(page.container.textContent!, /Nháp cũ/);
-    await React.act(async () => page.container.querySelector<HTMLButtonElement>('[aria-label="Mở nháp Nháp cũ"]')!.click());
     assert.equal(page.container.querySelector<HTMLTextAreaElement>("#facebook-text")!.value, "Nội dung nháp");
+    assert.equal(page.container.querySelectorAll<HTMLInputElement>('[name="facebook-content-mode"]')[1].checked, true);
     assert.match(page.container.textContent!, /Đã chọn 1 nhóm/);
     assert.match(page.container.textContent!, /1 nhóm không còn trong danh sách/);
     await page.setValue("#facebook-text", "Nội dung đã sửa");
     await page.click("Cập nhật nháp");
     assert.equal(saved.length, 1);
+    assert.equal(saved[0].rewriteContent, false, "Cập nhật nháp giữ lựa chọn nguyên bản");
     assert.deepEqual([saved[0].draftId, saved[0].text, saved[0].targetIds], ["d1", "Nội dung đã sửa", ["a0"]]);
     await page.click("Lưu thành nháp mới");
     await page.click("Lưu nháp");
     assert.equal(saved[1].draftId, undefined, "Nháp mới không ghi đè nháp cũ");
-    await React.act(async () => page.container.querySelector<HTMLButtonElement>('[aria-label="Xóa nháp Nháp cũ"]')!.click());
-    assert.deepEqual(deleted, ["d1"]);
   } finally { await page.unmount(); }
 });
 
-test("Hàng đợi: hẹn giờ có Đăng ngay/Đổi giờ, lỡ lịch Đăng ngay, hủy cả lô cần xác nhận", async () => {
+
+test("Bài đăng: gom 20/30 nhóm, chi tiết, tạm dừng và hủy cả bài qua revision", async () => {
   const future = new Date(Date.now() + 3600_000).toISOString();
-  const tasks = [
-    makeTask({ taskId: "s1", batchId: "b1", dueAtUtc: future }),
-    makeTask({ taskId: "m1", batchId: "b2", state: "NeedsUser", reasonCode: "schedule_missed", dueAtUtc: new Date(Date.now() - 3600_000).toISOString(), message: "Đã lỡ giờ hẹn" }),
-    makeTask({ taskId: "c1", batchId: "b3" }), makeTask({ taskId: "c2", batchId: "b3" }), makeTask({ taskId: "c3", batchId: "b3", state: "Submitting" }),
-  ];
+  const posts = [20, 30].map((n, i) => ({ batchId: "b" + i, name: "Bài " + i, accountId: "a", paused: false, revision: 1, createdAtUtc: new Date().toISOString(), tasks: Array.from({ length: n }, (_, j) => makeTask({ taskId: `${i}-${j}`, batchId: "b" + i, groupName: `Nhóm ${i}-${j}`, dueAtUtc: future })) }));
   const calls: string[] = [];
-  const api: FacebookApi = {
-    list: async () => ({ accounts: [account], groups, tasks }), sync: unused, create: async () => [],
-    cancel: async id => { calls.push("cancel:" + id); return { ...tasks.find(task => task.taskId === id)!, state: "Canceled" }; },
-    resume: async id => { calls.push("resume:" + id); return { ...tasks.find(task => task.taskId === id)!, state: "Queued" }; },
-    postNow: async id => { calls.push("postNow:" + id); return { ...tasks.find(task => task.taskId === id)!, dueAtUtc: null }; },
-    reschedule: async (id, due) => { calls.push("reschedule:" + id); return { ...tasks.find(task => task.taskId === id)!, dueAtUtc: due }; },
-    saveDraft: unused, deleteDraft: unused,
+  const api: FacebookApi = { list: async () => ({ accounts: [account], groups, tasks: posts.flatMap(p => p.tasks), posts }), sync: unused, create: unused, cancel: unused, resume: unused, ...unusedApi,
+    postAction: async (id, revision, action) => { calls.push(`${id}:${revision}:${action}`); const post = posts.find(p => p.batchId === id)!; post.revision++; post.paused = action === "pause"; return post; },
   };
-  const page = await mountPage(api, "queue");
+  const page = await mountPage(api, "posts");
   try {
-    const text = () => page.container.textContent!;
-    assert.match(text(), /Đã hẹn giờ/); assert.match(text(), /Đã lỡ lịch/);
-    await page.click("Đăng ngay", 0);
-    assert.deepEqual(calls, ["postNow:s1"]);
-    await page.click("Đăng ngay", 0);
-    assert.deepEqual(calls, ["postNow:s1", "resume:m1"], "Lỡ lịch: Đăng ngay chọn Tiếp tục");
-    await page.click("Đổi giờ", 0);
-    await page.setValue('input[id^="facebook-reschedule-"]', utcToLocalInput(new Date(Date.now() + 5 * 3600_000).toISOString()));
-    await page.click("Lưu giờ hẹn");
-    assert.equal(calls[2].startsWith("reschedule:"), true);
-    assert.equal(page.buttons("Hủy cả lô (2)").length, 2, "Chỉ đếm bài chưa gửi (bỏ Submitting); nút hiện ở từng bài hủy được của lô");
-    await page.click("Hủy cả lô (2)");
-    assert.equal(calls.length, 3, "Bấm lần đầu chỉ xin xác nhận");
-    await page.click("Xác nhận hủy 2 bài chưa gửi");
-    assert.deepEqual(calls.slice(3), ["cancel:c1", "cancel:c2"], "Không hủy bài đã Submitting");
-    assert.match(text(), /Đã hủy 2 bài chưa gửi của lô/);
+    assert.equal(page.container.querySelectorAll("article").length, 2, "Mỗi bài một dòng, không phải 50 dòng nhóm");
+    assert.match(page.container.textContent!, /20 nhóm/); assert.match(page.container.textContent!, /30 nhóm/);
+    assert.equal(page.container.querySelectorAll("article li").length, 0);
+    await page.click("Chi tiết");
+    assert.equal(page.container.querySelectorAll("article li").length, 20);
+    await page.click("Tạm dừng"); assert.deepEqual(calls, ["b0:1:pause"]);
+    assert.match(page.container.textContent!, /Tạm dừng/);
+    await page.click("Tiếp tục"); assert.equal(calls[1], "b0:2:resume");
+    await page.click("Hủy phần chưa gửi"); assert.equal(calls.length, 2, "Lần đầu chỉ xác nhận");
+    await page.click("Xác nhận hủy phần chưa gửi"); assert.equal(calls[2], "b0:3:cancel");
   } finally { await page.unmount(); }
 });
 
-test("Lịch sử: lọc trạng thái/tên nhóm; Đăng lại nạp nội dung vào Soạn bài", async () => {
-  const tasks = [
-    makeTask({ taskId: "h1", state: "Published", groupName: "Nhóm Mèo" }),
-    makeTask({ taskId: "h2", state: "Failed", groupName: "Nhóm Chó", reasonCode: "composer_not_found", text: "Nội dung cũ", imageAssetIds: ["img1"], targetId: "a1" }),
-    makeTask({ taskId: "h3", state: "Unknown", groupName: "Nhóm Cá" }),
-  ];
-  const api: FacebookApi = { list: async () => ({ accounts: [account], groups, tasks }), sync: unused, create: async () => [], cancel: unused, resume: unused, ...unusedApi };
+test("Lịch sử theo bài: PendingApproval và Unknown không tính là Published; nhân bản giữ toàn bộ nhóm", async () => {
+  const tasks = [makeTask({ taskId: "p", state: "Published" }), makeTask({ taskId: "a", state: "PendingApproval" }), makeTask({ taskId: "u", state: "Unknown" })];
+  const post = { batchId: "batch", name: "Bài cũ", accountId: "a", paused: false, revision: 1, createdAtUtc: new Date().toISOString(), tasks };
   let navigated = "";
+  const api: FacebookApi = { list: async () => ({ accounts: [account], groups, tasks, posts: [post] }), sync: unused, create: unused, cancel: unused, resume: unused, ...unusedApi };
   const page = await mountPage(api, "history", next => { navigated = next; });
   try {
-    const titles = () => Array.from(page.container.querySelectorAll("article h3")).map(item => item.textContent);
-    assert.deepEqual(titles(), ["Nhóm Mèo", "Nhóm Chó", "Nhóm Cá"]);
-    await page.setValue("#facebook-history-state", "Failed");
-    assert.deepEqual(titles(), ["Nhóm Chó"]);
-    assert.match(page.container.textContent!, /Mã: composer_not_found/);
-    await page.setValue("#facebook-history-state", "all");
-    await page.setValue('[aria-label="Tìm nhóm trong lịch sử"]', "mèo");
-    assert.deepEqual(titles(), ["Nhóm Mèo"]);
-    await page.setValue('[aria-label="Tìm nhóm trong lịch sử"]', "");
-    assert.equal(page.buttons("Đăng lại").length, 2, "Chỉ Failed/Unknown/Canceled mới Đăng lại");
-    await page.click("Đăng lại", 0);
-    assert.equal(navigated, "compose");
-    assert.match(page.container.textContent!, /Đã nạp lại nội dung/);
+    assert.equal(page.container.querySelectorAll("article").length, 1);
+    assert.match(page.container.textContent!, /1 đã đăng · 1 chờ duyệt/);
+    await page.click("Chi tiết"); assert.match(page.container.textContent!, /Hãy kiểm tra nhóm/);
+    await page.click("Nhân bản"); assert.equal(navigated, "compose");
   } finally { await page.unmount(); }
 });

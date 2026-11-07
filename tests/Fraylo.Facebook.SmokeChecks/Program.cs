@@ -111,6 +111,13 @@ public static class Program
             Check(ok.Submitted && await Count(ok.Page, "posts") == 1, "beforeSubmit chạy một lần và Post bấm đúng một lần");
             Check(await Count(ok.Page, "noticeClosed") == 1, "Đóng đúng thông báo Remember Password đã biết");
 
+            var actorFixture = Fixture().Replace("<div role=\"textbox\"", "<a aria-label=\"Test's Timeline\" href=\"https://www.facebook.com/test.user/\">Test</a><div role=\"textbox\"");
+            var actorOk = await RunAsync(browser, actorFixture, Input("Đúng actor") with { ExpectedActorUrl = "https://www.facebook.com/test.user/?ref=home" });
+            Check(actorOk.Result?.Outcome == FacebookPostOutcome.Published, "Cá nhân: xác minh actor trước khi gửi");
+            var actorWrong = await RunAsync(browser, actorFixture, Input("Sai actor") with { ExpectedActorUrl = "https://www.facebook.com/another.user/" });
+            Check(actorWrong.Error is FacebookPostException { ReasonCode: "identity_mismatch" } && !actorWrong.Submitted && await Count(actorWrong.Page, "posts") == 0, "Cá nhân: actor sai không bấm Post");
+            var stale = await RunAsync(browser, Fixture(result: "none").Replace("<main>", "<main><div role=\"alert\">Your post has been published</div>"), Input("Thông báo cũ"), timeoutMs: 1500);
+            Check(stale.Error is FacebookUnknownOutcomeException, "Cá nhân: thông báo thành công cũ không phải bằng chứng bài mới");
             var textOnly = await RunAsync(browser, Fixture(), Input("Chỉ chữ"), timeoutMs: 8000);
             Check(textOnly.Result?.Outcome == FacebookPostOutcome.Published, "Bài chỉ chữ → Published");
 

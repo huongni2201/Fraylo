@@ -1,3 +1,19 @@
+CREATE TABLE "AnalyticsAnalysisReport" (
+    "id" TEXT NOT NULL CONSTRAINT "PK_AnalyticsAnalysisReport" PRIMARY KEY,
+    "platform" TEXT NOT NULL,
+    "account_id" TEXT NOT NULL,
+    "page_id" TEXT NULL,
+    "source_id" TEXT NOT NULL,
+    "created_at_utc" TEXT NOT NULL,
+    "provider_key" TEXT NULL,
+    "settings_revision" INTEGER NOT NULL,
+    "preparation_reason" TEXT NULL,
+    "input_json" TEXT NULL,
+    "input_hash" TEXT NULL,
+    CONSTRAINT "CK_AnalyticsAnalysisReport_Scope" CHECK ((platform = 'tiktok' AND page_id IS NULL) OR (platform = 'facebook' AND page_id IS NOT NULL))
+);
+
+
 CREATE TABLE "AnalyticsSnapshot" (
     "id" TEXT NOT NULL CONSTRAINT "PK_AnalyticsSnapshot" PRIMARY KEY,
     "account_id" TEXT NOT NULL,
@@ -35,9 +51,11 @@ CREATE TABLE "BrowserProfile" (
 
 CREATE TABLE "FacebookDraft" (
     "id" TEXT NOT NULL CONSTRAINT "PK_FacebookDraft" PRIMARY KEY,
+    "due_at_utc" TEXT NULL,
     "name" TEXT NOT NULL,
     "profile_id" TEXT NOT NULL,
     "text" TEXT NOT NULL,
+    "rewrite_content" INTEGER NOT NULL DEFAULT 1,
     "target_ids_json" TEXT NOT NULL,
     "image_asset_ids_json" TEXT NOT NULL,
     "revision" INTEGER NOT NULL,
@@ -109,8 +127,24 @@ CREATE TABLE "BrowserHandoffCheckpoint" (
 );
 
 
+CREATE TABLE "FacebookAnalyticsPage" (
+    "Id" TEXT NOT NULL CONSTRAINT "PK_FacebookAnalyticsPage" PRIMARY KEY,
+    "ProfileId" TEXT NOT NULL,
+    "FacebookPageId" TEXT NOT NULL,
+    "Name" TEXT NOT NULL,
+    "Url" TEXT NOT NULL,
+    "VerifiedAtUtc" TEXT NOT NULL,
+    CONSTRAINT "FK_FacebookAnalyticsPage_BrowserProfile_ProfileId" FOREIGN KEY ("ProfileId") REFERENCES "BrowserProfile" ("id") ON DELETE RESTRICT
+);
+
+
 CREATE TABLE "FacebookPostBatch" (
     "id" TEXT NOT NULL CONSTRAINT "PK_FacebookPostBatch" PRIMARY KEY,
+    "requires_rewrite" INTEGER NOT NULL DEFAULT 0,
+    "original_text_snapshot" TEXT NULL,
+    "name" TEXT NOT NULL DEFAULT '',
+    "paused" INTEGER NOT NULL DEFAULT 0,
+    "revision" INTEGER NOT NULL DEFAULT 1,
     "profile_id" TEXT NOT NULL,
     "request_hash" TEXT NOT NULL,
     "created_at_utc" TEXT NOT NULL,
@@ -150,8 +184,37 @@ CREATE TABLE "ProviderAccount" (
 );
 
 
+CREATE TABLE "FacebookAnalyticsCapture" (
+    "Id" TEXT NOT NULL CONSTRAINT "PK_FacebookAnalyticsCapture" PRIMARY KEY,
+    "PageId" TEXT NOT NULL,
+    "Status" TEXT NOT NULL,
+    "StartedAtUtc" TEXT NOT NULL,
+    "FinishedAtUtc" TEXT NULL,
+    "activity_log_json" TEXT NOT NULL DEFAULT '[]',
+    "Message" TEXT NOT NULL,
+    "RecordCount" INTEGER NOT NULL,
+    "Source" TEXT NOT NULL,
+    "Scope" TEXT NOT NULL,
+    "Owner" TEXT NOT NULL,
+    CONSTRAINT "ck_fba_capture_status" CHECK ("Status" IN ('Running','Complete','Partial','Failed','Canceled')),
+    CONSTRAINT "FK_FacebookAnalyticsCapture_FacebookAnalyticsPage_PageId" FOREIGN KEY ("PageId") REFERENCES "FacebookAnalyticsPage" ("Id") ON DELETE RESTRICT
+);
+
+
+CREATE TABLE "FacebookRewriteChunk" (
+    "id" TEXT NOT NULL CONSTRAINT "PK_FacebookRewriteChunk" PRIMARY KEY,
+    "batch_id" TEXT NOT NULL,
+    "ordinal" INTEGER NOT NULL,
+    "task_ids_json" TEXT NOT NULL,
+    "applied_at_utc" TEXT NULL,
+    "apply_error" TEXT NULL,
+    CONSTRAINT "FK_FacebookRewriteChunk_FacebookPostBatch_batch_id" FOREIGN KEY ("batch_id") REFERENCES "FacebookPostBatch" ("id") ON DELETE CASCADE
+);
+
+
 CREATE TABLE "FacebookPostTask" (
     "id" TEXT NOT NULL CONSTRAINT "PK_FacebookPostTask" PRIMARY KEY,
+    "sort_order" INTEGER NOT NULL DEFAULT 0,
     "batch_id" TEXT NOT NULL,
     "target_id" TEXT NOT NULL,
     "profile_id" TEXT NOT NULL,
@@ -161,6 +224,7 @@ CREATE TABLE "FacebookPostTask" (
     "text_snapshot" TEXT NOT NULL,
     "state" TEXT NOT NULL,
     "reason_code" TEXT NULL,
+    "activity_log_json" TEXT NOT NULL DEFAULT '[]',
     "message" TEXT NOT NULL,
     "submitted_at_utc" TEXT NULL,
     "lease_owner_id" TEXT NULL,
@@ -172,6 +236,15 @@ CREATE TABLE "FacebookPostTask" (
     CONSTRAINT "ck_facebook_task_state" CHECK (state IN ('Queued','Preparing','Submitting','Published','PendingApproval','Failed','Unknown','NeedsUser','Canceled')),
     CONSTRAINT "FK_FacebookPostTask_FacebookPostBatch_batch_id" FOREIGN KEY ("batch_id") REFERENCES "FacebookPostBatch" ("id") ON DELETE RESTRICT,
     CONSTRAINT "FK_FacebookPostTask_FacebookTarget_target_id_profile_id" FOREIGN KEY ("target_id", "profile_id") REFERENCES "FacebookTarget" ("id", "profile_id") ON DELETE RESTRICT
+);
+
+
+CREATE TABLE "FacebookContentMetricSnapshot" (
+    "Id" TEXT NOT NULL CONSTRAINT "PK_FacebookContentMetricSnapshot" PRIMARY KEY,
+    "CaptureId" TEXT NOT NULL,
+    "ContentId" TEXT NOT NULL,
+    "DataJson" TEXT NOT NULL,
+    CONSTRAINT "FK_FacebookContentMetricSnapshot_FacebookAnalyticsCapture_CaptureId" FOREIGN KEY ("CaptureId") REFERENCES "FacebookAnalyticsCapture" ("Id") ON DELETE CASCADE
 );
 
 
@@ -239,7 +312,9 @@ CREATE TABLE "ExecutionBinding" (
 
 CREATE TABLE "Job" (
     "id" TEXT NOT NULL CONSTRAINT "PK_Job" PRIMARY KEY,
-    "project_id" TEXT NOT NULL,
+    "project_id" TEXT NULL,
+    "analytics_report_id" TEXT NULL,
+    "facebook_rewrite_chunk_id" TEXT NULL,
     "scene_id" TEXT NULL,
     "task_type" TEXT NOT NULL,
     "state" TEXT NOT NULL DEFAULT 'Queued',
@@ -263,7 +338,9 @@ CREATE TABLE "Job" (
     "created_at_utc" TEXT NOT NULL,
     "updated_at_utc" TEXT NOT NULL,
     "revision" INTEGER NOT NULL DEFAULT 1,
-    CONSTRAINT "CK_Job_TaskType_Scene" CHECK ((task_type = 'Script' AND scene_id IS NULL) OR task_type IN ('Image', 'VideoPrompt', 'VideoRender')),
+    CONSTRAINT "CK_Job_TaskType_Scene" CHECK ((task_type = 'AnalyticsAnalysis' AND project_id IS NULL AND scene_id IS NULL AND analytics_report_id IS NOT NULL AND facebook_rewrite_chunk_id IS NULL) OR (task_type = 'FacebookContentRewrite' AND project_id IS NULL AND scene_id IS NULL AND analytics_report_id IS NULL AND facebook_rewrite_chunk_id IS NOT NULL) OR (project_id IS NOT NULL AND analytics_report_id IS NULL AND facebook_rewrite_chunk_id IS NULL AND ((task_type = 'Script' AND scene_id IS NULL) OR task_type IN ('Image', 'VideoPrompt', 'VideoRender')))),
+    CONSTRAINT "FK_Job_AnalyticsAnalysisReport_analytics_report_id" FOREIGN KEY ("analytics_report_id") REFERENCES "AnalyticsAnalysisReport" ("id") ON DELETE CASCADE,
+    CONSTRAINT "FK_Job_FacebookRewriteChunk_facebook_rewrite_chunk_id" FOREIGN KEY ("facebook_rewrite_chunk_id") REFERENCES "FacebookRewriteChunk" ("id") ON DELETE CASCADE,
     CONSTRAINT "FK_Job_Project_project_id" FOREIGN KEY ("project_id") REFERENCES "Project" ("id") ON DELETE CASCADE,
     CONSTRAINT "FK_Job_Scene_scene_id_project_id" FOREIGN KEY ("scene_id", "project_id") REFERENCES "Scene" ("id", "project_id") ON DELETE CASCADE
 );
@@ -340,6 +417,9 @@ CREATE TABLE "PublishRecord" (
 CREATE UNIQUE INDEX "uq_active_slot_occupancy_job" ON "ActiveSlotOccupancy" ("job_id");
 
 
+CREATE INDEX "ix_analysis_report_scope" ON "AnalyticsAnalysisReport" ("platform", "account_id", "page_id", "created_at_utc");
+
+
 CREATE INDEX "ix_analytics_snapshot_account_created" ON "AnalyticsSnapshot" ("account_id", "created_at_utc");
 
 
@@ -353,6 +433,18 @@ CREATE INDEX "ix_execution_binding_account_slot" ON "ExecutionBinding" ("provide
 
 
 CREATE INDEX "ix_execution_binding_profile" ON "ExecutionBinding" ("profile_id");
+
+
+CREATE INDEX "IX_FacebookAnalyticsCapture_PageId_StartedAtUtc" ON "FacebookAnalyticsCapture" ("PageId", "StartedAtUtc");
+
+
+CREATE UNIQUE INDEX "IX_FacebookAnalyticsPage_ProfileId_FacebookPageId" ON "FacebookAnalyticsPage" ("ProfileId", "FacebookPageId");
+
+
+CREATE UNIQUE INDEX "IX_FacebookContentMetricSnapshot_CaptureId_ContentId" ON "FacebookContentMetricSnapshot" ("CaptureId", "ContentId");
+
+
+CREATE INDEX "IX_FacebookContentMetricSnapshot_ContentId" ON "FacebookContentMetricSnapshot" ("ContentId");
 
 
 CREATE INDEX "ix_facebook_draft_updated" ON "FacebookDraft" ("updated_at_utc");
@@ -379,6 +471,9 @@ CREATE UNIQUE INDEX "uq_facebook_task_active_profile" ON "FacebookPostTask" ("pr
 CREATE INDEX "IX_FacebookPostTaskMedia_asset_id" ON "FacebookPostTaskMedia" ("asset_id");
 
 
+CREATE UNIQUE INDEX "ux_facebook_rewrite_chunk" ON "FacebookRewriteChunk" ("batch_id", "ordinal");
+
+
 CREATE UNIQUE INDEX "uq_facebook_target_profile_url" ON "FacebookTarget" ("profile_id", "url");
 
 
@@ -389,6 +484,12 @@ CREATE INDEX "IX_Job_scene_id_project_id" ON "Job" ("scene_id", "project_id");
 
 
 CREATE INDEX "ix_job_state_lease_retry" ON "Job" ("state", "lease_expires_at_utc", "retry_after_utc");
+
+
+CREATE UNIQUE INDEX "ux_job_analysis_report" ON "Job" ("analytics_report_id");
+
+
+CREATE UNIQUE INDEX "ux_job_facebook_rewrite_chunk" ON "Job" ("facebook_rewrite_chunk_id");
 
 
 CREATE INDEX "IX_Project_current_video_revision_id_id" ON "Project" ("current_video_revision_id", "id");
@@ -455,4 +556,4 @@ CREATE UNIQUE INDEX "uq_video_revision_project_revision" ON "VideoRevision" ("pr
 
 
 
-PRAGMA user_version = 9;
+PRAGMA user_version = 15;

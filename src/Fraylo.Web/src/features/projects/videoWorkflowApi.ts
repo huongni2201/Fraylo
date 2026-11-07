@@ -4,6 +4,7 @@ export const WorkflowModes = {
   ModelAndProduct: "ModelAndProduct",
   ReadyImage: "ReadyImage",
   ProductOnly: "ProductOnly",
+  ReferenceVideo: "ReferenceVideo",
 } as const;
 
 export type WorkflowMode = (typeof WorkflowModes)[keyof typeof WorkflowModes];
@@ -61,6 +62,9 @@ export interface ProjectWorkflowConfigDto {
   modelAssetId: string | null;
   productAssetId: string | null;
   readyImageAssetId: string | null;
+  referenceVideoAssetId?: string | null;
+  referenceVideoAvailable?: boolean;
+  referenceVideoUnavailableReason?: string | null;
   foundationImageAssetId: string | null;
   audioOption: AudioOption;
   audioAssetId: string | null;
@@ -127,6 +131,7 @@ export interface SaveProjectWorkflowConfigRequest {
   modelAssetId?: string | null;
   productAssetId?: string | null;
   readyImageAssetId?: string | null;
+  referenceVideoAssetId?: string | null;
   audioOption: AudioOption;
   audioAssetId?: string | null;
   targetSceneCount: number;

@@ -2,7 +2,12 @@
 
 Ngày: 2026-11-06. Trạng thái: **ĐÃ TRIỂN KHAI CỤC BỘ luồng đăng nhóm chữ/ảnh; chưa nghiệm thu đăng thật vào nhóm.** Plan này không cấp quyền thực thi; mỗi giai đoạn cần lệnh trực tiếp của người dùng. Thay thế bản nháp plan Facebook gửi trong chat; phần khác bản nháp nằm ở [§3](#3-khác-bản-nháp-ban-đầu-và-lý-do).
 
+> Cập nhật hiện hành: [tab Đăng bài nhiều bài/schema v10](20261106-facebook-posts-tab.md). Theo yêu cầu mới, bỏ quota 20 lượt/24 giờ; giữ tối thiểu 5 phút xuyên bài trên cùng tài khoản. Mô tả D5/điều hướng cũ bên dưới đã được phần cập nhật này thay thế. Bằng chứng mới và NOT_RUN xem plan/handoff.
+> Cập nhật đăng cá nhân 2026-11-06: adapter giai đoạn A/D đã nối vào UI/hàng đợi hiện hành; chữ/link/ảnh, hẹn giờ; Nháp/Lịch sử hiện dùng chung toàn Facebook theo cập nhật 2026-11-07. Xem [handoff cá nhân](FACEBOOK_PERSONAL_HANDOFF.md). Page/video chưa triển khai. Không đổi schema cho lát này.
+
 **Mục tiêu:** đăng bài chữ/link, ảnh, video lên Page, Group và trang cá nhân bằng Playwright, nhiều đích một lần, đăng ngay hoặc hẹn giờ, kết quả từng đích độc lập, không đăng trùng.
+
+> **AI viết lại bài nhóm — 2026-11-07:** [đã tích hợp cục bộ/schema v14](20261107-facebook-group-ai-rewrite.md). Form nhóm/hẹn giờ có Viết lại nội dung hoặc Đăng nguyên bản, lưu lựa chọn cùng nháp. Chọn nguyên bản giữ chữ/ảnh và bỏ AI; chọn viết lại cho bài mới có chữ tạo tối đa10 biến thể/job trong queue AI chung, lưu nội dung riêng vào từng task trước khi đăng; toàn bài chờ đủ nội dung hợp lệ. Bổ sung có chủ đích cho D3: chỉ được thay TextSnapshot một lần ở bước AI trước Preparing, sau đó bất biến. Giữ pacing, snapshot media, lịch, đăng cá nhân và chính sách không tự retry; không đặt bài Facebook vào Job video. Chỉ bước AI dùng task type riêng FacebookContentRewrite không có Project, cùng account pool/budget với video/Analytics. Qualification live của tính năng mới còn mở.
 
 **Kiến trúc:** khu vực Facebook riêng (chọn nền tảng ở sidebar), dữ liệu và luồng đăng riêng (bảng SQLite mới, scheduler riêng); dùng lại browser/profile, Asset/Library, SQLite bootstrap, bridge và mẫu CAS/lease của Fraylo. Không sửa `TikTokVideoUploader` thành bộ đăng chung.
 
@@ -21,11 +26,34 @@ Người dùng ưu tiên Nhóm Facebook và yêu cầu tải tất cả nhóm đ
 - Test dùng SQLite/profile/thư mục tạm riêng; fixture HTML không phải bằng chứng Facebook thật. Thiếu quyền/tài khoản thì ghi `NOT_RUN`.
 - Mọi UI feature kiểm Light/Dark, bàn phím, cửa sổ hẹp. Giao tiếp và tài liệu tiếng Việt, identifier tiếng Anh.
 
+## Hàng đợi Facebook chung — 2026-11-07
+
+Theo yêu cầu triển khai của người dùng, sidebar Facebook có ba mục **Hàng đợi / Lịch sử / Nháp** dùng chung cho bài **Nhóm/Cá nhân**. Theo chỉnh sửa tiếp của người dùng, bỏ các nút/tab Hàng đợi/Lịch sử/Nháp khỏi cả hai màn soạn; quản lý qua sidebar Facebook. Đăng nhóm chỉ giữ Tạo bài đăng/Hẹn giờ đăng; cá nhân hiển thị form soạn. Bỏ danh sách nháp lặp trong form nhóm, giữ tên và thao tác Lưu/Cập nhật nháp. Sau khi tạo bài vẫn chuyển hàng đợi chung. Đăng Fanpage vẫn chưa được hỗ trợ, không thêm lựa chọn giả.
+
+- Lọc nơi đăng, tài khoản, trạng thái và tìm nội dung; mỗi bài hiện đúng loại nơi đăng và tài khoản. Tạm dừng, tiếp tục, đăng ngay, đổi giờ, hủy có xác nhận và chi tiết dùng API/revision hiện hành.
+- Nháp chung có tìm tên/nội dung, lọc nơi đăng/tài khoản, mở về đúng màn soạn và xóa sau xác nhận. Mở nháp giữ mã nháp, nội dung, ảnh, giờ hẹn; lưu cập nhật nháp gốc. Nháp bị xóa ở màn chung thì form đang giữ nội dung sẽ lưu thành nháp mới khi quay lại.
+- Nhân bản đưa nội dung/ảnh/nơi đăng về đúng màn soạn nhóm hoặc cá nhân, bỏ giờ hẹn cũ; không tự gửi bài. Chuyển màn bình thường giữ bản nháp và bộ lọc.
+- Đọc cùng dữ liệu SQLite hiện hành qua facebook.list; không đổi contract/backend/schema hay dữ liệu cá nhân. Chỉ màn hàng đợi đang mở polling mỗi 5 giây; lỗi tải giữ dữ liệu đã có, lỗi thao tác vẫn hiện sau refresh. Unknown nằm trong lịch sử và không có nút tự gửi lại.
+- Owner Codex coordinator tuần tự, tự review. Dependency luồng đăng nhóm/cá nhân hiện hành có sẵn; phạm vi ghi App.tsx, appNavigation.test.ts, FacebookPage.tsx, FacebookPersonalPage.tsx, FacebookPosts.tsx, FacebookQueue.tsx, facebookQueue.test.ts, FacebookDrafts.tsx, facebookDrafts.test.ts và docs liên quan. Giữ mọi sửa đổi có sẵn, không commit/push.
+- Baseline Facebook/navigation **12/12 PASS**; sau sửa targeted **13/13**, toàn web **70/70 PASS**; TypeScript/Vite và Desktop Release **PASS, 0 warning/error**. Regression gồm dữ liệu trộn nhóm/cá nhân, account filter, lỗi tải/thao tác, clone đúng form và giữ nháp. Edge headless fixture Light1280/Dark800 đã xem, không tràn ngang, lọc cá nhân PASS; ảnh .tmp/facebook-queue-light.png và .tmp/facebook-queue-dark.png. Browser từ tool không tới localhost sandbox; fixture đồng môi trường ngoài sandbox PASS.
+- **Sửa UI theo ảnh tiếp theo:** bỏ các nút quản lý trùng và danh sách nháp lặp trong form; Facebook/navigation17/17, TypeScript/Vite/Desktop Release0warning/error và diff-check PASS. Visual/WebView2 sau lượt xóa nút NOT_RUN.
+- **Mở rộng Nháp/Lịch sử chung:** toàn web **71/71 PASS**, gồm điều hướng sidebar, mở nháp Nhóm/Cá nhân và lưu đúng mã nháp gốc, bộ lọc/xác nhận xóa/lỗi giữ dữ liệu. TypeScript/Vite/Desktop Release0warning/error PASS. Đã xem ảnh `.tmp/facebook-drafts-light.png` / `.tmp/facebook-history-dark.png` ở800px và fixture hàng đợi Light1280/Dark800. CodeGraph vẫn unavailable từ lượt trước; đọc source trực tiếp. Giữ thay đổi FBR/originalText hiện có, sửa biến clonePost.originalText ở đúng effect. Không đổi backend/schema cho lát UI này.
+- **NOT_RUN:** WebView2/DPI125–150 và tài khoản Facebook thật sau đổi UI; không đăng/sửa bài thật. Mở lại bản Release để dùng giao diện mới.
+
+## Nhật ký và trạng thái tác vụ — 2026-11-07
+
+- **Facebook → Hàng đợi / Lịch sử → Chi tiết → Nhật ký tác vụ** hiển thị mã lượt, thời gian, bước và mã lỗi cho từng nơi đăng Nhóm/Cá nhân. Hàng đợi hiện bước đang chạy hoặc lý do chờ gần nhất gồm giãn cách, cửa sổ đăng nhập, Analytics, lượt đăng cùng tài khoản và giới hạn trình duyệt.
+- Log giữ tối đa 50 mốc mỗi lượt trong SQLite, gồm tạo/hẹn giờ, thao tác hàng đợi, kiểm tệp, mở browser, xác minh đích, soạn và đính ảnh, checkpoint trước click, kết quả và khôi phục. Tách rõ lỗi trước gửi, chờ duyệt và kết quả chưa xác định sau checkpoint. Không chèn ghi log giữa click và đọc xác nhận, không tự gửi lại.
+- **Facebook → Đăng bài Page → Analytics** hiện nhật ký lượt cập nhật hiện tại và các lượt trong lịch sử. Mốc đọc dữ liệu của lượt đang chạy hiển thị trực tiếp, lưu cùng kết quả cuối. Nếu app dừng đột ngột, log Analytics giữ mốc bắt đầu và đối soát gián đoạn. Chi tiết lượt viết lại có mã job để đối chiếu với **Hệ thống → Tiến trình**.
+- SQLite v15 nâng cấp có backup và giữ nguyên dữ liệu. Tác vụ đã hoàn tất trước khi nâng cấp có thể chưa có nhật ký. Mốc chẩn đoán không sao chép nội dung bài, ảnh, cookie, token hay exception thô.
+
 ## 1. Phạm vi
 
 **Bản đầu:** nhiều tài khoản Facebook (mỗi tài khoản một profile); đích Page / Group / trang cá nhân; bài chữ+link, 1–10 ảnh, hoặc 1 video (không trộn ảnh và video trong một bài); chọn nhiều đích; đăng ngay hoặc hẹn giờ; nháp, hàng đợi, lịch sử, lỗi cụ thể.
 
 **Để sau:** Reels, Story, bình luận tự động, analytics Facebook, lặp lịch, sửa/xóa bài đã đăng, video nhập từ ngoài Fraylo (D6).
+
+Analytics Fanpage/Reels [đã triển khai cục bộ trong module riêng](20261106-facebook-analytics.md) theo yêu cầu mới; live và WebView2 fixture có evidence riêng. Analytics không mở rộng chức năng đăng Page/Reels trong tài liệu này; queue đăng cùng profile chờ Analytics đọc xong.
 
 **Giới hạn cố hữu của hẹn giờ cục bộ:** Fraylo và máy phải đang chạy đúng giờ. Lịch quá hạn lúc app đóng không tự đăng muộn; hiển thị để người dùng chọn (trạng thái `Missed`).
 
@@ -69,7 +97,7 @@ Người dùng ưu tiên Nhóm Facebook và yêu cầu tải tất cả nhóm đ
 - **D10 — Thông báo rủi ro.** Lần đầu thêm tài khoản Facebook, hiện một thông báo một lần: tự động hóa trình duyệt có thể bị Facebook hạn chế tài khoản, nên dùng tài khoản/đích mình sở hữu và giãn cách. Lưu `facebook.risk_ack` trong `AppSettings`. Không phải điều khoản pháp lý, chỉ thông tin.
 - **D11 — Không dùng Graph API.** Cân nhắc và loại: không có API đăng lên trang cá nhân; đăng Group qua API đã bị Meta gỡ theo hiểu biết hiện tại (cần xác minh nếu muốn xem lại); Page cần ứng dụng Meta + duyệt quyền + lưu token, đi ngược mô hình local-first không token. Đổi lại Playwright chịu rủi ro giao diện Facebook đổi (giảm bằng hợp đồng DOM nghiêm ngặt như TikTok).
 
-## 5. Mô hình dữ liệu (thêm vào `final-schema.sql` và `facebook-v8.sql`)
+## 5. Mô hình dữ liệu
 
 Tài khoản **không** có bảng mới: dùng `BrowserProfile` (kind `Facebook`) + `ProviderAccount` (`provider_key = 'facebook'`) như TikTok.
 

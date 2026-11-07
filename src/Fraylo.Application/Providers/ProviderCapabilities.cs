@@ -169,7 +169,10 @@ public static class ProviderCapabilities
             SupportsNoAudioVideo: true,
             AudioBehaviorDescription: "Không gửi audio: hệ thống Fraylo không tải tệp audio lên MuseAI. Video kết quả từ MuseAI có thể có nhạc nền mặc định của nhà cung cấp hoặc im lặng tùy phiên bản hệ thống MuseAI.",
             SupportedDurations: new[] { 10, 15, 30 },
-            SupportsMultiShot: false
+            SupportsMultiShot: false,
+            SupportsReferenceVideoApproximation: true,
+            ReferenceVideoEvidenceId: "reference-video-approximation-audio-fit-20261107",
+            SupportsReferenceVideoAudioFit: true
         ),
         new ProviderTaskCapabilityDto(
             ProviderKey: ProviderKeys.MuseAI,
@@ -221,10 +224,16 @@ public static class ProviderCapabilities
         )
     };
 
+    private static IReadOnlyList<ProviderTaskCapabilityDto> WithAnalytics(IReadOnlyList<ProviderTaskCapabilityDto> capabilities) =>
+        [.. capabilities,
+            capabilities.Single(c => c.TaskType == JobTaskType.Script) with { TaskType = JobTaskType.AnalyticsAnalysis },
+            capabilities.Single(c => c.TaskType == JobTaskType.Script) with
+            { TaskType = JobTaskType.FacebookContentRewrite, MaxOutputLength = 24000 }];
+
     private static readonly Dictionary<string, IReadOnlyList<ProviderTaskCapabilityDto>> DefaultMap = new(StringComparer.OrdinalIgnoreCase)
     {
-        [ProviderKeys.ChatGPTWeb] = ChatGPTCapabilities,
-        [ProviderKeys.GeminiWeb] = GeminiCapabilities,
+        [ProviderKeys.ChatGPTWeb] = WithAnalytics(ChatGPTCapabilities),
+        [ProviderKeys.GeminiWeb] = WithAnalytics(GeminiCapabilities),
         [ProviderKeys.MuseAI] = MuseAICapabilities
     };
 

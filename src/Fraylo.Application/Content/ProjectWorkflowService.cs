@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Fraylo.Application.Content.Workflows;
 using Fraylo.Application.Jobs;
 using Fraylo.Contracts.Content;
 using Fraylo.Contracts.Jobs;
@@ -75,7 +76,8 @@ public sealed record WorkflowRunRecord(
     string? ClientRequestId,
     IReadOnlyList<string> SelectedSceneIds,
     string CreatedAtUtc,
-    string UpdatedAtUtc
+    string UpdatedAtUtc,
+    string? ReferenceVideoAssetId = null
 );
 
 /// <summary>
@@ -93,6 +95,7 @@ public sealed partial class ProjectWorkflowService
     private readonly DbContextOptions<FrayloDbContext> _dbOptions;
     private readonly JobService? _jobService;
     private readonly Func<StartProjectWorkflowRequest, CancellationToken, Task<int>>? _durableJobEnqueuer;
+    private readonly WorkflowSceneJobs _sceneJobs;
 
     public ProjectWorkflowService(
         DbContextOptions<FrayloDbContext> dbOptions,
@@ -102,6 +105,7 @@ public sealed partial class ProjectWorkflowService
         _dbOptions = dbOptions ?? throw new ArgumentNullException(nameof(dbOptions));
         _jobService = jobService;
         _durableJobEnqueuer = durableJobEnqueuer;
+        _sceneJobs = new WorkflowSceneJobs(_dbOptions);
     }
 
     public ProjectWorkflowService(

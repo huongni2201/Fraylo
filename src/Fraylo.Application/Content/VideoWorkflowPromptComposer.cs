@@ -47,10 +47,6 @@ public sealed class VideoWorkflowPromptComposer
     /// <summary>Mục đích prompt ghép người mẫu với sản phẩm thành một ảnh (chế độ Mẫu + sản phẩm).</summary>
     public const string ComposeImagePurpose = "ComposeImage";
 
-    /// <summary>Mẫu prompt ảnh dùng cho job Image của chế độ đang chạy: Mẫu + sản phẩm dùng mẫu Ghép ảnh.</summary>
-    public static string ImagePurposeFor(string workflowMode) =>
-        workflowMode == WorkflowModes.ModelAndProduct ? ComposeImagePurpose : JobTaskType.Image;
-
     /// <summary>Run tạo một ảnh storyboard 9 ô rồi render một video từ đúng ảnh đó.</summary>
     public static bool IsGridMode(ProjectWorkflowConfigDto config) =>
         config.VideoStrategy == VideoStrategies.SingleVideo && config.ReferenceImageMode == ReferenceImageModes.StoryboardGrid9;

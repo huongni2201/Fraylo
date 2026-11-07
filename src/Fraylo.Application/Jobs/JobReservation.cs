@@ -109,6 +109,11 @@ public sealed class JobReservation
                     return JobReservationResult.Failure("Job đã được chiếm bởi tiến trình khác hoặc không còn ở trạng thái Queued.");
                 }
 
+                if (job.TaskType == JobTaskType.FacebookContentRewrite &&
+                    !await dbContext.FacebookRewriteChunks.AnyAsync(c => c.Id == job.FacebookRewriteChunkId && c.AppliedAtUtc == null && !c.Batch.Paused &&
+                        dbContext.FacebookPostTasks.Any(t => t.BatchId == c.BatchId && !t.CancelRequested && (t.State == "Queued" || t.State == "NeedsUser")), cancellationToken))
+                    return JobReservationResult.Failure("facebook_rewrite_paused_or_canceled");
+
                 // PV-R4: Kiểm tra trạng thái Workflow run của dự án: Chặn đứng reservation mới nếu quy trình đang Paused hoặc Idle
                 var wfConfigKey = $"project.workflow.config.{job.ProjectId}";
                 var wfSetting = await dbContext.AppSettings
@@ -373,10 +378,11 @@ public sealed class JobReservation
                 }
 
                 // 3. Lần reserve đầu tiên: Tìm ProviderAccount eligible từ pool toàn ứng dụng
+                var analytics = job.TaskType is JobTaskType.AnalyticsAnalysis or JobTaskType.FacebookContentRewrite;
                 var eligibleAccounts = await dbContext.ProviderAccounts
-                    .Where(a => a.ProviderKey == job.ProviderKey &&
-                                a.Enabled &&
-                                a.Lifecycle == "Active")
+                    .Where(a => a.ProviderKey == job.ProviderKey && a.Enabled && a.Lifecycle == "Active" &&
+                                (!analytics || a.Profile != null && a.Profile.Lifecycle == "Active" &&
+                                    a.Profile.SessionStatus == "Connected" && a.Profile.AccountIdentity != null))
                     .ToListAsync(cancellationToken).ConfigureAwait(false);
 
                 if (eligibleAccounts.Count == 0)
@@ -723,6 +729,10 @@ public sealed class JobReservation
             WHERE id = @jobId
               AND fencing_token = @token
               AND state IN ('Reserved', 'Running')
+              AND (task_type <> 'FacebookContentRewrite' OR EXISTS (
+                  SELECT 1 FROM FacebookRewriteChunk c JOIN FacebookPostBatch b ON b.id = c.batch_id
+                  WHERE c.id = facebook_rewrite_chunk_id AND c.applied_at_utc IS NULL AND b.paused = 0
+                    AND EXISTS (SELECT 1 FROM FacebookPostTask t WHERE t.batch_id = b.id AND t.cancel_requested = 0 AND t.state IN ('Queued','NeedsUser'))))
               AND (lease_expires_at_utc IS NULL OR lease_expires_at_utc >= @now);";
 
         var rows = await dbContext.Database.ExecuteSqlRawAsync(
@@ -737,6 +747,10 @@ public sealed class JobReservation
 
         if (rows == 0)
         {
+            var pausedRewrite = await dbContext.Jobs.AsNoTracking().AnyAsync(j => j.Id == jobId && j.FencingToken == fencingToken &&
+                j.TaskType == JobTaskType.FacebookContentRewrite && j.SideEffectSubmitted == 0 &&
+                (j.State == JobState.Reserved || j.State == JobState.Running) && j.FacebookRewriteChunk != null && j.FacebookRewriteChunk.Batch.Paused, cancellationToken);
+            if (pausedRewrite) await ReleaseReservationDueToNoCapacityAsync(jobId, fencingToken, cancellationToken);
             throw new FencingTokenStaleException(jobId, fencingToken);
         }
     }
@@ -776,6 +790,7 @@ public sealed class JobReservation
                 updated_at_utc = @now
             WHERE id = @jobId
               AND fencing_token = @token
+              AND (task_type <> 'FacebookContentRewrite' OR lease_expires_at_utc >= @now)
               AND state IN ('Reserved', 'Running');";
 
         var rows = await dbContext.Database.ExecuteSqlRawAsync(

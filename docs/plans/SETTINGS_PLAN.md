@@ -11,6 +11,8 @@ Tài liệu này bổ sung `SOURCE_PLAN.md` §1, §3–5, §7–8, §10–12 và
 
 ## 1. Trang Cài đặt
 
+- **2026-11-07 — AI viết lại bài nhóm Facebook:** thêm `FacebookRewriteProvider` riêng trong AI & Prompt, chọn Gemini Web/ChatGPT Web, lưu/Hủy/conflict theo revision như các provider hiện có. Bài nhóm có chữ cần chọn provider trước khi tạo; snapshot giữ lựa chọn khi retry hoặc đổi Settings. Dùng “Số tác vụ chạy đồng thời” của tài khoản AI và budget toàn app, không thêm giới hạn riêng. [Triển khai và qualification](20261107-facebook-group-ai-rewrite.md); capability TRIAL, chưa nghiệm thu live.
+
 - Giữ draft/context công việc khi mở Settings. Đổi tab giữ nháp; rời trang khi chưa lưu có lựa chọn ở lại hoặc bỏ thay đổi. Keyboard tabs/focus, scroll và hai theme theo [plan 1.2 §3](QUEUE_EXECUTION_SETTINGS_PLAN.md#3-trang-cài-đặt).
 - Roots, provider và budget thuộc cùng một draft; Lưu xác thực rồi commit atomically với expectedRevision. Conflict/lỗi giữ draft và saved state cũ; Hủy về cấu hình đã lưu. Theme áp/lưu ngay độc lập.
 - Thiết lập toàn app theo Windows user; settings và danh sách tài khoản thực thi áp dụng toàn app. Thiếu/lỗi đọc có retry, không tự ghi default để dispatch.
@@ -41,6 +43,8 @@ Ba trường chọn thư mục độc lập, mỗi trường hiển thị đư�
 - Backup gồm tất cả root còn được tham chiếu, kể cả ngoài LocalAppData. Manifest ánh xạ root và relative path; thiếu root phải báo backup chưa đầy đủ. Restore vào root đích được người dùng chọn/xác nhận, kiểm tra đường dẫn và remap tham chiếu; không ghi mù vào đường dẫn tuyệt đối trên máy nguồn.
 
 ## 4. Provider và tài khoản trong luồng thực thi độc lập
+
+**Bổ sung đã triển khai cục bộ (2026-11-07):** `AnalyticsProvider` riêng cho AI phân tích số liệu có ChatGPT Web / Gemini Web / Chưa chọn. [Plan và kiểm chứng](20261107-analytics-ai-analysis.md). Sau sync/import có dữ liệu hợp lệ, tự phân tích với provider đã chọn; chưa chọn thì giữ số liệu và báo chưa phân tích, không fallback sang provider kịch bản. Lưu/Hủy/revision và snapshot theo invariant hiện hành; AnalyticsAnalysis đang ở chế độ thử nghiệm, còn qualification live. Bảng dưới mô tả các tác vụ đã có trước bổ sung này.
 
 
 | Tác vụ | Provider theo cấu hình | Account thực thi |

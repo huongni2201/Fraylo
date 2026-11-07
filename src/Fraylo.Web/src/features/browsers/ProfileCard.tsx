@@ -308,7 +308,7 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
                 <span className="text-[11px] text-muted-foreground italic">Chưa có tab hoạt động</span>
               )}
             </div>
-            <p className="text-[10px] text-muted-foreground/80 italic pt-1 border-t border-border/40">
+            <p className="text-xs text-muted-foreground italic pt-1 border-t border-border/40">
               Khép kín: Quản lý độc lập, không lộ thông tin phiên hoặc thư mục lưu trữ.
             </p>
           </div>

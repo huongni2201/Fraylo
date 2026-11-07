@@ -51,7 +51,7 @@ const metricOptions: Record<AnalyticsDataType, AnalyticsMetricType[]> = {
   viewers: ["total_viewers", "new_viewers", "returning_viewers"],
 };
 
-export function AnalyticsPage({ active }: { active: boolean }) {
+export function AnalyticsPage({ active, onOpenAccounts, onOpenAi }: { active: boolean; onOpenAccounts?: () => void; onOpenAi?: () => void }) {
   const [periodDays, setPeriodDays] = useState<AnalyticsPeriod>(30);
   const [selectedDataset, setSelectedDataset] = useState<AnalyticsDataType>("overview");
   const [selectedMetric, setSelectedMetric] = useState<AnalyticsMetricType>("views");
@@ -204,7 +204,9 @@ export function AnalyticsPage({ active }: { active: boolean }) {
     }
   }, [accountId, sortBy, loadVideosData]);
 
+  const [analysisRefresh, setAnalysisRefresh] = useState(0);
   const handleRefreshAll = () => {
+    setAnalysisRefresh(n => n + 1);
     loadSummaryData();
     loadTimeseriesData();
     loadVideosData();
@@ -522,6 +524,9 @@ export function AnalyticsPage({ active }: { active: boolean }) {
         </div>
       )}
 
+      <AnalyticsAnalysisPanel key={selectedAccount.accountId} active={active} platform="tiktok"
+        accountId={selectedAccount.accountId} refresh={analysisRefresh} onOpenAccounts={onOpenAccounts} onOpenAi={onOpenAi} />
+
       {/* Import Modal Dialog */}
       <AnalyticsImportDialog
         open={importDialogOpen}
@@ -540,3 +545,4 @@ export function AnalyticsPage({ active }: { active: boolean }) {
     </div>
   );
 }
+import { AnalyticsAnalysisPanel } from "./AnalyticsAnalysisPanel";

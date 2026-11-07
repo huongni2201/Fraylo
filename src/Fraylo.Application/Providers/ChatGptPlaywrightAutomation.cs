@@ -161,7 +161,10 @@ public sealed class ChatGptPlaywrightAutomation
                 initialCopyCount, new() { Timeout = 600000 }).WaitAsync(ct).ConfigureAwait(false);
             await page.Locator(CopySelector).Last
                 .WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 600000 }).WaitAsync(ct).ConfigureAwait(false);
-            var result = (await response.InnerTextAsync().WaitAsync(ct).ConfigureAwait(false)).Trim();
+            var code = response.Locator("pre code");
+            var reply = (job.TaskType is JobTaskType.AnalyticsAnalysis or JobTaskType.FacebookContentRewrite) && await code.CountAsync().WaitAsync(ct).ConfigureAwait(false) == 1
+                ? code : response;
+            var result = (await reply.InnerTextAsync().WaitAsync(ct).ConfigureAwait(false)).Trim();
             if (string.IsNullOrWhiteSpace(result))
                 return new(false, ReasonCode: "empty_response", ErrorMessage: "ChatGPT trả về nội dung rỗng.", SideEffectSubmitted: true);
 

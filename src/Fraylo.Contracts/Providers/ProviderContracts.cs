@@ -64,7 +64,11 @@ public sealed record ProviderTaskCapabilityDto(
     bool SupportsNoAudioVideo = false,
     string? AudioBehaviorDescription = null,
     IReadOnlyList<int>? SupportedDurations = null,
-    bool SupportsMultiShot = false
+    bool SupportsMultiShot = false,
+    bool SupportsReferenceVideoApproximation = false,
+    string? ReferenceVideoEvidenceId = null,
+    bool SupportsReferenceVideoAudioFit = false,
+    int MaxOutputLength = 0
 );
 
 public sealed record ProviderAccountSessionSummaryDto(

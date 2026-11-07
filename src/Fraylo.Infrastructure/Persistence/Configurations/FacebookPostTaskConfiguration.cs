@@ -10,6 +10,8 @@ public sealed class FacebookPostTaskConfiguration : IEntityTypeConfiguration<Fac
     {
         builder.ToTable("FacebookPostTask", t => t.HasCheckConstraint("ck_facebook_task_state", "state IN ('Queued','Preparing','Submitting','Published','PendingApproval','Failed','Unknown','NeedsUser','Canceled')"));
         builder.HasKey(p => p.Id);
+        builder.Property(p => p.SortOrder).HasColumnName("sort_order").HasColumnType("INTEGER").HasDefaultValue(0).IsRequired();
+
         builder.Property(p => p.Id).HasColumnName("id").HasColumnType("TEXT").IsRequired();
         builder.Property(p => p.BatchId).HasColumnName("batch_id").HasColumnType("TEXT").IsRequired();
         builder.Property(p => p.TargetId).HasColumnName("target_id").HasColumnType("TEXT").IsRequired();
@@ -20,6 +22,7 @@ public sealed class FacebookPostTaskConfiguration : IEntityTypeConfiguration<Fac
         builder.Property(p => p.TextSnapshot).HasColumnName("text_snapshot").HasColumnType("TEXT").IsRequired();
         builder.Property(p => p.State).HasColumnName("state").HasColumnType("TEXT").IsRequired();
         builder.Property(p => p.ReasonCode).HasColumnName("reason_code").HasColumnType("TEXT");
+        builder.Property(p => p.ActivityLogJson).HasColumnName("activity_log_json").HasDefaultValue("[]").IsRequired();
         builder.Property(p => p.Message).HasColumnName("message").HasColumnType("TEXT").IsRequired();
         builder.Property(p => p.SubmittedAtUtc).HasColumnName("submitted_at_utc").HasColumnType("TEXT");
         builder.Property(p => p.LeaseOwnerId).HasColumnName("lease_owner_id").HasColumnType("TEXT");
