@@ -45,7 +45,8 @@ internal sealed class ReferenceVideoWorkflow : IVideoWorkflow
         if (context.Config.UseReferenceVideoAnalysis)
         {
             prompt = $"""
-                Analyze the attached video and return only JSON with beats (1 to 6) and renderPrompt (English).
+                Analyze the attached video and return only JSON with beats and renderPrompt (English).
+                Use as many beats as needed to capture the visible actions and camera changes in order.
                 Each beat must have numeric sourceStart, sourceEnd, targetStart, targetEnd (seconds), and text action.
                 Describe start and end poses, visible action and direction. Separate camera movement, framing and cuts.
                 Mark unclear details as unknown. Keep the opening and ending poses and major action order.

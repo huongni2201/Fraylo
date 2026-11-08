@@ -159,9 +159,18 @@ internal static class ReferenceVideoSmokeTests
                 Check(musicMedia.ReferenceVideoHasAudio == true && musicMedia.ReferenceAudioPolicy == ReferenceVideoAudio.FitByAi, "audio source and AI fitting policy are frozen");
                 Check((await db.Scenes.SingleAsync()).VideoAssetId == null && await db.VideoRevisions.CountAsync() == 2, "new run clears current scene output, preserves revision history");
                 musicJob.State = JobState.Succeeded;
-                musicJob.ResultText = """
-                    {"beats":[{"sourceStart":0,"sourceEnd":5,"targetStart":0,"targetEnd":9,"action":"Turns away"}],"renderPrompt":"Turn away from the camera slowly."}
-                    """;
+                musicJob.ResultText = JsonSerializer.Serialize(new
+                {
+                    beats = Enumerable.Range(0, 7).Select(beat => new
+                    {
+                        sourceStart = beat * .5,
+                        sourceEnd = (beat + 1) * .5,
+                        targetStart = beat,
+                        targetEnd = beat + 1,
+                        action = $"Visible movement {beat + 1}"
+                    }),
+                    renderPrompt = "Turn away from the camera slowly."
+                });
                 jobId = musicJob.Id;
                 await db.SaveChangesAsync();
             }

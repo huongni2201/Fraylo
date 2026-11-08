@@ -97,7 +97,7 @@ Gửi MP4 mẫu, thời lượng đích và ghi chú ưu tiên động tác. Pro
 Analyze the attached reference video. Return a motion plan and an English
 image-to-video prompt. If you cannot inspect the video, report that explicitly.
 
-Describe up to six major beats in the order seen. For each beat record the source
+Use as many beats as needed to capture the visible actions and camera changes in order. For each beat record the source
 time range, start pose, visible action, direction relative to the frame, and end
 pose. Record framing, camera movement and cuts separately. Mark uncertain
 details as unknown and do not infer actions hidden by occlusion.

@@ -18,7 +18,7 @@ internal static class ReferenceMotionAnalysis
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object || root.TryGetProperty("error", out _) ||
                 !root.TryGetProperty("beats", out var beats) || beats.ValueKind != JsonValueKind.Array ||
-                beats.GetArrayLength() is < 1 or > 6 ||
+                beats.GetArrayLength() == 0 ||
                 !root.TryGetProperty("renderPrompt", out var renderPrompt) ||
                 renderPrompt.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(renderPrompt.GetString()))
                 return false;
