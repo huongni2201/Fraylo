@@ -37,13 +37,26 @@ public sealed class FacebookAnalyticsService(DbContextOptions<FrayloDbContext> o
 
     public async Task RecoverInterruptedAsync(CancellationToken ct = default)
     {
+        // Không phục hồi giữa commit capture và đăng ký worker của StartAsync.
+        if (!await _start.WaitAsync(0, ct)) return;
+        try { await RecoverInterruptedCoreAsync(ct); }
+        finally { _start.Release(); }
+    }
+
+    private async Task RecoverInterruptedCoreAsync(CancellationToken ct)
+    {
         await using var db = new FrayloDbContext(options);
         var pending = await db.FacebookAnalyticsCaptures.Where(c => c.Status == "Running").ToListAsync(ct);
         foreach (var row in pending)
         {
             if (OwnerAlive(row.Owner) && (row.Owner != Owner || _operations.ContainsKey(row.Id))) continue;
-            row.Status = "Failed"; row.Message = "interrupted: Lượt cập nhật trước đã dừng; ứng dụng không tự chạy lại."; row.FinishedAtUtc = Now();
-            row.ActivityLogJson = FacebookActivityLog.Append(row.ActivityLogJson, row.FinishedAtUtc, "Failed", row.Message, "interrupted");
+            var reason = row.Owner == Owner ? "save_failed" : "interrupted";
+            row.Status = "Failed";
+            row.Message = reason == "save_failed"
+                ? "save_failed: Chưa lưu được kết quả của lượt cập nhật. Dữ liệu trước được giữ nguyên; bạn có thể cập nhật lại."
+                : "interrupted: Lượt cập nhật trước đã dừng; ứng dụng không tự chạy lại.";
+            row.FinishedAtUtc = Now();
+            row.ActivityLogJson = FacebookActivityLog.Append(row.ActivityLogJson, row.FinishedAtUtc, "Failed", row.Message, reason);
         }
         await db.SaveChangesAsync(ct);
     }
@@ -203,11 +216,13 @@ public sealed class FacebookAnalyticsService(DbContextOptions<FrayloDbContext> o
         var capture = await db.FacebookAnalyticsCaptures.SingleOrDefaultAsync(c => c.Id == id && c.PageId == page.Id, ct) ?? throw new KeyNotFoundException("Không thấy lượt cập nhật của Fanpage này.");
         if (capture.Status == "Running" && _operations.TryGetValue(id, out var operation))
         { try { operation.Cancellation.Cancel(); } catch (ObjectDisposedException) { } }
+        else if (capture.Status == "Running") await RecoverInterruptedAsync(ct);
     }
 
     public async Task<FacebookAnalyticsDashboard> DashboardAsync(FacebookAnalyticsRequest request, CancellationToken ct = default)
     {
         ValidateQuery(request);
+        await RecoverInterruptedAsync(ct);
         await using var db = new FrayloDbContext(options);
         var page = await BindingAsync(db, request, ct);
         var captures = await db.FacebookAnalyticsCaptures.AsNoTracking().Where(c => c.PageId == page.Id).OrderByDescending(c => c.StartedAtUtc).Take(20).ToListAsync(ct);
@@ -272,6 +287,7 @@ public sealed class FacebookAnalyticsService(DbContextOptions<FrayloDbContext> o
     }
     private async Task CheckBudgetAsync(string profileId, CancellationToken ct)
     {
+        await RecoverInterruptedCoreAsync(ct);
         if (controller.IsRunning(profileId) || controller.IsLoginWindowOpen(profileId)) throw new InvalidOperationException("Profile Facebook đang có thao tác khác; hãy chờ hoàn tất.");
         await using var db = new FrayloDbContext(options);
         var all = await profiles.ListProfilesAsync(ct);

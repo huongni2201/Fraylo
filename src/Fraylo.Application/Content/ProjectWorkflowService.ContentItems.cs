@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Fraylo.Application.Jobs;
+using Fraylo.Application.Content.Workflows;
 using Fraylo.Application.Prompts;
 using Fraylo.Contracts.Content;
 using Fraylo.Contracts.Jobs;
@@ -165,8 +166,10 @@ public sealed partial class ProjectWorkflowService
                 {
                     list[i] = list[i] with
                     {
-                        ImageAssetId = sc.ImageAssetId ?? list[i].ImageAssetId,
-                        VideoAssetId = sc.VideoAssetId ?? list[i].VideoAssetId,
+                        VideoPrompt = sc.PromptText ?? string.Empty,
+                        ImageAssetId = sc.ImageAssetId,
+                        AudioAssetId = sc.AudioAssetId,
+                        VideoAssetId = sc.VideoAssetId,
                         Status = !string.IsNullOrWhiteSpace(sc.VideoAssetId) ? "Completed" : list[i].Status
                     };
                 }
@@ -362,8 +365,11 @@ public sealed partial class ProjectWorkflowService
             throw new ProjectWorkflowValidationException("Không tìm thấy nội dung kịch bản để tạo video.");
         }
 
-        var scene = await dbContext.Scenes.FirstOrDefaultAsync(s => s.Id == targetItem.SceneId || s.Id == targetItem.Id, cancellationToken).ConfigureAwait(false);
-        var targetSceneId = scene?.Id ?? targetItem.SceneId ?? targetItem.Id;
+        var scene = await dbContext.Scenes.FirstOrDefaultAsync(s => s.ProjectId == normalizedProjectId && (s.Id == targetItem.SceneId || s.Id == targetItem.Id), cancellationToken).ConfigureAwait(false)
+            ?? throw new ProjectWorkflowValidationException("Phân cảnh không còn tồn tại trong dự án.");
+        var targetSceneId = scene.Id;
+        var referenceVideo = config.WorkflowMode == WorkflowModes.ReferenceVideo;
+        if (referenceVideo) VideoWorkflows.For(config.WorkflowMode).ValidateInputs(config);
         var hasOtherCompletedVideo = items.Any(i => i.Id != targetItem.Id && i.VideoAssetId != null) || await dbContext.Scenes
             .AsNoTracking()
             .AnyAsync(s => s.ProjectId == normalizedProjectId && s.Id != targetSceneId && s.VideoAssetId != null, cancellationToken)
@@ -393,18 +399,18 @@ public sealed partial class ProjectWorkflowService
             throw new ProjectWorkflowValidationException("Video của phân cảnh này đang được tạo.");
         }
 
-        if (string.IsNullOrWhiteSpace(targetItem.VideoPrompt))
+        if (!referenceVideo && string.IsNullOrWhiteSpace(scene.PromptText))
         {
             throw new ProjectWorkflowValidationException("Cảnh này chưa có prompt video. Hãy tạo prompt video trước khi tạo video.");
         }
         await EnsureScenePromptsRenderableAsync(dbContext, new[] { targetSceneId }, cancellationToken).ConfigureAwait(false);
-        if (scene != null && await NeedsGridImageAsync(dbContext, config, scene, cancellationToken).ConfigureAwait(false))
+        if (await NeedsGridImageAsync(dbContext, config, scene, cancellationToken).ConfigureAwait(false))
         {
             throw new ProjectWorkflowValidationException("Ảnh storyboard 3×3 chưa sẵn sàng nên chưa thể tạo video.");
         }
 
-        var imageAssetId =targetItem.ImageAssetId ?? scene?.ImageAssetId ?? config.FoundationImageAssetId ?? config.ReadyImageAssetId ?? config.ProductAssetId;
-        var audioAssetId = targetItem.AudioAssetId ?? scene?.AudioAssetId ?? (config.AudioOption == AudioOptions.CustomAudio ? config.AudioAssetId : null);
+        var imageAssetId = scene.ImageAssetId;
+        var audioAssetId = scene.AudioAssetId;
 
         var snapshot = new JobMediaSnapshotDto(
             ModelAssetId: config.ModelAssetId,
@@ -412,34 +418,51 @@ public sealed partial class ProjectWorkflowService
             ReadyImageAssetId: config.ReadyImageAssetId,
             SourceImageAssetId: imageAssetId,
             AudioAssetId: audioAssetId,
-            DurationSeconds: scene != null && scene.TargetDurationSeconds > 0 ? Convert.ToInt32(scene.TargetDurationSeconds) : config.TargetDurationPerSceneSeconds,
+            DurationSeconds: scene.TargetDurationSeconds > 0 ? Convert.ToInt32(scene.TargetDurationSeconds) : config.TargetDurationPerSceneSeconds,
             AudioOption: audioAssetId != null ? AudioOptions.CustomAudio : AudioOptions.None,
             MediaRoles: new Dictionary<string, string> { ["SourceImage"] = imageAssetId ?? string.Empty },
             ImageAssetIds: string.IsNullOrWhiteSpace(imageAssetId) ? null : new[] { imageAssetId }
         );
 
+        config = config with { CurrentRunId = config.CurrentRunId ?? Guid.NewGuid().ToString("D") };
         var renderStepKey = await BuildRenderStepKeyAsync(dbContext, normalizedProjectId, config.CurrentRunId, $"render.{targetItem.Id}", cancellationToken).ConfigureAwait(false);
         var enqueueRequest = new JobEnqueueRequest(
             ProjectId: normalizedProjectId,
             SceneId: targetSceneId,
             TaskType: JobTaskType.VideoRender,
-            CustomPromptText: targetItem.VideoPrompt,
+            CustomPromptText: scene.PromptText,
             WorkflowRunId: config.CurrentRunId,
             WorkflowStepKey: renderStepKey,
             MediaSnapshot: snapshot
         );
+        if (referenceVideo)
+        {
+            enqueueRequest = ReferenceVideoWorkflow.CreateRenderRequest(new WorkflowSceneContext(
+                dbContext, normalizedProjectId, config, scene, null, new HashSet<string>(), BuildMediaSnapshot(config, scene)));
+            enqueueRequest = enqueueRequest with { WorkflowStepKey = renderStepKey };
+        }
 
-        var response = await _jobService.EnqueueAsync(enqueueRequest, cancellationToken).ConfigureAwait(false);
+        var response = await _jobService.StageWorkflowJobAsync(enqueueRequest, dbContext, cancellationToken).ConfigureAwait(false);
 
         if (response != null)
         {
             // Cập nhật trạng thái item thành Queued
             await UpdateContentItemVideoStatusAsync(dbContext, normalizedProjectId, targetItem.SceneId ?? targetItem.Id, null, "Queued", DateTimeOffset.UtcNow.ToString("o"), cancellationToken).ConfigureAwait(false);
-            if (scene != null)
+            scene.Status = "Queued";
+            // Job tạo lại và run phải cùng commit; scheduler không dispatch job của run đã Completed.
+            var now = DateTimeOffset.UtcNow.ToString("o");
+            var configKey = GetConfigKey(normalizedProjectId);
+            var storedConfig = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == configKey, cancellationToken).ConfigureAwait(false);
+            var updatedConfig = config with { RunState = config.RunState == WorkflowRunState.Paused ? WorkflowRunState.Paused : WorkflowRunState.Running, UpdatedAtUtc = now };
+            if (storedConfig == null)
+                dbContext.AppSettings.Add(new AppSetting { Key = configKey, Value = SerializeStoredConfig(updatedConfig), UpdatedAtUtc = now });
+            else
             {
-                scene.Status = "Queued";
-                await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                storedConfig.Value = SerializeStoredConfig(updatedConfig);
+                storedConfig.UpdatedAtUtc = now;
             }
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            _jobService.NotifyWorkflowRunReady();
             return 1;
         }
 

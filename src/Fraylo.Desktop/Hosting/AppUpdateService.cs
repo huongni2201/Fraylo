@@ -56,6 +56,7 @@ public sealed class AppUpdateService(Action requestExit)
 
     public async Task ApplyAsync(CancellationToken ct)
     {
+        InstallationLock.EnsureNoOtherAppProcesses();
         // Bản cài đặt chạy từ <root>\versions\<ver>\; bản dev thì không có launcher nên không tự cập nhật.
         var versionDir = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar));
         var launcher = versionDir.Parent?.Name == "versions"
@@ -84,6 +85,7 @@ public sealed class AppUpdateService(Action requestExit)
         }
 
         var start = new ProcessStartInfo(launcher) { UseShellExecute = false };
+        InstallationLock.EnsureNoOtherAppProcesses();
         foreach (var arg in new[] { "--update", "--pid", Environment.ProcessId.ToString(), "--zip", zip, "--version", info.LatestVersion })
             start.ArgumentList.Add(arg);
         Process.Start(start);

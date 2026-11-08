@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Text.Json;
+using Fraylo.Desktop.Hosting;
 
 // Bố cục cài đặt: <root>\FrayloLauncher.exe, <root>\current.json, <root>\versions\<ver>\Fraylo.exe
 // Không tham số: mở phiên bản hiện hành. `--update --pid N --zip F --version V`: cài bản mới rồi mở lại.
@@ -50,7 +51,13 @@ int Update(string[] updateArgs)
         }
         catch (ArgumentException) { }
 
-        // Sao lưu database trước khi bản mới chạy migration; app đã thoát nên file không bị khóa.
+        using var installationLock = InstallationLock.TryAcquire();
+        if (installationLock is null) return 1;
+        current = ReadCurrentVersion();
+        if (Version.TryParse(current, out installed) && Version.Parse(version) <= installed) return 1;
+        InstallationLock.EnsureNoOtherAppProcesses();
+
+        // Giữ khóa đến khi cài xong: không cửa sổ mới nào được mở DB giữa backup và nâng cấp.
         var backupDir = Path.Combine(dataDir, "backups");
         Directory.CreateDirectory(backupDir);
         foreach (var file in Directory.GetFiles(dataDir, "fraylo.db*"))
@@ -86,7 +93,7 @@ int Update(string[] updateArgs)
     catch (Exception ex)
     {
         Log($"LỖI: {ex}");
-        if (ex is TimeoutException) return 1;
+        if (ex is TimeoutException or InvalidOperationException) return 1;
     }
 
     // Dù lỗi hay không vẫn mở lại app (current.json chỉ đổi khi cài thành công).

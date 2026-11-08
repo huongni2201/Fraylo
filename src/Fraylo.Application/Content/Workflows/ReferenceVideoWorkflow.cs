@@ -26,6 +26,9 @@ internal sealed class ReferenceVideoWorkflow : IVideoWorkflow
 
     public Task<JobEnqueueRequest?> CreateNextSceneJobAsync(
         WorkflowSceneContext context, WorkflowSceneJobs jobs, CancellationToken cancellationToken)
+        => Task.FromResult<JobEnqueueRequest?>(CreateRenderRequest(context));
+
+    internal static JobEnqueueRequest CreateRenderRequest(WorkflowSceneContext context)
     {
         var durationSeconds = context.Config.TargetDurationPerSceneSeconds;
         var prompt = $"""
@@ -54,8 +57,8 @@ internal sealed class ReferenceVideoWorkflow : IVideoWorkflow
             AudioOption = AudioOptions.None,
             MediaRoles = new Dictionary<string, string> { ["SourceImage"] = imageId, ["MotionReferenceVideo"] = context.Config.ReferenceVideoAssetId! }
         };
-        return Task.FromResult<JobEnqueueRequest?>(new JobEnqueueRequest(
+        return new JobEnqueueRequest(
             context.ProjectId, context.Scene.Id, JobTaskType.VideoRender, CustomPromptText: prompt, MediaSnapshot: media,
-            WorkflowRunId: context.Config.CurrentRunId, WorkflowStepKey: $"render.{context.Scene.Id}.{context.Scene.UpdatedAtUtc}"));
+            WorkflowRunId: context.Config.CurrentRunId, WorkflowStepKey: $"render.{context.Scene.Id}.{context.Scene.UpdatedAtUtc}");
     }
 }

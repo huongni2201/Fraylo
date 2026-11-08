@@ -101,7 +101,7 @@ public sealed class AnalyticsService : IAnalyticsService
 
         if (request.PeriodDays.HasValue && request.PeriodDays.Value > 0)
         {
-            fromUtc = DateTime.UtcNow.AddDays(-request.PeriodDays.Value);
+            fromUtc = DateTime.UtcNow.Date.AddDays(1 - request.PeriodDays.Value);
         }
 
         if (request.StartDate.HasValue)
@@ -319,7 +319,7 @@ public sealed class AnalyticsService : IAnalyticsService
 
         if (request.PeriodDays.HasValue && request.PeriodDays.Value > 0)
         {
-            var sinceUtc = DateTime.UtcNow.AddDays(-request.PeriodDays.Value);
+            var sinceUtc = DateTime.UtcNow.Date.AddDays(1 - request.PeriodDays.Value);
             query = query.Where(r => r.CapturedAtUtc >= sinceUtc);
         }
 
@@ -336,7 +336,7 @@ public sealed class AnalyticsService : IAnalyticsService
         // Nếu chỉ có 1 ngày captured nhưng các video có ngày đăng (PublishedAtUtc) trải dài, nhóm theo ngày đăng
         // Trục theo ngày đăng vẫn phải nằm trong kỳ đã chọn, nếu không biểu đồ "7 ngày" chứa ngày ngoài kỳ.
         var minKey = request.PeriodDays is > 0
-            ? DateTime.UtcNow.AddDays(-request.PeriodDays.Value).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+            ? DateTime.UtcNow.Date.AddDays(1 - request.PeriodDays.Value).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
             : null;
         var groups = records
             .GroupBy(r =>

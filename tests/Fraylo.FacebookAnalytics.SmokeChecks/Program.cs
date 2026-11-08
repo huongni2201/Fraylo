@@ -137,6 +137,39 @@ var envelope = new RequestEnvelope(Guid.NewGuid(), "request", "facebook.analytic
 Check(!(await handler.HandleAsync(envelope, default)).Success, "Bridge từ chối request sai account");
 var catalogResponse = await handler.HandleAsync(envelope with { Command = "facebook.analytics.catalog" }, default);
 Check(catalogResponse.Data?.TryGetProperty("accounts", out _) == true, "DTO JSON camelCase đồng bộ React");
+// Lỗi lưu kết quả không được giữ slot Running vô hạn hoặc tự gọi Facebook lần nữa.
+await using (var db = new FrayloDbContext(options))
+{
+    await db.AppSettings.Where(s => s.Key == "scheduler.max_open_browsers").ExecuteDeleteAsync();
+    await db.BrowserProfiles.Where(p => p.Id == "b").ExecuteUpdateAsync(s => s.SetProperty(p => p.OperationalState, "Stopped"));
+    await db.Database.ExecuteSqlRawAsync("CREATE TRIGGER fail_capture_save BEFORE UPDATE ON FacebookAnalyticsCapture WHEN NEW.status IN ('Complete','Partial') BEGIN SELECT RAISE(ABORT, 'fixture save failure'); END;");
+}
+fake.Read = (_, _, _, _, _) => Task.FromResult(new FacebookContentRead([FakeInsights.Content(99)], true, "ok"));
+var callsBeforeSaveFailure = fake.Calls;
+var saveFailure = await service.StartAsync(query with { OperationId = Guid.NewGuid().ToString() });
+var recoveredSaveFailure = false;
+for (var i = 0; i < 100; i++)
+{
+    await service.DashboardAsync(query);
+    await using var db = new FrayloDbContext(options);
+    var capture = await db.FacebookAnalyticsCaptures.SingleAsync(c => c.Id == saveFailure.Id);
+    if (capture.Status == "Failed") { recoveredSaveFailure = capture.Message!.StartsWith("save_failed:"); break; }
+    await Task.Delay(30);
+}
+Check(recoveredSaveFailure && fake.Calls == callsBeforeSaveFailure + 1, "Lỗi lưu được phục hồi Failed ngay trong phiên, không gọi lại browser");
+Check((await service.StartAsync(query with { OperationId = saveFailure.Id })).Status == "Failed", "Replay lượt lưu lỗi không tự chạy lại");
+Check((await service.DashboardAsync(query)).Totals["views"].Value == 40, "Lỗi lưu giữ nguyên capture thành công trước đó");
+await using (var db = new FrayloDbContext(options)) await db.Database.ExecuteSqlRawAsync("DROP TRIGGER fail_capture_save;");
+var afterSaveFailure = await service.StartAsync(query with { OperationId = Guid.NewGuid().ToString() });
+for (var i = 0; i < 100; i++)
+{
+    await using var db = new FrayloDbContext(options);
+    if ((await db.FacebookAnalyticsCaptures.SingleAsync(c => c.Id == afterSaveFailure.Id)).Status == "Complete") break;
+    await Task.Delay(30);
+}
+await using (var db = new FrayloDbContext(options))
+    Check((await db.FacebookAnalyticsCaptures.SingleAsync(c => c.Id == afterSaveFailure.Id)).Status == "Complete", "Có thể cập nhật lại sau khi nơi lưu hoạt động trở lại");
+
 if (args.Contains("--browser"))
 {
     using var pw = await Playwright.CreateAsync();
@@ -197,7 +230,7 @@ sealed class FakeController : IBrowserProcessController
 
 static class Fixtures
 {
-public const string Content = """
+    public const string Content = """
 <div role="grid" aria-label="Bài viết đã đăng"><div role="row"><div role="columnheader">Chọn tất cả</div><div role="columnheader">Tiêu đề</div><div role="columnheader">Ngày đăng</div><div role="columnheader">Lượt xem​</div><div role="columnheader">Lượt thích và cảm xúc</div><div role="columnheader">Bình luận</div><div role="columnheader">Lượt chia sẻ</div><div role="columnheader">Thời gian phát video trung bình</div></div>
 <div role="row"><div role="gridcell"><input type="checkbox" aria-label="Chọn mục có ID 123"></div><div role="gridcell">Caption test<br>Thước phim<br>Page test</div><div role="gridcell">23 Tháng 5, 2024</div><div role="gridcell">‑‑</div><div role="gridcell">4<br>0 từ quảng cáo</div><div role="gridcell">0</div><div role="gridcell">0</div><div role="gridcell">3 giây</div></div></div>
 """;

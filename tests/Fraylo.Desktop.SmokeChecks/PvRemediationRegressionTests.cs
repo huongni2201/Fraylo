@@ -967,7 +967,7 @@ public static class PvRemediationRegressionTests
                 VideoStrategy: VideoStrategies.MultiVideo
             ));
 
-            string clientRequestId ="req-idempotent-" + Guid.NewGuid().ToString("N");
+            string clientRequestId = "req-idempotent-" + Guid.NewGuid().ToString("N");
 
             // Lần 1: Bắt đầu workflow
             var resp1 = await workflowService.StartWorkflowAsync(new StartProjectWorkflowRequest(
@@ -1021,7 +1021,7 @@ public static class PvRemediationRegressionTests
 
             var savedConfig = await workflowService.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
                 ProjectId: prjId,
-                WorkflowMode: WorkflowModes.ProductOnly,
+                WorkflowMode: WorkflowModes.ReadyImage,
                 GoalPrompt: "Bộ sưu tập áo dài lụa tơ tằm",
                 ModelAssetId: null,
                 ProductAssetId: null,
@@ -1057,7 +1057,7 @@ public static class PvRemediationRegressionTests
             const string bracePrompt = "Kịch bản với {ngoac_nhon} giữ nguyên.";
             var braceConfig = await workflowService.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
                 ProjectId: prjId,
-                WorkflowMode: WorkflowModes.ProductOnly,
+                WorkflowMode: WorkflowModes.ReadyImage,
                 GoalPrompt: "",
                 ModelAssetId: null,
                 ProductAssetId: null,
@@ -1170,8 +1170,16 @@ public static class PvRemediationRegressionTests
         {
             db.Scenes.Add(new Scene
             {
-                Id = sceneId, ProjectId = prjId, SequenceOrder = 1, Name = "Cảnh 1", TargetDurationSeconds = 15,
-                ImageAssetId = readyAssetId, PromptText = "OLD PROMPT", Status = "Draft", CreatedAtUtc = now, UpdatedAtUtc = now
+                Id = sceneId,
+                ProjectId = prjId,
+                SequenceOrder = 1,
+                Name = "Cảnh 1",
+                TargetDurationSeconds = 15,
+                ImageAssetId = readyAssetId,
+                PromptText = "OLD PROMPT",
+                Status = "Draft",
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
             });
             await db.SaveChangesAsync();
         }
@@ -1186,10 +1194,19 @@ public static class PvRemediationRegressionTests
         {
             db.Jobs.Add(new Job
             {
-                Id = promptJobId, ProjectId = prjId, SceneId = sceneId, TaskType = JobTaskType.VideoPrompt,
-                State = JobState.Succeeded, ProviderKey = ProviderKeys.ChatGPTWeb, StorageRootId = "root-1",
-                PromptSnapshotText = "snapshot", ConfigSnapshotJson = "{}",
-                ResultText = "Xin lỗi, tôi không thể tạo nội dung này.", MaxAttempts = 3, CreatedAtUtc = now, UpdatedAtUtc = now
+                Id = promptJobId,
+                ProjectId = prjId,
+                SceneId = sceneId,
+                TaskType = JobTaskType.VideoPrompt,
+                State = JobState.Succeeded,
+                ProviderKey = ProviderKeys.ChatGPTWeb,
+                StorageRootId = "root-1",
+                PromptSnapshotText = "snapshot",
+                ConfigSnapshotJson = "{}",
+                ResultText = "Xin lỗi, tôi không thể tạo nội dung này.",
+                MaxAttempts = 3,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
             });
             await db.SaveChangesAsync();
         }

@@ -9,6 +9,7 @@ Tài liệu về kiến trúc, vận hành và quá trình phát triển Fraylo.
 | [Checkpoint hiện hành](agents/STATUS.md) | Tiến độ mới nhất, kết quả kiểm thử và giới hạn kiểm chứng |
 | [Danh sách công việc](agents/TASKS.md) | Trạng thái, dependency và phạm vi công việc |
 | [Kế hoạch tích hợp](plans/20261027-video-first-integration-next.md) | Các bước tích hợp và bằng chứng kiểm tra theo thời điểm |
+| [Sửa năm lỗi từ audit](plans/20261108-audit-fixes.md) | Snapshot render, dữ liệu Scene, khóa updater, phục hồi Analytics và khoảng ngày |
 
 ## Kiến trúc và tính năng
 

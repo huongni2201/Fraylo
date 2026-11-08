@@ -111,6 +111,31 @@ internal static class ReferenceVideoSmokeTests
             Check((await workflow.GetWorkflowConfigAsync(id)).RunState == WorkflowRunState.Completed, "different duration can complete workflow");
             await using (var db = new FrayloDbContext(options))
                 Check((await db.VideoRevisions.SingleAsync()).ProvenanceJson!.Contains("FitOriginalAudioByAI"), "provenance records approximate motion and AI audio policy");
+            await workflow.CreateSceneVideoAsync(new CreateSceneVideoRequest(id));
+            await using (var db = new FrayloDbContext(options))
+            {
+                var rerender = await db.Jobs.SingleAsync(j => j.State == JobState.Queued);
+                using var snapshot = JsonDocument.Parse(rerender.ConfigSnapshotJson!);
+                var rerenderMedia = JsonSerializer.Deserialize<JobMediaSnapshotDto>(snapshot.RootElement.GetProperty("MediaSnapshot").GetRawText())!;
+                Check(snapshot.RootElement.GetProperty("ConfigVersion").GetInt32() == 3 &&
+                    rerenderMedia.ReferenceVideoAssetId == imported.Asset.AssetId && rerenderMedia.ReferenceVideoAssetHash == media.ReferenceVideoAssetHash &&
+                    rerenderMedia.ReferenceVideoMode == ReferenceVideoMedia.ApproximationMode && rerenderMedia.ReferenceAudioPolicy == ReferenceVideoAudio.FitByAi &&
+                    rerenderMedia.DurationSeconds == 20 && rerender.PromptSnapshotText!.Contains("original audio"),
+                    "manual rerender preserves reference, audio policy, hashes and generation instructions");
+                Check((await workflow.GetWorkflowConfigAsync(id)).RunState == WorkflowRunState.Running, "completed run becomes dispatchable for manual rerender");
+                db.BrowserProfiles.Add(new() { Id = "reference-fixture", Kind = "MuseAI", ProviderKey = "museai", AccountIdentity = "Fixture", SessionStatus = "Connected" });
+                db.ProviderAccounts.Add(new() { Id = "reference-account", ProfileId = "reference-fixture", ProviderKey = "museai", Enabled = true });
+                await db.SaveChangesAsync();
+                var reservation = new JobReservation(options);
+                Check((await reservation.TryReserveJobAsync(rerender.Id, "fixture", TimeSpan.FromSeconds(45))).Acquired, "scheduler can reserve manual rerender after completed run");
+                await db.Entry(rerender).ReloadAsync();
+                await reservation.ReleaseOccupancyAsync(rerender.Id);
+                rerender.State = JobState.Succeeded; rerender.ResultReference = candidate.Asset!.AssetId;
+                rerender.ResultText = "{\"reference_mode\":\"PromptApproximation\",\"video_prompt\":\"Rerender motion\"}";
+                await db.SaveChangesAsync();
+                jobId = rerender.Id;
+            }
+            Check(await workflow.ApplyJobOutputAsync(jobId), "manual reference rerender applies to video history");
             var musicPath = Path.Combine(root, "music.mp4");
             await File.WriteAllBytesAsync(musicPath, Mp4(5.055, "music"));
             var music = await assets.UploadAssetAsync(new UploadAssetRequest(id, "Video", SourceFilePath: musicPath));
@@ -124,7 +149,7 @@ internal static class ReferenceVideoSmokeTests
                 using var snapshot = JsonDocument.Parse(musicJob.ConfigSnapshotJson!);
                 var musicMedia = JsonSerializer.Deserialize<JobMediaSnapshotDto>(snapshot.RootElement.GetProperty("MediaSnapshot").GetRawText())!;
                 Check(musicMedia.ReferenceVideoHasAudio == true && musicMedia.ReferenceAudioPolicy == ReferenceVideoAudio.FitByAi, "audio source and AI fitting policy are frozen");
-                Check((await db.Scenes.SingleAsync()).VideoAssetId == null && await db.VideoRevisions.CountAsync() == 1, "new run clears current scene output, preserves revision history");
+                Check((await db.Scenes.SingleAsync()).VideoAssetId == null && await db.VideoRevisions.CountAsync() == 2, "new run clears current scene output, preserves revision history");
             }
             var importedFile = StoragePathGuard.CombineAndVerify((await roots.GetCurrentRootsAsync()).VideosPath, imported.Asset.RelativePath);
             await File.AppendAllTextAsync(importedFile, "changed after snapshot");
