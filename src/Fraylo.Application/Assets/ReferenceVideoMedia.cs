@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Fraylo.Application.Jobs;
 using Fraylo.Contracts.Jobs;
@@ -138,6 +139,19 @@ public static class ReferenceVideoMedia
             ReferenceVideoHasAudio = ReferenceVideoAudio.HasAudio(video.Path),
             ReferenceAudioPolicy = ReferenceVideoAudio.FitByAi
         });
+    }
+
+    internal static async Task<ReferenceVideoFiles?> ResolveAnalysisInputAsync(
+        DbContextOptions<FrayloDbContext> options, JobExecutionContext job, CancellationToken cancellationToken)
+    {
+        if (job.TaskType != JobTaskType.VideoPrompt) return null;
+        using var snapshot = JsonDocument.Parse(job.ConfigSnapshotJson ?? "{}");
+        if (!snapshot.RootElement.TryGetProperty("MediaSnapshot", out var media) || media.ValueKind != JsonValueKind.Object ||
+            media.Deserialize<JobMediaSnapshotDto>() is not { ReferenceAnalysisVersion: 1 } input)
+            return null;
+
+        return await ValidateAsync(options, job.ProjectId ?? throw new JobValidationException("Thiếu dự án video mẫu."),
+            input, requireSnapshotHashes: true, cancellationToken).ConfigureAwait(false);
     }
 
     internal static void EnsureProviderSupported(JobMediaSnapshotDto media)

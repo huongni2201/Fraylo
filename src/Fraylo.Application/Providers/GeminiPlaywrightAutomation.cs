@@ -69,27 +69,39 @@ public sealed class GeminiPlaywrightAutomation
         try
         {
             ct.ThrowIfCancellationRequested();
+            var referenceFiles = await ReferenceVideoMedia.ResolveAnalysisInputAsync(_dbOptions, job, ct).ConfigureAwait(false);
             page = await handle.Context.NewPageAsync().ConfigureAwait(false);
             await _activity.WriteAsync(job.JobId, "browser", "Đã mở tab Gemini cho job.", ct).ConfigureAwait(false);
             await page.GotoAsync("https://gemini.google.com/app", new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 }).WaitAsync(ct).ConfigureAwait(false);
 
             var composer = page.Locator("rich-textarea [contenteditable='true'], [role='textbox'][contenteditable='true']").First;
             await composer.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 20000 }).WaitAsync(ct).ConfigureAwait(false);
-            var imagePaths = await ResolveInputImagesAsync(job, ct).ConfigureAwait(false);
-            await _activity.WriteAsync(job.JobId, "media", $"Đã kiểm tra {imagePaths.Count} ảnh tham chiếu.", ct).ConfigureAwait(false);
+            var files = referenceFiles is null
+                ? await ResolveInputImagesAsync(job, ct).ConfigureAwait(false)
+                : new[] { referenceFiles.VideoPath };
+            await _activity.WriteAsync(job.JobId, "media", referenceFiles is null
+                ? $"Đã kiểm tra {files.Count} ảnh tham chiếu." : "Đã kiểm tra MP4 mẫu cho Gemini.", ct).ConfigureAwait(false);
             var assistantMessages = page.Locator("message-content, .model-response-text");
             var initialAssistantCount = await assistantMessages.CountAsync().ConfigureAwait(false);
-            if (imagePaths.Count > 0)
+            if (files.Count > 0)
             {
                 // Gemini renders its file inputs only after the upload menu opens; the first input is the document picker, so target the image one.
-                var fileInput = page.Locator("input[type='file'][accept*='image']").First;
+                var fileInput = page.Locator(referenceFiles is null
+                    ? "input[type='file'][accept*='image']"
+                    : "input[type='file'][accept*='video' i], input[type='file'][accept*='.mp4' i], input[type='file'][accept='*/*'], input[type='file']:not([accept])").First;
                 if (await fileInput.CountAsync().ConfigureAwait(false) == 0)
                 {
                     var attach = page.Locator("button[aria-label*='Upload' i], button[aria-label*='Tải' i], button[aria-label*='Add files' i]").First;
                     await attach.ClickAsync().WaitAsync(ct).ConfigureAwait(false);
                 }
                 await fileInput.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 15000 }).WaitAsync(ct).ConfigureAwait(false);
-                await fileInput.SetInputFilesAsync(imagePaths).WaitAsync(ct).ConfigureAwait(false);
+                await fileInput.SetInputFilesAsync(files).WaitAsync(ct).ConfigureAwait(false);
+                if (referenceFiles is not null)
+                {
+                    var name = Path.GetFileName(referenceFiles.VideoPath);
+                    await page.GetByText(name, new() { Exact = true }).Or(page.GetByAltText(name, new() { Exact = true }))
+                        .First.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 120000 }).WaitAsync(ct).ConfigureAwait(false);
+                }
                 // Do not poll input.files: job log showed a 30s timeout here, and the send-button wait below covers the upload.
             }
             await composer.ClickAsync().WaitAsync(ct).ConfigureAwait(false);
@@ -112,7 +124,7 @@ public sealed class GeminiPlaywrightAutomation
                         null, new() { Timeout = 5000 }).WaitAsync(ct).ConfigureAwait(false);
                     break;
                 }
-                catch (TimeoutException) when (attempt < 3 && job.TaskType is not (JobTaskType.AnalyticsAnalysis or JobTaskType.FacebookContentRewrite))
+                catch (TimeoutException) when (referenceFiles is null && attempt < 3 && job.TaskType is not (JobTaskType.AnalyticsAnalysis or JobTaskType.FacebookContentRewrite))
                 {
                     await _activity.WriteAsync(job.JobId, "submit", $"Gemini chưa nhận lệnh gửi, thử bấm lại (lần {attempt + 1}).", ct).ConfigureAwait(false);
                 }
@@ -202,7 +214,7 @@ public sealed class GeminiPlaywrightAutomation
             {
                 if (i > 0) await Task.Delay(500, ct).ConfigureAwait(false);
                 var code = replyBox.Locator("pre code");
-                result = (job.TaskType is JobTaskType.AnalyticsAnalysis or JobTaskType.FacebookContentRewrite) && await code.CountAsync().WaitAsync(ct).ConfigureAwait(false) == 1
+                result = (referenceFiles is not null || job.TaskType is JobTaskType.AnalyticsAnalysis or JobTaskType.FacebookContentRewrite) && await code.CountAsync().WaitAsync(ct).ConfigureAwait(false) == 1
                     ? (await code.InnerTextAsync().WaitAsync(ct).ConfigureAwait(false)).Trim()
                     : (await replyBox.EvaluateAsync<string>(readReply).WaitAsync(ct).ConfigureAwait(false)).Trim();
             }

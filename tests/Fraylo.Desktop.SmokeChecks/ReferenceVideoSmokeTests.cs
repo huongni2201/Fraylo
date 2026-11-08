@@ -139,17 +139,59 @@ internal static class ReferenceVideoSmokeTests
             var musicPath = Path.Combine(root, "music.mp4");
             await File.WriteAllBytesAsync(musicPath, Mp4(5.055, "music"));
             var music = await assets.UploadAssetAsync(new UploadAssetRequest(id, "Video", SourceFilePath: musicPath));
+            await using (var db = new FrayloDbContext(options))
+            {
+                db.AppSettings.Add(new AppSetting { Key = SettingsService.KeyScriptProvider, Value = "chatgpt-web", UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("o") });
+                db.AppSettings.Add(new AppSetting { Key = SettingsService.KeyVideoPromptProvider, Value = "gemini-web", UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("o") });
+                await db.SaveChangesAsync();
+            }
             await workflow.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(id, WorkflowModes.ReferenceVideo, "", null, null,
-                image.Asset.AssetId, AudioOptions.None, null, 1, 10, VideoStrategy: VideoStrategies.SingleVideo, ReferenceVideoAssetId: music.Asset!.AssetId));
+                image.Asset.AssetId, AudioOptions.None, null, 1, 10, VideoStrategy: VideoStrategies.SingleVideo, ReferenceVideoAssetId: music.Asset!.AssetId,
+                UseReferenceVideoAnalysis: true));
             var musicStart = await workflow.StartWorkflowAsync(new StartProjectWorkflowRequest(id, "music-start"));
             Check(musicStart.RunState == WorkflowRunState.Running, "source with audio starts with AI fitting capability");
             await using (var db = new FrayloDbContext(options))
             {
                 var musicJob = await db.Jobs.SingleAsync(j => j.State == JobState.Queued);
+                Check(musicJob.TaskType == JobTaskType.VideoPrompt && musicJob.ProviderKey == "chatgpt-web", "reference analysis follows Script even when VideoPrompt uses Gemini");
                 using var snapshot = JsonDocument.Parse(musicJob.ConfigSnapshotJson!);
                 var musicMedia = JsonSerializer.Deserialize<JobMediaSnapshotDto>(snapshot.RootElement.GetProperty("MediaSnapshot").GetRawText())!;
                 Check(musicMedia.ReferenceVideoHasAudio == true && musicMedia.ReferenceAudioPolicy == ReferenceVideoAudio.FitByAi, "audio source and AI fitting policy are frozen");
                 Check((await db.Scenes.SingleAsync()).VideoAssetId == null && await db.VideoRevisions.CountAsync() == 2, "new run clears current scene output, preserves revision history");
+                musicJob.State = JobState.Succeeded;
+                musicJob.ResultText = """
+                    {"beats":[{"sourceStart":0,"sourceEnd":5,"targetStart":0,"targetEnd":9,"action":"Turns away"}],"renderPrompt":"Turn away from the camera slowly."}
+                    """;
+                jobId = musicJob.Id;
+                await db.SaveChangesAsync();
+            }
+            Check(await workflow.ApplyJobOutputAsync(jobId) && await workflow.ApplyJobOutputAsync(jobId), "analysis apply is replayable");
+            await using (var db = new FrayloDbContext(options))
+            {
+                var render = await db.Jobs.SingleAsync(j => j.State == JobState.Queued);
+                Check(render.TaskType == JobTaskType.VideoRender &&
+                    render.PromptSnapshotText!.Contains("Turn away from the camera slowly.") &&
+                    render.ConfigSnapshotJson!.Contains(music.Asset.AssetId) &&
+                    render.ConfigSnapshotJson.Contains(jobId), "only one MuseAI render carries prompt, MP4 and analysis provenance");
+                render.State = JobState.Succeeded;
+                render.ResultReference = music.Asset.AssetId;
+                jobId = render.Id;
+                await db.SaveChangesAsync();
+            }
+            Check(await workflow.ApplyJobOutputAsync(jobId), "apply analyzed render");
+            await workflow.CreateSceneVideoAsync(new CreateSceneVideoRequest(id));
+            await using (var db = new FrayloDbContext(options))
+            {
+                var repeated = await db.Jobs.SingleAsync(j => j.State == JobState.Queued);
+                Check(repeated.TaskType == JobTaskType.VideoRender &&
+                    repeated.PromptSnapshotText!.Contains("Turn away from the camera slowly."), "rerender reuses the matching analysis");
+                var scriptProvider = await db.AppSettings.SingleAsync(s => s.Key == SettingsService.KeyScriptProvider);
+                scriptProvider.Value = "gemini-web";
+                await db.SaveChangesAsync();
+                var nextAnalysis = await snapshotFactory.CreateSnapshotAsync(new JobEnqueueRequest(id, repeated.SceneId, JobTaskType.VideoPrompt,
+                    CustomPromptText: "Analyze the clip", WorkflowRunId: musicStart.RunId, WorkflowStepKey: "reference-analysis-gemini",
+                    MediaSnapshot: media with { ReferenceAnalysisVersion = 1 }));
+                Check(nextAnalysis.ProviderKey == "gemini-web", "new analysis snapshots follow the updated Script provider");
             }
             var importedFile = StoragePathGuard.CombineAndVerify((await roots.GetCurrentRootsAsync()).VideosPath, imported.Asset.RelativePath);
             await File.AppendAllTextAsync(importedFile, "changed after snapshot");

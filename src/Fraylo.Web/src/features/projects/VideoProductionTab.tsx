@@ -235,6 +235,7 @@ export function VideoProductionTab({
       productAssetId: config.productAssetId,
       readyImageAssetId: config.readyImageAssetId,
       referenceVideoAssetId: isReferenceVideo ? config.referenceVideoAssetId : null,
+      useGeminiReferenceAnalysis: isReferenceVideo && config.useGeminiReferenceAnalysis === true,
       audioOption: config.audioOption,
       audioAssetId: config.audioAssetId,
       videoStrategy: strategy,

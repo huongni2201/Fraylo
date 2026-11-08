@@ -293,7 +293,8 @@ public sealed partial class ProjectWorkflowService
             SelectedSceneIds: existingScenes.Select(s => s.Id).ToList(),
             CreatedAtUtc: nowIso,
             UpdatedAtUtc: nowIso,
-            ReferenceVideoAssetId: runConfig.ReferenceVideoAssetId
+            ReferenceVideoAssetId: runConfig.ReferenceVideoAssetId,
+            UseReferenceVideoAnalysis: runConfig.UseReferenceVideoAnalysis
         );
         var activeRunKey = $"workflow.active_run.{normalizedProjectId}";
         var activeRunSetting = await dbContext.AppSettings.FirstOrDefaultAsync(s => s.Key == activeRunKey, cancellationToken);

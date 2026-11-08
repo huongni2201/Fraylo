@@ -206,6 +206,7 @@ public sealed record ProjectWorkflowConfigDto(
     // Chỉ điền khi đọc qua GetWorkflowConfigWithStepsAsync (bridge): lần thử hiện hành của từng bước logic trong run.
     [property: JsonPropertyName("steps")] IReadOnlyList<WorkflowStepStateDto>? Steps = null,
     [property: JsonPropertyName("referenceVideoAssetId")] string? ReferenceVideoAssetId = null,
+    [property: JsonPropertyName("useGeminiReferenceAnalysis")] bool UseReferenceVideoAnalysis = false,
     [property: JsonPropertyName("referenceVideoAvailable")] bool ReferenceVideoAvailable = false,
     [property: JsonPropertyName("referenceVideoUnavailableReason")] string? ReferenceVideoUnavailableReason = null);
 
@@ -263,7 +264,8 @@ public sealed record SaveProjectWorkflowConfigRequest(
     [property: JsonPropertyName("videoGuidance")] string? VideoGuidance = null,
     [property: JsonPropertyName("videoStrategy")] string? VideoStrategy = null,
     [property: JsonPropertyName("referenceImageMode")] string? ReferenceImageMode = null,
-    [property: JsonPropertyName("referenceVideoAssetId")] string? ReferenceVideoAssetId = null);
+    [property: JsonPropertyName("referenceVideoAssetId")] string? ReferenceVideoAssetId = null,
+    [property: JsonPropertyName("useGeminiReferenceAnalysis")] bool UseReferenceVideoAnalysis = false);
 
 /// <summary>
 /// Yêu cầu bấm "Bắt đầu tạo video" một lần duy nhất cho toàn bộ dự án.

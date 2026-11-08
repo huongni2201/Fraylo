@@ -129,7 +129,9 @@ public sealed record JobMediaSnapshotDto(
     int? ReferenceVideoWidth = null,
     int? ReferenceVideoHeight = null,
     bool? ReferenceVideoHasAudio = null,
-    string? ReferenceAudioPolicy = null
+    string? ReferenceAudioPolicy = null,
+    int? ReferenceAnalysisVersion = null,
+    string? ReferenceAnalysisJobId = null
 );
 
 public sealed record JobEnqueueRequest(

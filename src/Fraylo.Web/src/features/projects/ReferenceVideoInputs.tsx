@@ -30,6 +30,11 @@ export function ReferenceVideoInputs({ config, disabled, onChange }: {
   return <section aria-label="Dữ liệu video theo mẫu" className="space-y-4">
     <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm space-y-2">
       <p className="font-semibold">MuseAI · Chuyển động gần đúng</p>
+      <label className="flex items-start gap-2">
+        <input type="checkbox" checked={config.useGeminiReferenceAnalysis === true} disabled={disabled}
+          onChange={event => onChange({ useGeminiReferenceAnalysis: event.target.checked })} />
+        <span>AI đọc video mẫu trước khi tạo (thử nghiệm). Dùng nhà cung cấp đã chọn ở Tác vụ Kịch bản &amp; Đề xuất (Script). Video mẫu được gửi tới AI đó và MuseAI. Ảnh người mẫu chỉ gửi tới MuseAI.</span>
+      </label>
       <p>Giữ người và bộ đồ trong ảnh. Phân tích video thành prompt để mô phỏng động tác; không chuyển động chính xác từng khung hình.</p>
       <p>Thời lượng có thể khác video mẫu. Video mẫu được gửi kèm cả âm thanh để MuseAI tự tách, ghép và co giãn theo độ dài video mới; không thay bằng nhạc khác. Bạn nghe lại để duyệt nhạc và nhịp sau khi tạo. Mẫu không có âm thanh thì không thêm nhạc.</p>
       <p className="text-xs text-muted-foreground">Video mẫu: MP4, tối đa 30 giây, 50 MB và 4096 px. Hai tệp được lưu trong Thư viện.</p>

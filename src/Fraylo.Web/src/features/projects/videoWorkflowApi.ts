@@ -63,6 +63,7 @@ export interface ProjectWorkflowConfigDto {
   productAssetId: string | null;
   readyImageAssetId: string | null;
   referenceVideoAssetId?: string | null;
+  useGeminiReferenceAnalysis?: boolean;
   referenceVideoAvailable?: boolean;
   referenceVideoUnavailableReason?: string | null;
   foundationImageAssetId: string | null;
@@ -132,6 +133,7 @@ export interface SaveProjectWorkflowConfigRequest {
   productAssetId?: string | null;
   readyImageAssetId?: string | null;
   referenceVideoAssetId?: string | null;
+  useGeminiReferenceAnalysis?: boolean;
   audioOption: AudioOption;
   audioAssetId?: string | null;
   targetSceneCount: number;

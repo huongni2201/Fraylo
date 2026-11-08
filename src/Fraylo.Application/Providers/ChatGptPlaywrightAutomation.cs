@@ -76,6 +76,7 @@ public sealed class ChatGptPlaywrightAutomation
         try
         {
             ct.ThrowIfCancellationRequested();
+            var referenceFiles = await ReferenceVideoMedia.ResolveAnalysisInputAsync(_dbOptions, job, ct).ConfigureAwait(false);
             page = await handle.Context.NewPageAsync().ConfigureAwait(false);
             await _activity.WriteAsync(job.JobId, "browser", "Đã mở tab ChatGPT cho job.", ct).ConfigureAwait(false);
             await page.GotoAsync("https://chatgpt.com/", new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 }).WaitAsync(ct).ConfigureAwait(false);
@@ -94,12 +95,15 @@ public sealed class ChatGptPlaywrightAutomation
                 throw;
             }
             await _activity.WriteAsync(job.JobId, "browser", "Đã tìm thấy ô nhập ChatGPT.", ct).ConfigureAwait(false);
-            var imagePaths = await ResolveInputImagesAsync(job, ct).ConfigureAwait(false);
-            await _activity.WriteAsync(job.JobId, "media", $"Đã kiểm tra {imagePaths.Count} ảnh tham chiếu.", ct).ConfigureAwait(false);
+            var files = referenceFiles is null
+                ? await ResolveInputImagesAsync(job, ct).ConfigureAwait(false)
+                : new[] { referenceFiles.VideoPath };
+            await _activity.WriteAsync(job.JobId, "media", referenceFiles is null
+                ? $"Đã kiểm tra {files.Count} ảnh tham chiếu." : "Đã kiểm tra MP4 mẫu cho ChatGPT.", ct).ConfigureAwait(false);
             var assistantMessages = page.Locator(AssistantSelector);
             var initialAssistantCount = await assistantMessages.CountAsync().ConfigureAwait(false);
             var initialCopyCount = await page.Locator(CopySelector).CountAsync().ConfigureAwait(false);
-            if (imagePaths.Count > 0)
+            if (files.Count > 0)
             {
                 // The composer mounts its hidden file input after the textarea, so counting at this moment races the render.
                 var fileInput = page.Locator("input[type='file']").First;
@@ -114,10 +118,15 @@ public sealed class ChatGptPlaywrightAutomation
                     await attach.ClickAsync(new() { Timeout = 15000 }).WaitAsync(ct).ConfigureAwait(false);
                     await fileInput.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 15000 }).WaitAsync(ct).ConfigureAwait(false);
                 }
-                await _activity.WriteAsync(job.JobId, "media", "Đang chọn ảnh để tải lên ChatGPT.", ct).ConfigureAwait(false);
-                await fileInput.SetInputFilesAsync(imagePaths).WaitAsync(ct).ConfigureAwait(false);
+                await fileInput.SetInputFilesAsync(files).WaitAsync(ct).ConfigureAwait(false);
+                if (referenceFiles is not null)
+                {
+                    var name = Path.GetFileName(referenceFiles.VideoPath);
+                    await page.GetByText(name, new() { Exact = true }).Or(page.GetByAltText(name, new() { Exact = true }))
+                        .First.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 120000 }).WaitAsync(ct).ConfigureAwait(false);
+                }
                 // ChatGPT empties the file input once it takes the files, so the input cannot prove the upload; the Send gate below does.
-                await _activity.WriteAsync(job.JobId, "media", "Đã chọn ảnh; chờ ChatGPT xử lý tệp trước khi gửi.", ct).ConfigureAwait(false);
+                await _activity.WriteAsync(job.JobId, "media", "Đã chọn tệp; chờ ChatGPT xử lý trước khi gửi.", ct).ConfigureAwait(false);
             }
             await composer.ClickAsync().WaitAsync(ct).ConfigureAwait(false);
             await page.Keyboard.InsertTextAsync(prompt).WaitAsync(ct).ConfigureAwait(false);
@@ -162,7 +171,7 @@ public sealed class ChatGptPlaywrightAutomation
             await page.Locator(CopySelector).Last
                 .WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 600000 }).WaitAsync(ct).ConfigureAwait(false);
             var code = response.Locator("pre code");
-            var reply = (job.TaskType is JobTaskType.AnalyticsAnalysis or JobTaskType.FacebookContentRewrite) && await code.CountAsync().WaitAsync(ct).ConfigureAwait(false) == 1
+            var reply = (referenceFiles is not null || job.TaskType is JobTaskType.AnalyticsAnalysis or JobTaskType.FacebookContentRewrite) && await code.CountAsync().WaitAsync(ct).ConfigureAwait(false) == 1
                 ? code : response;
             var result = (await reply.InnerTextAsync().WaitAsync(ct).ConfigureAwait(false)).Trim();
             if (string.IsNullOrWhiteSpace(result))

@@ -77,7 +77,8 @@ public sealed record WorkflowRunRecord(
     IReadOnlyList<string> SelectedSceneIds,
     string CreatedAtUtc,
     string UpdatedAtUtc,
-    string? ReferenceVideoAssetId = null
+    string? ReferenceVideoAssetId = null,
+    bool UseReferenceVideoAnalysis = false
 );
 
 /// <summary>

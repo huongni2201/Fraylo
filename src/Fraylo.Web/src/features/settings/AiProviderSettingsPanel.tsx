@@ -566,7 +566,7 @@ export function AiProviderSettingsPanel({
                   <option value="chatgpt-web">ChatGPT Web</option>
                 </select>
                 <p id="script-provider-desc" className="text-xs text-muted-foreground">
-                  Dùng cho phân tích/đề xuất ý tưởng (SuggestIdeas) và phát triển kịch bản chi tiết.
+                  Dùng cho đề xuất ý tưởng, phát triển kịch bản và phân tích video mẫu khi bật tính năng thử nghiệm.
                 </p>
                 {fieldErrors.scriptProvider && (
                   <p className="text-xs text-destructive">{fieldErrors.scriptProvider[0]}</p>

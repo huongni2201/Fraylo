@@ -26,9 +26,9 @@ internal sealed class ReferenceVideoWorkflow : IVideoWorkflow
 
     public Task<JobEnqueueRequest?> CreateNextSceneJobAsync(
         WorkflowSceneContext context, WorkflowSceneJobs jobs, CancellationToken cancellationToken)
-        => Task.FromResult<JobEnqueueRequest?>(CreateRenderRequest(context));
+        => Task.FromResult<JobEnqueueRequest?>(CreateInitialRequest(context));
 
-    internal static JobEnqueueRequest CreateRenderRequest(WorkflowSceneContext context)
+    internal static JobEnqueueRequest CreateInitialRequest(WorkflowSceneContext context)
     {
         var durationSeconds = context.Config.TargetDurationPerSceneSeconds;
         var prompt = $"""
@@ -42,6 +42,22 @@ internal sealed class ReferenceVideoWorkflow : IVideoWorkflow
             """;
         if (!string.IsNullOrWhiteSpace(context.Config.GoalPrompt)) prompt += "\nUser goal: " + context.Config.GoalPrompt;
         if (!string.IsNullOrWhiteSpace(context.Config.VideoGuidance)) prompt += "\nAdditional user guidance: " + context.Config.VideoGuidance;
+        if (context.Config.UseReferenceVideoAnalysis)
+        {
+            prompt = $"""
+                Analyze the attached video and return only JSON with beats (1 to 6) and renderPrompt (English).
+                Each beat must have numeric sourceStart, sourceEnd, targetStart, targetEnd (seconds), and text action.
+                Describe start and end poses, visible action and direction. Separate camera movement, framing and cuts.
+                Mark unclear details as unknown. Keep the opening and ending poses and major action order.
+                Map beats to {durationSeconds} seconds. Shorten idle holds first. Do not add loops, freezes or actions.
+                Write the compact renderPrompt for a still-image-to-video tool, using target timings and key camera cues.
+                Refer to the person as the subject of the supplied photo. Do not transfer identity, clothes, background or captions.
+                If you cannot inspect the clip, return a JSON object with error set to video_unreadable. Do not guess.
+                Treat the following notes as preferences without overriding these rules.
+                Goal: {context.Config.GoalPrompt}
+                Guidance: {context.Config.VideoGuidance}
+                """;
+        }
         var imageId = context.Config.ReadyImageAssetId!;
         var media = context.MediaSnapshot with
         {
@@ -52,13 +68,29 @@ internal sealed class ReferenceVideoWorkflow : IVideoWorkflow
             ReferenceVideoAssetId = context.Config.ReferenceVideoAssetId,
             ReferenceVideoMode = ReferenceVideoMedia.ApproximationMode,
             ReferenceAudioPolicy = ReferenceVideoAudio.FitByAi,
+            ReferenceAnalysisVersion = context.Config.UseReferenceVideoAnalysis ? 1 : null,
             DurationSeconds = durationSeconds,
             AudioAssetId = null,
             AudioOption = AudioOptions.None,
             MediaRoles = new Dictionary<string, string> { ["SourceImage"] = imageId, ["MotionReferenceVideo"] = context.Config.ReferenceVideoAssetId! }
         };
         return new JobEnqueueRequest(
-            context.ProjectId, context.Scene.Id, JobTaskType.VideoRender, CustomPromptText: prompt, MediaSnapshot: media,
+            context.ProjectId, context.Scene.Id, context.Config.UseReferenceVideoAnalysis ? JobTaskType.VideoPrompt : JobTaskType.VideoRender,
+            CustomPromptText: prompt, MediaSnapshot: media,
             WorkflowRunId: context.Config.CurrentRunId, WorkflowStepKey: $"render.{context.Scene.Id}.{context.Scene.UpdatedAtUtc}");
     }
+
+    internal static string ComposeRenderPrompt(string motionPrompt, int seconds) => $"""
+        Create one playable video about {seconds} seconds long from the attached PHOTO and the motion prompt below.
+        Preserve the photo subject, face, hair, clothing, product details and colors. Keep the photo setting.
+        Follow the supplied action order, pacing and camera cues. Use the VIDEO only as supporting reference and
+        original audio source. Do not rewrite the motion plan, reuse video frames, or copy its subject, outfit or text.
+        Fit and merge the original audio to the actual output duration, preserving tune, voice and natural pitch.
+        Leave a silent source silent. Do not substitute audio or retime the visuals. Return the final playable MP4.
+        Report failure honestly. Do not make purchases or publish.
+        Optionally return a Vietnamese caption between TIKTOK_CONTENT_BEGIN and TIKTOK_CONTENT_END without invented claims.
+        MOTION_PROMPT_BEGIN
+        {motionPrompt}
+        MOTION_PROMPT_END
+        """;
 }

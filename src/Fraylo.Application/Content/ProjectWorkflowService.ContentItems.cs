@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Fraylo.Application.Jobs;
 using Fraylo.Application.Content.Workflows;
 using Fraylo.Application.Prompts;
+using Fraylo.Application.Settings;
 using Fraylo.Contracts.Content;
 using Fraylo.Contracts.Jobs;
 using Fraylo.Contracts.Prompts;
@@ -338,13 +339,19 @@ public sealed partial class ProjectWorkflowService
     /// Kích hoạt tạo video cho một hàng trong bảng (Action Tạo video).
     /// Đưa tác vụ VideoRender vào queue, gửi video_prompt + ảnh mẫu mặc sản phẩm (+ audio nếu có).
     /// </summary>
-    public async Task<int> CreateSceneVideoAsync(
+    public Task<int> CreateSceneVideoAsync(
         CreateSceneVideoRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         var normalizedProjectId = NormalizeAndValidateGuid(request.ProjectId, nameof(request.ProjectId));
+        return RunUnderProjectGateAsync(normalizedProjectId,
+            () => CreateSceneVideoLockedAsync(request, normalizedProjectId, cancellationToken), cancellationToken);
+    }
 
+    private async Task<int> CreateSceneVideoLockedAsync(
+        CreateSceneVideoRequest request, string normalizedProjectId, CancellationToken cancellationToken)
+    {
         if (_jobService == null)
         {
             throw new ProjectWorkflowValidationException("Dịch vụ hàng đợi (JobService) chưa sẵn sàng.");
@@ -391,8 +398,11 @@ public sealed partial class ProjectWorkflowService
         }
 
         var hasSameSceneActiveRender = await dbContext.Jobs.AsNoTracking().AnyAsync(j =>
-            j.ProjectId == normalizedProjectId && j.SceneId == targetSceneId && j.TaskType == JobTaskType.VideoRender &&
-            (j.State == JobState.Queued || j.State == JobState.Reserved || j.State == JobState.Running || j.State == JobState.AwaitingUser),
+            j.ProjectId == normalizedProjectId && j.SceneId == targetSceneId &&
+            (j.TaskType == JobTaskType.VideoRender || (referenceVideo && j.TaskType == JobTaskType.VideoPrompt)) &&
+            (j.State == JobState.Queued || j.State == JobState.Reserved || j.State == JobState.Running || j.State == JobState.AwaitingUser ||
+             (referenceVideo && j.TaskType == JobTaskType.VideoPrompt && j.State == JobState.Succeeded &&
+              !dbContext.AppSettings.Any(setting => setting.Key == "workflow.applied." + j.Id))),
             cancellationToken).ConfigureAwait(false);
         if (hasSameSceneActiveRender)
         {
@@ -437,9 +447,41 @@ public sealed partial class ProjectWorkflowService
         );
         if (referenceVideo)
         {
-            enqueueRequest = ReferenceVideoWorkflow.CreateRenderRequest(new WorkflowSceneContext(
+            enqueueRequest = ReferenceVideoWorkflow.CreateInitialRequest(new WorkflowSceneContext(
                 dbContext, normalizedProjectId, config, scene, null, new HashSet<string>(), BuildMediaSnapshot(config, scene)));
-            enqueueRequest = enqueueRequest with { WorkflowStepKey = renderStepKey };
+            enqueueRequest = enqueueRequest with
+            {
+                WorkflowStepKey = config.UseReferenceVideoAnalysis ? $"reference.analysis.{Guid.NewGuid():N}" : renderStepKey
+            };
+            if (config.UseReferenceVideoAnalysis)
+            {
+                var scriptProvider = await dbContext.AppSettings.AsNoTracking()
+                    .Where(setting => setting.Key == SettingsService.KeyScriptProvider)
+                    .Select(setting => setting.Value).SingleOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+                var analyzed = await dbContext.Jobs.AsNoTracking()
+                    .Where(j => j.ProjectId == normalizedProjectId && j.SceneId == targetSceneId &&
+                        j.TaskType == JobTaskType.VideoPrompt && j.State == JobState.Succeeded && j.ProviderKey == scriptProvider)
+                    .ToListAsync(cancellationToken).ConfigureAwait(false);
+                foreach (var previous in analyzed)
+                {
+                    if (GetWorkflowRunId(previous.ConfigSnapshotJson) != config.CurrentRunId ||
+                        ReadRenderedPrompt(previous.PromptSnapshotText) != enqueueRequest.CustomPromptText ||
+                        ReadMediaSnapshot(previous.ConfigSnapshotJson) is not { ReferenceAnalysisVersion: 1 } analyzedMedia ||
+                        analyzedMedia.SourceImageAssetId != config.ReadyImageAssetId ||
+                        analyzedMedia.ReferenceVideoAssetId != config.ReferenceVideoAssetId ||
+                        analyzedMedia.DurationSeconds != config.TargetDurationPerSceneSeconds ||
+                        !ReferenceMotionAnalysis.TryRead(previous.ResultText, analyzedMedia, out var motionPrompt))
+                        continue;
+                    enqueueRequest = enqueueRequest with
+                    {
+                        TaskType = JobTaskType.VideoRender,
+                        CustomPromptText = ReferenceVideoWorkflow.ComposeRenderPrompt(motionPrompt, analyzedMedia.DurationSeconds),
+                        MediaSnapshot = analyzedMedia with { ReferenceAnalysisJobId = previous.Id },
+                        WorkflowStepKey = renderStepKey
+                    };
+                    break;
+                }
+            }
         }
 
         var response = await _jobService.StageWorkflowJobAsync(enqueueRequest, dbContext, cancellationToken).ConfigureAwait(false);

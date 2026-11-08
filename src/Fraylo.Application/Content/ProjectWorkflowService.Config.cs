@@ -268,6 +268,7 @@ public sealed partial class ProjectWorkflowService
                                      existing.ProductAssetId != request.ProductAssetId ||
                                      existing.ReadyImageAssetId != request.ReadyImageAssetId ||
                                      existing.ReferenceVideoAssetId != request.ReferenceVideoAssetId ||
+                                     existing.UseReferenceVideoAnalysis != request.UseReferenceVideoAnalysis ||
                                      existing.AudioOption != (request.AudioOption ?? AudioOptions.None) ||
                                      existing.AudioAssetId != (request.AudioOption == AudioOptions.CustomAudio ? request.AudioAssetId : null) ||
                                      (request.TargetDurationPerSceneSeconds > 0 && existing.TargetDurationPerSceneSeconds != request.TargetDurationPerSceneSeconds) ||
@@ -289,6 +290,7 @@ public sealed partial class ProjectWorkflowService
             ProductAssetId = request.ProductAssetId,
             ReadyImageAssetId = request.ReadyImageAssetId,
             ReferenceVideoAssetId = request.ReferenceVideoAssetId,
+            UseReferenceVideoAnalysis = request.UseReferenceVideoAnalysis,
             AudioOption = request.AudioOption ?? AudioOptions.None,
             AudioAssetId = request.AudioOption == AudioOptions.CustomAudio ? request.AudioAssetId : null,
             TargetSceneCount = request.TargetSceneCount > 0 ? request.TargetSceneCount : (existing.TargetSceneCount > 0 ? existing.TargetSceneCount : 1),

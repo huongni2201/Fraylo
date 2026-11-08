@@ -63,6 +63,7 @@ public sealed class JobSnapshotFactory
         {
             JobTaskType.Script => currentSettings.ScriptProvider,
             JobTaskType.Image => currentSettings.ImageProvider,
+            JobTaskType.VideoPrompt when request.MediaSnapshot?.ReferenceAnalysisVersion == 1 => currentSettings.ScriptProvider,
             JobTaskType.VideoPrompt => currentSettings.VideoPromptProvider,
             JobTaskType.VideoRender => "museai", // VideoRender mặc định dùng MuseAI theo kiến trúc
             _ => null
@@ -70,7 +71,7 @@ public sealed class JobSnapshotFactory
 
         if (string.IsNullOrWhiteSpace(providerKey))
         {
-            throw new ProviderNotConfiguredException(request.TaskType);
+            throw new ProviderNotConfiguredException(request.MediaSnapshot?.ReferenceAnalysisVersion == 1 ? JobTaskType.Script : request.TaskType);
         }
 
         // 3. Phân giải Storage Root ID bất biến (Đóng băng nơi lưu trữ ảnh/tài liệu/video)
@@ -186,10 +187,12 @@ public sealed class JobSnapshotFactory
 
         if (resolvedMediaSnapshot?.ReferenceVideoAssetId is not null || resolvedMediaSnapshot?.ReferenceVideoMode is not null)
         {
-            if (_dbOptions is null || request.TaskType != JobTaskType.VideoRender)
-                throw new JobValidationException("Video mẫu chỉ được dùng trong job render có kiểm chứng media.");
+            var isAnalysis = request.TaskType == JobTaskType.VideoPrompt &&
+                resolvedMediaSnapshot?.ReferenceAnalysisVersion == 1 && request.WorkflowRunId is not null;
+            if (_dbOptions is null || (!isAnalysis && request.TaskType != JobTaskType.VideoRender))
+                throw new JobValidationException("Video mẫu cần tác vụ phân tích hoặc render có kiểm chứng media.");
             var validated = await ReferenceVideoMedia.ValidateAsync(_dbOptions, request.ProjectId, resolvedMediaSnapshot!,
-                requireSnapshotHashes: false, cancellationToken).ConfigureAwait(false);
+                requireSnapshotHashes: resolvedMediaSnapshot!.ReferenceAnalysisJobId is not null, cancellationToken).ConfigureAwait(false);
             ReferenceVideoMedia.EnsureProviderSupported(validated.Snapshot);
             resolvedMediaSnapshot = validated.Snapshot;
         }

@@ -98,6 +98,28 @@ public sealed partial class ProjectWorkflowService
             UpdatedAtUtc = nowIso
         });
 
+        if (job.TaskType == JobTaskType.VideoPrompt && ReadMediaSnapshot(job.ConfigSnapshotJson) is { ReferenceAnalysisVersion: 1 } referenceMedia)
+        {
+            if (config.WorkflowMode != WorkflowModes.ReferenceVideo ||
+                config.RunState is not (WorkflowRunState.Running or WorkflowRunState.Paused) ||
+                jobRunId is null || job.SceneId is null || _jobService is null)
+                return false;
+            if (!ReferenceMotionAnalysis.TryRead(job.ResultText, referenceMedia, out var motionPrompt))
+            {
+                AddRejectedMarker(dbContext, job.Id, "AI chưa trả timeline và prompt video mẫu hợp lệ.", nowIso);
+                await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                return false;
+            }
+            await _jobService.StageWorkflowJobAsync(new JobEnqueueRequest(
+                job.ProjectId, job.SceneId, JobTaskType.VideoRender,
+                CustomPromptText: ReferenceVideoWorkflow.ComposeRenderPrompt(motionPrompt, referenceMedia.DurationSeconds),
+                WorkflowRunId: jobRunId, WorkflowStepKey: $"reference.render.{job.Id}",
+                MediaSnapshot: referenceMedia with { ReferenceAnalysisJobId = job.Id }), dbContext, cancellationToken).ConfigureAwait(false);
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            _jobService.NotifyWorkflowRunReady();
+            return true;
+        }
+
         bool isPaused = config.RunState == WorkflowRunState.Paused;
         bool promptRejected = false;
         string promptRejectReason = string.Empty;
@@ -478,6 +500,14 @@ public sealed partial class ProjectWorkflowService
                     caption = response.RootElement.TryGetProperty("tiktok_content", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString()! : "";
                 }
                 catch (JsonException) { }
+                if (ReadMediaSnapshot(job.ConfigSnapshotJson) is { ReferenceAnalysisJobId: { } analysisId } analyzedMedia)
+                {
+                    var analysis = await dbContext.Jobs.AsNoTracking().SingleOrDefaultAsync(
+                        source => source.Id == analysisId && source.ProjectId == job.ProjectId && source.SceneId == job.SceneId,
+                        cancellationToken).ConfigureAwait(false);
+                    if (ReferenceMotionAnalysis.TryRead(analysis?.ResultText, analyzedMedia, out var analyzedPrompt))
+                        actualPrompt = analyzedPrompt;
+                }
                 scene.PromptText = actualPrompt;
                 await SaveOrUpdateContentItemAsync(dbContext, job.ProjectId, new VideoContentItemDto(
                     Id: scene.Id, ProjectId: job.ProjectId, SceneId: scene.Id, SequenceOrder: scene.SequenceOrder,
@@ -519,7 +549,8 @@ public sealed partial class ProjectWorkflowService
                         ProvenanceJson = config.WorkflowMode == WorkflowModes.ReferenceVideo ? JsonSerializer.Serialize(new
                         {
                             job.Id, job.ProviderKey, job.ConfigSnapshotJson, job.PromptSnapshotText, job.ResultText,
-                            MotionMode = "PromptApproximation", PreserveReferenceDuration = false, AudioSource = "ReferenceVideo", AudioPolicy = "FitOriginalAudioByAI", AudioIdentityVerification = "ProviderReported_UserReview"
+                            MotionMode = "PromptApproximation", PreserveReferenceDuration = false, AudioSource = "ReferenceVideo", AudioPolicy = "FitOriginalAudioByAI", AudioIdentityVerification = "ProviderReported_UserReview",
+                            AnalysisJobId = ReadMediaSnapshot(job.ConfigSnapshotJson)?.ReferenceAnalysisJobId
                         }, JsonOptions) : null
                     };
                     dbContext.VideoRevisions.Add(videoRevision);
@@ -740,7 +771,8 @@ public sealed partial class ProjectWorkflowService
 
         // Callback retry có thể đến sau khi run đã kết thúc hoặc đã chuyển sang run khác: không tạo render mới.
         var config = await GetStoredWorkflowConfigAsync(projectId, cancellationToken).ConfigureAwait(false);
-        if (config.RunState != WorkflowRunState.Running || config.CurrentRunId != runId || config.FinalVideoAssetId != null) return;
+        if (config.RunState != WorkflowRunState.Running || config.CurrentRunId != runId || config.FinalVideoAssetId != null ||
+            config.WorkflowMode == WorkflowModes.ReferenceVideo) return;
 
         if (config.VideoStrategy == VideoStrategies.MultiVideo)
         {
@@ -789,7 +821,7 @@ public sealed partial class ProjectWorkflowService
 
         try
         {
-            await CreateSceneVideoAsync(new CreateSceneVideoRequest(projectId), cancellationToken).ConfigureAwait(false);
+            await CreateSceneVideoLockedAsync(new CreateSceneVideoRequest(projectId), projectId, cancellationToken).ConfigureAwait(false);
             await WriteAutoRenderLogAsync(logJobId, "result", "Đã tự đưa render MuseAI vào hàng đợi cho Project.", cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -852,7 +884,7 @@ public sealed partial class ProjectWorkflowService
 
             try
             {
-                await CreateSceneVideoAsync(new CreateSceneVideoRequest(projectId, SceneId: scene.Id), cancellationToken).ConfigureAwait(false);
+                await CreateSceneVideoLockedAsync(new CreateSceneVideoRequest(projectId, SceneId: scene.Id), projectId, cancellationToken).ConfigureAwait(false);
                 await WriteAutoRenderLogAsync(logJobId, "result", $"Đã tự đưa render MuseAI cảnh {scene.SequenceOrder} vào hàng đợi.", cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
