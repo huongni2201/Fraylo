@@ -1,6 +1,6 @@
 # Fraylo — AI phân tích số liệu TikTok và Facebook
 
-Cập nhật 2026-11-07 (UTC+07). **ĐÃ TRIỂN KHAI CỤC BỘ** theo yêu cầu triển khai của người dùng. Owner Codex coordinator, làm tuần tự và tự review. ChatGPT Web và Gemini Web ở chế độ thử nghiệm cho tác vụ AnalyticsAnalysis. Nghiệm thu live vẫn mở.
+Cập nhật 2026-11-08 (UTC+07). **ĐÃ TRIỂN KHAI CỤC BỘ** theo yêu cầu triển khai của người dùng. Owner Codex coordinator, làm tuần tự và tự review. ChatGPT Web và Gemini Web ở chế độ thử nghiệm cho tác vụ AnalyticsAnalysis. Nghiệm thu live vẫn mở.
 
 ## 1. Yêu cầu đã chốt
 
@@ -85,11 +85,13 @@ Prompt yêu cầu phản hồi JSON có `schemaVersion` và các phần:
 | Đề xuất | 3–5 việc nên thử, ưu tiên, lý do và metric nên theo dõi; không cam kết kết quả. |
 | Giới hạn | Metric thiếu/xấp xỉ, dữ liệu Partial, mẫu nhỏ, kỳ không so được và nội dung chưa được xem. |
 
-Ví dụ hợp lệ: “Video A có tỷ lệ chia sẻ cao nhất trong 8 video có đủ view/share; nên thử thêm nội dung cùng chủ đề.” Khi chỉ có caption/metrics, nhận xét về hook, dựng phim, âm nhạc hoặc nguyên nhân giảm view chỉ được nêu là giả thuyết cần thử/xem video, không khẳng định đã phân tích media.
+Ví dụ hợp lệ: “Video A có tỷ lệ chia sẻ cao nhất trong tám video có đủ view/share; nên thử thêm nội dung cùng chủ đề.” Khi chỉ có caption/metrics, nhận xét về hook, dựng phim, âm nhạc hoặc nguyên nhân giảm view chỉ được nêu là giả thuyết cần thử/xem video, không khẳng định đã phân tích media.
 
-Parser kiểm schema/version, độ dài/số mục, evidence ID tồn tại trong snapshot, metric/đơn vị/giá trị trích dẫn khớp; số liệu căn cứ trên UI lấy từ snapshot, không dùng số AI viết làm nguồn chính. Không nhận link ngoài do AI tự tạo; chỉ mở link nội dung đã có trong dữ liệu local qua cơ chế hiện hành. Render text an toàn, không raw HTML.
+Parser kiểm schema/version, độ dài/số mục và evidence ID tồn tại trong snapshot. Số liệu căn cứ trên UI lấy từ snapshot, không dùng số AI viết làm nguồn chính; parser không xác minh được toàn bộ con số hoặc ngữ nghĩa trong văn bản tự do. Không nhận link ngoài do AI tự tạo; chỉ mở link nội dung đã có trong dữ liệu local qua cơ chế hiện hành. Render text an toàn, không raw HTML.
 
-Lưu raw response để chẩn đoán cục bộ và có thể parse lại, không log toàn bộ dữ liệu/prompt. JSON lỗi, response cắt cụt, evidence bịa hoặc sai phiên bản → `InvalidAnalysisResult`, không báo thành công hay ghi đè báo cáo tốt trước đó. Có thể parse lại response đã nhận mà không gọi AI lần nữa; chưa tự gửi prompt sửa lỗi. Parser không chứng minh mọi nhận xét đúng: UI vẫn ghi **Nhận xét do AI tạo**, cho xem căn cứ.
+Giới hạn đầu ra (cập nhật 2026-11-08): JSON tối đa 20000 ký tự; summary và mỗi chuỗi nội dung tối đa 1000 ký tự; highlights/improvements mỗi phần 0–6 mục, recommendations 3–5 mục, limitations 1–16 mục, mỗi evidence 1–4 ID hợp lệ. Summary/highlights/improvements không chứa chữ số; số gốc hiển thị qua căn cứ. Prompt `analytics-analysis-v2` công bố các giới hạn này, schema JSON vẫn là 1 và snapshot tác vụ cũ giữ nguyên.
+
+Lưu raw response để chẩn đoán cục bộ, không log toàn bộ dữ liệu/prompt. JSON lỗi, response cắt cụt, evidence bịa hoặc sai phiên bản → `InvalidAnalysisResult`, không báo thành công hay ghi đè báo cáo tốt trước đó. Parser có thể áp dụng lại trên response đã nhận mà không gọi AI, nhưng chưa có thao tác UI để phục hồi báo cáo lỗi theo cách này; Phân tích lại tạo lượt AI mới. Chưa tự gửi prompt sửa lỗi. Parser không chứng minh mọi nhận xét đúng: UI vẫn ghi **Nhận xét do AI tạo**, cho xem căn cứ.
 
 ## 7. Queue, lưu bền và contract
 
@@ -204,3 +206,10 @@ AIA0–AIA5 đã tích hợp trên workspace. AIA6 đã có kiểm chứng cục
 **WebView2 thật:** mở báo cáo Fanpage từ dữ liệu lưu, chạy adapter giả qua React → bridge → SQLite → queue → báo cáo. Dark 1266 px và Light 786 px ở `devicePixelRatio=1.25` đều PASS. Đã xem ảnh và kiểm khối báo cáo không tràn ngang. Fixture và ảnh ở `.tmp/analytics-ai/`.
 
 **Nghiệm thu live:** ChatGPT Web/Gemini Web thật, WebView2 TikTok với tài khoản thật và DPI Windows 150% còn mở. DB cá nhân chưa được mở trong lượt kiểm chứng.
+
+### Sửa `InvalidAnalysisResult` với báo cáo nhiều giới hạn — 2026-11-08
+
+- Phản hồi người dùng cung cấp có 11 mục limitations, trong khi parser cũ chỉ nhận 1–8 và prompt không công bố giới hạn. Phát lại qua `ProductionJobExecutor` với ID căn cứ fixture: bản giữ 8 mục PASS, bản đủ 11 mục FAIL/`InvalidAnalysisResult` trước sửa. Fixture chỉ xác minh cấu trúc với ID đã biết, không thay thế đối chiếu ngữ nghĩa với snapshot cá nhân.
+- Nâng tối đa lên 16, giữ nguyên văn phản hồi và công bố đầy đủ các giới hạn trong prompt v2. Không cắt bỏ giới hạn, không tự gọi AI sửa hoặc gửi lại, không đổi schema/DB hay trạng thái job thất bại cũ. Báo cáo cũ chưa tự thành công sau khi cập nhật; người dùng có thể chủ động Phân tích lại.
+- Sau sửa, kiểm thử `analytics-ai` PASS: bản 8/11/16 mục được nhận; 17 mục, rỗng, URL ngoài, schema sai, ID căn cứ giả, chữ số trong summary và JSON cắt cụt vẫn bị từ chối; raw response giữ nguyên. Luồng SQLite/queue/bridge, phạm vi account, giữ báo cáo trước và không tự resend PASS. Build Release gồm TypeScript/Vite PASS; cảnh báo nullable cũ ở smoke. CodeGraph trả `Transport closed`, đã đọc source trực tiếp.
+- Tự review, giữ `tools/` và sửa đổi Facebook UI xuất hiện đồng thời ngoài phạm vi. Không mở DB/profile cá nhân, không commit/push/phát hành. Chưa chạy ChatGPT/Gemini hoặc WebView2 thật sau sửa.

@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { listAssets, uploadAsset, type AssetItem } from "../library/libraryApi";
+import { AssetMediaPreview } from "../library/AssetMediaPreview";
 import { facebookApi, facebookError, localInputToUtc, utcToLocalInput, type FacebookApi, type FacebookBatchRequest, type FacebookDraft, type FacebookList, type FacebookPost } from "./facebookApi";
 
 const control = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -18,6 +19,7 @@ export function FacebookPersonalPage({ active, onOpenAccounts, onOpenQueue, open
   const [library, setLibrary] = useState<AssetItem[]>([]);
   const [imagePage, setImagePage] = useState(0);
   const [imageTotal, setImageTotal] = useState(0);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [due, setDue] = useState("");
   const [scheduled, setScheduled] = useState(false);
   const [draftId, setDraftId] = useState<string>();
@@ -45,6 +47,7 @@ export function FacebookPersonalPage({ active, onOpenAccounts, onOpenQueue, open
   }, [api]);
   useEffect(() => { if (!active) return; void load(); const timer = setInterval(() => void load(), 5000); return () => clearInterval(timer); }, [active, load]);
   const account = data.accounts.find(a => a.accountId === accountId);
+  const imageName = (id: string) => library.find(a => a.assetId === id)?.relativePath.split(/[\\/]/).pop() || "Ảnh đính kèm";
   const connected = account?.sessionStatus === "Connected" && !!account.accountIdentity && account.enabled !== false;
   let dueAtUtc: string | undefined;
   let validDue = !scheduled;
@@ -101,14 +104,32 @@ export function FacebookPersonalPage({ active, onOpenAccounts, onOpenQueue, open
       <label htmlFor="personal-text" className="text-sm font-medium">Nội dung bài viết</label><Textarea id="personal-text" className="min-h-52 select-text" value={text} disabled={busy} onChange={e => setText(e.target.value)} />
       <p className="text-xs text-muted-foreground">{Array.from(text).length} / 10.000 ký tự · {images.length} / 10 ảnh</p>
       <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={loading || busy} onClick={() => void loadImages(false)}>Chọn ảnh thư viện</Button><Button variant="outline" disabled={loading || busy || images.length >= 10} onClick={() => void loadImages(true)}>Tải ảnh lên</Button></div>
-      {images.map(id => <div key={id} className="flex items-center gap-2 text-sm"><span className="min-w-0 flex-1 truncate">{library.find(a => a.assetId === id)?.relativePath ?? id}</span><Button size="sm" variant="ghost" disabled={busy} onClick={() => setImages(current => current.filter(item => item !== id))}>Bỏ ảnh</Button></div>)}
-      {library.length > 0 && <div className="max-h-52 overflow-y-auto rounded-lg border border-border p-3">{library.map(image => <label key={image.assetId} className="flex items-center gap-2 py-2 text-sm"><input type="checkbox" checked={images.includes(image.assetId)} disabled={busy || (!images.includes(image.assetId) && images.length >= 10)} onChange={() => setImages(current => current.includes(image.assetId) ? current.filter(id => id !== image.assetId) : [...current, image.assetId])} /><span className="truncate">{image.relativePath}</span></label>)}</div>}
+      {images.length > 0 && <ul aria-label="Ảnh đính kèm đã chọn" className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
+        {images.map((id, index) => <li key={id} className="min-w-0 rounded-lg border border-border bg-card p-2">
+          <button type="button" aria-label={`Xem ảnh ${index + 1}`} onClick={() => setPreviewImage(id)} className="block w-full rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <AssetMediaPreview assetId={id} assetType="Image" fileName={imageName(id)} heightClass="h-32" />
+          </button>
+          <div className="mt-2 flex items-center justify-between gap-2"><span className="text-xs text-muted-foreground">Ảnh {index + 1}</span><Button size="sm" variant="ghost" className="text-foreground" aria-label={`Bỏ ảnh ${index + 1}`} disabled={busy} onClick={() => setImages(current => current.filter(item => item !== id))}>Bỏ ảnh</Button></div>
+        </li>)}
+      </ul>}
+      {library.length > 0 && <ul aria-label="Ảnh trong thư viện" className="grid max-h-72 grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3 overflow-y-auto rounded-lg border border-border p-3">
+        {library.map(image => <li key={image.assetId} className="min-w-0"><label className={`flex cursor-pointer flex-col gap-2 rounded-lg border p-2 text-sm focus-within:ring-2 focus-within:ring-ring ${images.includes(image.assetId) ? "border-primary bg-primary/10" : "border-border bg-card"}`}>
+          <AssetMediaPreview assetId={image.assetId} assetType="Image" fileName={imageName(image.assetId)} heightClass="h-24" />
+          <span className="flex min-w-0 items-center gap-2"><input type="checkbox" checked={images.includes(image.assetId)} disabled={busy || (!images.includes(image.assetId) && images.length >= 10)} onChange={() => setImages(current => current.includes(image.assetId) ? current.filter(id => id !== image.assetId) : [...current, image.assetId])} /><span className="truncate" title={imageName(image.assetId)}>{imageName(image.assetId)}</span></span>
+        </label></li>)}
+      </ul>}
       {library.length < imageTotal && <Button variant="ghost" disabled={loading || busy} onClick={() => void loadImages(false, imagePage + 1)}>Tải thêm ảnh</Button>}
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={scheduled} disabled={busy} onChange={e => setScheduled(e.target.checked)} />Hẹn giờ đăng</label>
       {scheduled && <><label htmlFor="personal-due" className="text-sm">Giờ đăng (giờ máy)</label><input id="personal-due" className={control} type="datetime-local" value={due} disabled={busy} aria-invalid={!validDue} onChange={e => setDue(e.target.value)} />{!validDue && <p className="text-sm text-destructive">Chọn giờ tương lai, tối đa 365 ngày.</p>}</>}
       <p className="text-xs text-muted-foreground">Giữ máy và Fraylo chạy đúng giờ. Bài lỡ lịch chờ bạn xử lý; các bài cá nhân và nhóm cùng tài khoản dùng chung giãn cách ít nhất 5 phút.</p>
       <div className="flex flex-wrap gap-2"><Button disabled={!valid} onClick={review}>Xem lại bài đăng</Button><Button variant="outline" disabled={!accountId || busy || loading || !validDue} onClick={() => void save()}>Lưu nháp</Button></div>
     </div>
-    <Dialog open={!!confirmation} onOpenChange={open => { if (!open && !busy) setConfirmation(null); }}><DialogContent><DialogHeader><DialogTitle>Xác nhận đăng lên trang cá nhân</DialogTitle><DialogDescription>{account?.displayName} · {confirmation?.dueAtUtc ? new Date(confirmation.dueAtUtc).toLocaleString("vi-VN") : "Đăng ngay khi đến lượt"}. Dùng đối tượng xem hiện tại trong Facebook.</DialogDescription></DialogHeader><p className="max-h-52 overflow-auto whitespace-pre-wrap break-words text-sm">{confirmation?.text}</p><p className="text-sm">{confirmation?.imageAssetIds.length} ảnh đính kèm</p>{error && <p role="alert" className="text-sm text-destructive">{error}</p>}<DialogFooter><Button variant="outline" disabled={busy} onClick={() => setConfirmation(null)}>Quay lại chỉnh sửa</Button><Button disabled={busy} onClick={() => void create()}>{busy ? "Đang tạo…" : "Xác nhận tạo bài đăng"}</Button></DialogFooter></DialogContent></Dialog>
+    <Dialog open={!!confirmation} onOpenChange={open => { if (!open && !busy) setConfirmation(null); }}><DialogContent><DialogHeader><DialogTitle>Xác nhận đăng lên trang cá nhân</DialogTitle><DialogDescription>{account?.displayName} · {confirmation?.dueAtUtc ? new Date(confirmation.dueAtUtc).toLocaleString("vi-VN") : "Đăng ngay khi đến lượt"}. Dùng đối tượng xem hiện tại trong Facebook.</DialogDescription></DialogHeader><p className="max-h-52 overflow-auto whitespace-pre-wrap break-words text-sm">{confirmation?.text}</p><p className="text-sm">{confirmation?.imageAssetIds.length} ảnh đính kèm</p>
+      {!!confirmation?.imageAssetIds.length && <ul aria-label="Ảnh trong bài đăng" className="grid max-h-60 grid-cols-3 gap-2 overflow-y-auto">{confirmation.imageAssetIds.map((id, index) => <li key={id}><button type="button" aria-label={`Xem ảnh ${index + 1}`} onClick={() => setPreviewImage(id)} className="block w-full rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><AssetMediaPreview assetId={id} assetType="Image" fileName={imageName(id)} heightClass="h-24" /></button></li>)}</ul>}
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}<DialogFooter><Button variant="outline" disabled={busy} onClick={() => setConfirmation(null)}>Quay lại chỉnh sửa</Button><Button disabled={busy} onClick={() => void create()}>{busy ? "Đang tạo…" : "Xác nhận tạo bài đăng"}</Button></DialogFooter></DialogContent></Dialog>
+    <Dialog open={!!previewImage} onOpenChange={open => { if (!open) setPreviewImage(null); }}><DialogContent className="sm:max-w-3xl"><DialogHeader><DialogTitle>Xem trước ảnh</DialogTitle><DialogDescription>{previewImage ? imageName(previewImage) : "Ảnh đính kèm"}</DialogDescription></DialogHeader>
+      {previewImage && <AssetMediaPreview key={previewImage} assetId={previewImage} assetType="Image" fileName={imageName(previewImage)} heightClass="h-[60vh]" />}
+      <DialogFooter><Button variant="outline" onClick={() => setPreviewImage(null)}>Đóng ảnh</Button></DialogFooter>
+    </DialogContent></Dialog>
   </section>;
 }

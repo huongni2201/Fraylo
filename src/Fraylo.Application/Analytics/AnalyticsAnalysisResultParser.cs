@@ -32,7 +32,7 @@ internal static class AnalyticsAnalysisResultParser
             var input = JsonSerializer.Deserialize<AnalyticsAnalysisInputBuilder.Input>(inputJson, AnalyticsAnalysisInputBuilder.Json);
             var result = JsonSerializer.Deserialize<AnalyticsAnalysisResult>(raw, AnalyticsAnalysisInputBuilder.Json);
             if (input is null || result is null || result.SchemaVersion != 1 || !ValidObservation(result.Summary) ||
-                result.Limitations is not { Length: >= 1 and <= 8 } || result.Limitations.Any(s => !ValidText(s))) return null;
+                result.Limitations is not { Length: >= 1 and <= 16 } || result.Limitations.Any(s => !ValidText(s))) return null;
             var evidence = input.Totals.Select(t => t.Id).Concat(input.Sample.Where(r => r.Metrics.Values.Any(m => m.Value is not null)).Select(r => r.Id)).ToHashSet();
             return ValidItems(result.Highlights, 0, 6, evidence, ValidObservation) &&
                 ValidItems(result.Improvements, 0, 6, evidence, ValidObservation) &&

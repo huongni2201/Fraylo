@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Fraylo Video Saver</title>
+    <link rel="stylesheet" href="popup.css">
+    <script src="popup.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <img src="icon.png" alt="" width="48" height="48">
+        <div>
+          <p>FRAYLO VIDEO SAVER</p>
+          <h1>Lưu video</h1>
+        </div>
+      </header>
+      <button id="find" class="secondary" type="button">Tìm link tải video đang xem</button>
+      <form id="download">
+        <label for="source">Link tải trực tiếp</label>
+        <input id="source" type="url" placeholder="https://…/video.mp4" required autocomplete="off" spellcheck="false" aria-describedby="source-hint">
+        <p id="source-hint">Dán link tệp video nếu bạn đã có.</p>
+        <label class="consent">
+          <input id="permission" type="checkbox" required>
+          <span>Tôi có quyền tải và lưu video này.</span>
+        </label>
+        <button id="save" type="submit">Lưu tệp</button>
+      </form>
+      <p id="status" role="status"></p>
+    </main>
+  </body>
+</html>

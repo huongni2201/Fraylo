@@ -10,7 +10,17 @@ Theo yêu cầu người dùng, nối lại `FacebookPoster` đã có vào tab �
 - Browser ẩn: đối chiếu cookie với account, mở URL profile ID của tài khoản để lấy URL actor, kiểm link Timeline trong composer. Không chấp nhận actor khác. Thông báo thành công phải cụ thể, visible và không tồn tại trước click. Nếu không có bằng chứng kết quả thì Unknown, không tự gửi lại.
 - Đối tượng xem giữ theo Facebook, được nhắc ở form và xác nhận; không tự đổi quyền riêng tư. Chưa hiển thị audience đọc trực tiếp từ Facebook trong xác nhận.
 
-## Kiểm tra
+## Preview ảnh — 2026-11-08
+
+Theo ảnh báo lỗi của người dùng, màn cá nhân chỉ render đường dẫn và checkbox; không dựng preview ở cả thư viện và ảnh vừa tải lên. Owner Codex coordinator, tuần tự/tự review; dependency FB2/FB3 và luồng cá nhân đã tích hợp. Phạm vi `FacebookPersonalPage.tsx`, `facebookPersonal.test.ts` và tài liệu bàn giao; giữ thay đổi Analytics/tools hiện có.
+
+- Thư viện hiển thị lưới ảnh thu nhỏ, checkbox và tên tệp; ảnh đã chọn có preview, thứ tự và nút Bỏ ảnh. Bấm ảnh đã chọn để xem lớn; hộp xác nhận cũng hiện ảnh và mở được ảnh lớn.
+- Dùng `AssetMediaPreview` và URL media theo Asset ID hiện có. Nháp/bản sao và ảnh tải lên vẫn xem được khi asset không nằm trong trang thư viện đang tải; lỗi đọc ảnh hiện thông báo thay vì để ô trống. Không đổi bridge, schema, dữ liệu hay nghiệp vụ đăng.
+- Hai ca kiểm thử chọn thư viện/tải lên FAIL trước sửa do không có phần tử ảnh, sau sửa PASS. Thêm kiểm nháp ngoài thư viện, preview xác nhận và lỗi tệp. Toàn frontend **79/79 PASS**; Desktop Release gồm TypeScript/Vite **0 warning/error PASS**.
+- Edge với bridge/media fixture: giải mã ảnh thư viện + ảnh upload ngoài trang hiện tại, Light1280/Dark800/Light600 không tràn ngang; mở ảnh lớn từ xác nhận rồi Escape giữ nguyên xác nhận. Ảnh tại `.tmp/facebook-personal-preview-{light-1280,dark-800,light-600,dialog}.png`; harness `.tmp/facebook-personal-preview-visual.cjs`. Sandbox chặn Edge/named pipe, chạy lại ngoài sandbox với profile tạm PASS.
+- NOT_RUN: WebView2 với tệp/DB cá nhân và DPI125–150; đăng Facebook thật. Chưa commit/push/phát hành. Mở lại bản Release sau khi tác vụ đang chạy kết thúc để dùng UI mới.
+
+## Kiểm tra ban đầu (2026-11-06)
 
 - SQLite/application: 179 PASS, gồm replay, chặn đích tài khoản khác/loại đích sai, route tới adapter cá nhân, pacing, Unknown không gửi lại.
 - UI/navigation: 10 PASS, gồm giữ form, lưu nháp đúng đích cá nhân, xác nhận chưa tạo tác vụ, giữ mã yêu cầu khi timeout, hẹn giờ và tách lịch sử nhóm.

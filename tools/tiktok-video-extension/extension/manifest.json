@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Fraylo Video Saver",
+  "version": "0.1.2",
+  "minimum_chrome_version": "126",
+  "description": "Lưu video từ liên kết tải TikTok cung cấp cho bài đăng hoặc từ link tệp trực tiếp bạn nhập.",
+  "icons": { "128": "icon.png" },
+  "permissions": ["activeTab", "scripting", "downloads"],
+  "action": {
+    "default_title": "Fraylo Video Saver",
+    "default_popup": "popup.html"
+  }
+}

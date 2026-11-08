@@ -77,7 +77,7 @@ public sealed class AnalyticsAnalysisService(DbContextOptions<FrayloDbContext> o
         {
             Id = report.Id, AnalyticsReportId = report.Id, ProviderKey = report.ProviderKey!,
             TaskType = JobTaskType.AnalyticsAnalysis, State = JobState.Queued,
-            PromptSnapshotText = JsonSerializer.Serialize(new { templateId = "analytics-analysis-v1", renderedText = prepared.Prompt }),
+            PromptSnapshotText = JsonSerializer.Serialize(new { templateId = "analytics-analysis-v2", renderedText = prepared.Prompt }),
             ConfigSnapshotJson = prepared.InputJson,
             CreatedAtUtc = now, UpdatedAtUtc = now, MaxAttempts = 1
         });

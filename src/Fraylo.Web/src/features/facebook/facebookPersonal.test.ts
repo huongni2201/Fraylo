@@ -5,6 +5,52 @@ import type { FacebookApi, FacebookBatchRequest, FacebookDraftInput, FacebookLis
 const React = (await import("react")).default;
 const { createRoot } = await import("react-dom/client");
 const { FacebookPersonalPage } = await import("./FacebookPersonalPage");
+const { bridgeClient } = await import("../../services/bridgeClient");
+
+for (const upload of [false, true]) test(`Cá nhân: xem trước ảnh ${upload ? "tải lên ngoài trang thư viện" : "chọn từ thư viện"}, phóng lớn và bỏ ảnh`, async t => {
+  const asset = { assetId: "image-preview", assetType: "Image", relativePath: "library/images/anh-san-pham.png" };
+  t.mock.method(bridgeClient, "invoke", async (command: string) => {
+    if (command === "asset.upload") return { assets: [asset] };
+    if (command === "asset.list") return { assets: upload ? [] : [asset], totalCount: 0 };
+    throw new Error(command);
+  });
+  const api = { list: async () => ({ accounts: [], groups: [], tasks: [], drafts: [] }) } as unknown as FacebookApi;
+  const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
+  const click = async (name: string) => React.act(async () => {
+    const button = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(b => b.textContent?.trim() === name || b.getAttribute("aria-label") === name);
+    assert.ok(button, name); button.click();
+  });
+  try {
+    await React.act(async () => root.render(React.createElement(FacebookPersonalPage, { active: true, api, onOpenAccounts: () => {} })));
+    await click(upload ? "Tải ảnh lên" : "Chọn ảnh thư viện");
+    if (!upload) {
+      assert.equal(container.querySelector('[aria-label="Ảnh trong thư viện"] img')?.getAttribute("src"), "https://media.fraylo.local/media/image-preview", "Thư viện phải hiển thị ảnh thật");
+      await React.act(async () => container.querySelector<HTMLInputElement>('[aria-label="Ảnh trong thư viện"] input')!.click());
+    }
+    const selected = container.querySelector('[aria-label="Ảnh đính kèm đã chọn"]');
+    assert.equal(selected?.querySelector("img")?.getAttribute("src"), "https://media.fraylo.local/media/image-preview", "Ảnh đã chọn phải có preview dù không ở trang thư viện hiện tại");
+    await React.act(async () => selected!.querySelector<HTMLButtonElement>("button")!.click());
+    assert.ok(document.querySelector('[role="dialog"] img'), "Xem ảnh lớn");
+    await click("Đóng ảnh");
+    await React.act(async () => selected!.querySelector<HTMLButtonElement>('button[aria-label^="Bỏ ảnh"]')!.click());
+    assert.equal(container.querySelector('[aria-label="Ảnh đính kèm đã chọn"]'), null);
+  } finally { await React.act(async () => root.unmount()); container.remove(); }
+});
+
+test("Cá nhân: ảnh nháp ngoài thư viện vẫn xem được, giữ ảnh trong xác nhận và báo lỗi tệp", async () => {
+  const draft = { draftId: "draft-image", name: "Nháp có ảnh", accountId: "a", text: "", targetIds: ["personal:a"], imageAssetIds: ["draft-image"], updatedAtUtc: "" };
+  const api = { list: async () => ({ accounts: [{ accountId: "a", displayName: "Tài khoản A", accountIdentity: "A", sessionStatus: "Connected" }], groups: [], tasks: [], drafts: [draft] }) } as unknown as FacebookApi;
+  const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
+  try {
+    await React.act(async () => root.render(React.createElement(FacebookPersonalPage, { active: true, api, openedDraft: draft, onOpenAccounts: () => {} })));
+    assert.equal(container.querySelector('[aria-label="Ảnh đính kèm đã chọn"] img')?.getAttribute("src"), "https://media.fraylo.local/media/draft-image");
+    await React.act(async () => Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(b => b.textContent === "Xem lại bài đăng")!.click());
+    const confirmed = document.querySelector('[aria-label="Ảnh trong bài đăng"] img');
+    assert.equal(confirmed?.getAttribute("src"), "https://media.fraylo.local/media/draft-image");
+    await React.act(async () => confirmed!.dispatchEvent(new Event("error")));
+    assert.match(document.querySelector('[aria-label="Ảnh trong bài đăng"]')!.textContent!, /Không thể xem trước tệp này/);
+  } finally { await React.act(async () => root.unmount()); container.remove(); }
+});
 
 test("Cá nhân: xác nhận, replay, nháp, giữ form và tách lịch sử nhóm", async () => {
   const requests: FacebookBatchRequest[] = [];

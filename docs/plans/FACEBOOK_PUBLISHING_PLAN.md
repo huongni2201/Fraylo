@@ -4,6 +4,7 @@ Ngày: 2026-11-06. Trạng thái: **ĐÃ TRIỂN KHAI CỤC BỘ luồng đăng 
 
 > Cập nhật hiện hành: [tab Đăng bài nhiều bài/schema v10](20261106-facebook-posts-tab.md). Theo yêu cầu mới, bỏ quota 20 lượt/24 giờ; giữ tối thiểu 5 phút xuyên bài trên cùng tài khoản. Mô tả D5/điều hướng cũ bên dưới đã được phần cập nhật này thay thế. Bằng chứng mới và NOT_RUN xem plan/handoff.
 > Cập nhật đăng cá nhân 2026-11-06: adapter giai đoạn A/D đã nối vào UI/hàng đợi hiện hành; chữ/link/ảnh, hẹn giờ; Nháp/Lịch sử hiện dùng chung toàn Facebook theo cập nhật 2026-11-07. Xem [handoff cá nhân](FACEBOOK_PERSONAL_HANDOFF.md). Page/video chưa triển khai. Không đổi schema cho lát này.
+> Preview cá nhân 2026-11-08: thư viện, ảnh đã chọn/tải lên và hộp xác nhận hiển thị ảnh; bấm ảnh đã chọn để xem lớn. [Hành vi và kiểm chứng](FACEBOOK_PERSONAL_HANDOFF.md#preview-ảnh--2026-11-08).
 
 **Mục tiêu:** đăng bài chữ/link, ảnh, video lên Page, Group và trang cá nhân bằng Playwright, nhiều đích một lần, đăng ngay hoặc hẹn giờ, kết quả từng đích độc lập, không đăng trùng.
 
