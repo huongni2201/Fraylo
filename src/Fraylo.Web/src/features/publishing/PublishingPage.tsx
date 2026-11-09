@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TikTokPostPreview } from "../projects/TikTokPostPreview";
 import type { TikTokAnalyticsAccount } from "../analytics/analyticsApi";
-import { blocksAnotherPublish, publishingError, requestIdFor, type PublishingApi, type PublishingList } from "./publishingApi";
+import { blocksAnotherPublish, confirmUncertainPublishRetry, publishingError, requestIdFor, type PublishingApi, type PublishingList } from "./publishingApi";
 import { PublishStateBadge, publishStateLabels } from "./PublishStateBadge";
 import { VideoListTab } from "./VideoListTab";
 import { FavoriteSoundPicker } from "./FavoriteSoundPicker";
@@ -20,12 +20,13 @@ export interface PublishingPageProps {
   active: boolean;
   api: PublishingApi;
   initialProjectId?: string | null;
+  initialAssetId?: string;
   selectionRevision?: number;
   onOpenAccounts: () => void;
   onReviewVideo: (projectId: string) => void | Promise<void>;
 }
 
-export function PublishingPage({ active, api, initialProjectId, selectionRevision, onOpenAccounts, onReviewVideo }: PublishingPageProps) {
+export function PublishingPage({ active, api, initialProjectId, initialAssetId, selectionRevision, onOpenAccounts, onReviewVideo }: PublishingPageProps) {
   const [data, setData] = useState<PublishingList>({ videos: [], attempts: [] });
   const [accounts, setAccounts] = useState<TikTokAnalyticsAccount[]>([]);
   const [assetId, setAssetId] = useState("");
@@ -39,6 +40,7 @@ export function PublishingPage({ active, api, initialProjectId, selectionRevisio
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [listBusy, setListBusy] = useState(false);
+  const [tab, setTab] = useState("single");
   const requestIds = useRef(new Map<string, { signature: string; id: string }>());
   const busyRef = useRef(false);
   const mounted = useRef(true);
@@ -49,24 +51,34 @@ export function PublishingPage({ active, api, initialProjectId, selectionRevisio
 
   const load = useCallback(async () => {
     const version = ++loadVersion.current;
+    const selectionKey = `${initialProjectId}:${initialAssetId ?? ""}:${selectionRevision ?? 0}`;
     setLoading(true);
     try {
       const [next, nextAccounts] = await Promise.all([api.list(), api.listAccounts()]);
       if (!mounted.current || version !== loadVersion.current) return;
       setData(next);
       setAccounts(nextAccounts);
-      const selectionKey = `${initialProjectId}:${selectionRevision ?? 0}`;
       if (initialProjectId && !busyRef.current && appliedInitialProject.current !== selectionKey) {
-        const selected = next.videos.find(video => video.projectId === initialProjectId);
-        if (selected) {
-          setAssetId(selected.assetId);
-          setCaption(selected.caption);
-          appliedInitialProject.current = selectionKey;
-        }
+        const selected = next.videos.find(video => video.projectId === initialProjectId && (!initialAssetId || video.assetId === initialAssetId));
+        setAssetId(selected?.assetId ?? "");
+        setCaption(selected?.caption ?? "");
+        setTab("single");
+        setMessage(null);
+        setError(selected ? null : "Clip đã chọn chưa sẵn sàng để đăng.");
+        appliedInitialProject.current = selectionKey;
       }
-    } catch (err) { if (mounted.current && version === loadVersion.current) setError(publishingError(err)); }
+    } catch (err) {
+      if (mounted.current && version === loadVersion.current) {
+        if (initialProjectId && !busyRef.current && appliedInitialProject.current !== selectionKey) {
+          setAssetId("");
+          setCaption("");
+          setTab("single");
+        }
+        setError(publishingError(err));
+      }
+    }
     finally { if (mounted.current && version === loadVersion.current) setLoading(false); }
-  }, [api, initialProjectId, selectionRevision]);
+  }, [api, initialProjectId, initialAssetId, selectionRevision]);
 
   useEffect(() => { if (active) void load(); }, [active, load]);
   useEffect(() => { setFavoriteSoundKey(""); setSoundName(""); }, [accountId, assetId]);
@@ -81,18 +93,21 @@ export function PublishingPage({ active, api, initialProjectId, selectionRevisio
   const video = data.videos.find(v => v.assetId === assetId);
   const account = accounts.find(a => a.accountId === accountId);
   const captionLength = Array.from(caption).length;
-  const blocking = data.attempts.find(a => a.assetId === assetId && a.accountId === accountId && blocksAnotherPublish(a.state));
+  const relatedAttempts = data.attempts.filter(a => a.assetId === assetId && a.accountId === accountId);
+  const blocking = relatedAttempts.find(a => blocksAnotherPublish(a.state));
+  const uncertain = relatedAttempts[0]?.state === "Uncertain" ? relatedAttempts[0] : undefined;
   const canPublish = !!video && !!account && account.sessionStatus === "Connected" && caption.trim().length > 0 &&
     captionLength <= 2200 && soundName.trim().length <= 100 && !blocking && !publishing && !listBusy && !soundBusy && !loading;
 
   const publish = async () => {
     if (!canPublish || !video || !account || busyRef.current) return;
+    if (uncertain && !confirmUncertainPublishRetry(uncertain)) return;
     busyRef.current = true;
     setPublishing(true); setError(null); setMessage(null);
     const sound = soundName.trim();
-    const signature = JSON.stringify([video.projectId, assetId, accountId, caption, sound, favoriteSoundKey]);
+    const signature = JSON.stringify([video.projectId, assetId, accountId, caption, sound, favoriteSoundKey, uncertain?.attemptId]);
     try {
-      const result = await api.publish({ clientRequestId: requestIdFor(requestIds.current, "single", signature), projectId: video.projectId, assetId, accountId, caption, ...(sound && { soundName: sound }), ...(favoriteSoundKey && { favoriteSoundKey }) });
+      const result = await api.publish({ clientRequestId: requestIdFor(requestIds.current, "single", signature), projectId: video.projectId, assetId, accountId, caption, ...(sound && { soundName: sound }), ...(favoriteSoundKey && { favoriteSoundKey }), ...(uncertain && { retryAfterAttemptId: uncertain.attemptId }) });
       if (!mounted.current) return;
       setData(current => ({ ...current, attempts: [result, ...current.attempts.filter(a => a.attemptId !== result.attemptId)] }));
       setMessage(result.message);
@@ -120,7 +135,7 @@ export function PublishingPage({ active, api, initialProjectId, selectionRevisio
       />
       {error && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
       {message && <p role="status" className="rounded-lg border bg-muted/40 p-3 text-sm">{message}</p>}
-      <Tabs defaultValue="single">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="single">Đăng một video</TabsTrigger>
           <TabsTrigger value="list">Danh sách video</TabsTrigger>
@@ -186,10 +201,11 @@ export function PublishingPage({ active, api, initialProjectId, selectionRevisio
               <p className="text-xs text-muted-foreground">TikTok chọn kết quả đầu tiên khớp tên và tự giới hạn sound theo độ dài video. Không tìm thấy thì ứng dụng dừng, không đăng.</p>
             </div>
             {blocking && <p role="status" className="text-sm text-muted-foreground">{publishStateLabels[blocking.state]}. Kiểm tra lịch sử bên dưới trước khi đăng lại.</p>}
-            {account && <p className="text-sm">Đăng lên <strong>{account.accountIdentity}</strong></p>}
+            {uncertain && <p className="text-sm text-muted-foreground">{uncertain.message}</p>}
+            {account && <p className="text-sm">Đăng lên <strong>{account.accountIdentity}</strong>. Quyền xem theo thiết lập hiện có trên TikTok.</p>}
             <Button onClick={() => void publish()} disabled={!canPublish} className="w-full gap-2">
               {publishing ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
-              {publishing ? "Đang tải và đăng video…" : "Đăng lên TikTok"}
+              {publishing ? "Đang tải và đăng video…" : uncertain ? "Kiểm tra và gửi lại" : "Đăng lên TikTok"}
             </Button>
           </CardContent></Card>
       </div>

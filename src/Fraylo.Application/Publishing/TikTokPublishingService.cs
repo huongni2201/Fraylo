@@ -35,7 +35,10 @@ public sealed class TikTokPublishingService(
             await RecoverInterruptedAsync(ct);
             await using var db = new FrayloDbContext(dbOptions);
             var journal = await db.AppSettings.AsNoTracking().Where(s => s.Key.StartsWith(AttemptPrefix))
-                .OrderByDescending(s => s.UpdatedAtUtc).Take(50).Select(s => s.Value).ToListAsync(ct);
+                .OrderByDescending(s => s.UpdatedAtUtc).Take(50)
+                .Union(db.AppSettings.AsNoTracking().Where(s => s.Key.StartsWith(AttemptPrefix) && s.Value.Contains("\"Uncertain\"") &&
+                    db.AppSettings.Any(g => g.Key.StartsWith("publishing.guard.") && s.Key == AttemptPrefix + g.Value)))
+                .OrderByDescending(s => s.UpdatedAtUtc).Select(s => s.Value).ToListAsync(ct);
             attempts = journal.Select(Read).Select(s => s.Attempt).ToArray();
         }
         finally { Gate.Release(); }
@@ -139,7 +142,20 @@ public sealed class TikTokPublishingService(
                 ON CONFLICT(key) DO NOTHING
                 """, ct);
             if (inserted != 1)
-                throw new InvalidOperationException("Video này đã được đăng hoặc đang được đăng trên tài khoản đã chọn. Kiểm tra lịch sử trước.");
+            {
+                var guardRow = await db.AppSettings.SingleAsync(s => s.Key == guard, ct);
+                var previous = await db.AppSettings.AsNoTracking().SingleAsync(s => s.Key == AttemptPrefix + guardRow.Value, ct);
+                if (Read(previous.Value).Attempt.State != "Uncertain")
+                    throw new InvalidOperationException("Video này đã được đăng hoặc đang được đăng trên tài khoản đã chọn. Kiểm tra lịch sử trước.");
+                if (request.RetryAfterAttemptId != guardRow.Value)
+                    throw new InvalidOperationException("Lần đăng trước chưa có xác nhận. Kiểm tra bài đăng trên đúng tài khoản TikTok rồi xác nhận trước khi gửi lại.");
+                guardRow.Value = attemptId;
+                guardRow.UpdatedAtUtc = now;
+            }
+            else if (request.RetryAfterAttemptId != null)
+            {
+                throw new InvalidOperationException("Trạng thái lần đăng trước đã thay đổi. Tải lại lịch sử trước khi đăng.");
+            }
             db.AppSettings.Add(new() { Key = AttemptPrefix + attemptId, Value = JsonSerializer.Serialize(stored, JsonOptions), UpdatedAtUtc = now });
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
@@ -165,8 +181,8 @@ public sealed class TikTokPublishingService(
                 if (!currentVideos.Any(v => v.AssetId == request.AssetId))
                     throw new InvalidOperationException("Đầu ra dự án đã thay đổi trong lúc tải lên; đã dừng trước khi đăng.");
                 stored = WithState(stored, "Submitted", "Đã bắt đầu gửi lệnh đăng; đang chờ TikTok xác nhận.");
-                submitted = true;
                 await SaveAsync(stored, releaseGuard: false);
+                submitted = true;
             }, ct);
             if (!submitted) throw new InvalidOperationException("Adapter không ghi checkpoint trước khi đăng.");
             if (url != null && !TikTokVideoUploader.IsPostUrlForIdentity(url, stored.Attempt.AccountIdentity))
@@ -176,7 +192,10 @@ public sealed class TikTokPublishingService(
         }
         catch (Exception ex)
         {
-            stored = WithState(stored, "Failed", ex is OperationCanceledException ? "Đã dừng đăng video." : ex.Message);
+            var reason = ex is OperationCanceledException ? "Đã dừng đăng video." : ex.Message;
+            stored = submitted
+                ? WithState(stored, "Uncertain", $"TikTok chưa xác nhận kết quả. Kiểm tra tài khoản {stored.Attempt.AccountIdentity} trước khi gửi lại. {reason}")
+                : WithState(stored, "Failed", reason);
         }
         await Gate.WaitAsync(CancellationToken.None);
         try
@@ -256,15 +275,17 @@ public sealed class TikTokPublishingService(
         // Chỉ đọc các lần đăng chưa ở trạng thái cuối (Published/Failed): lịch sử cũ không phải quét lại mỗi lần mở trang.
         var rows = await db.AppSettings.AsNoTracking()
             .Where(s => s.Key.StartsWith(AttemptPrefix) &&
-                (s.Value.Contains("\"Preparing\"") || s.Value.Contains("\"Submitted\"") || s.Value.Contains("\"Uncertain\"") ||
+                (s.Value.Contains("\"Preparing\"") || s.Value.Contains("\"Submitted\"") ||
                  s.Value.Contains("\"UserConfirmedPublished\"") || s.Value.Contains("\"UserConfirmedNotPublished\"")))
             .Select(s => s.Value).ToListAsync(ct);
         foreach (var json in rows)
         {
             var item = Read(json);
             if (Active.Contains(item.Attempt.AttemptId) || HasOtherLiveOwner(item)) continue;
-            if (item.Attempt.State is "Preparing" or "Submitted" or "Uncertain")
+            if (item.Attempt.State == "Preparing")
                 await SaveAsync(WithState(item, "Failed", "Lần đăng trước bị gián đoạn; đã dừng, không tự gửi lại."), true);
+            else if (item.Attempt.State == "Submitted")
+                await SaveAsync(WithState(item, "Uncertain", $"Lần đăng trước bị gián đoạn sau khi bắt đầu gửi. Kiểm tra tài khoản {item.Attempt.AccountIdentity} trước khi gửi lại."), false);
             else if (item.Attempt.State is "UserConfirmedPublished" or "UserConfirmedNotPublished")
                 await SaveAsync(WithState(item, item.Attempt.State == "UserConfirmedPublished" ? "Published" : "Failed",
                     item.Attempt.Message), item.Attempt.State == "UserConfirmedNotPublished");

@@ -23,7 +23,7 @@ import {
 export interface ProjectPageProps {
   projectId: string;
   onBack: () => void;
-  onOpenPublishing?: (projectId: string) => void;
+  onOpenPublishing?: (projectId: string, assetId: string) => void;
 }
 
 export function ProjectPage({ projectId, onBack, onOpenPublishing }: ProjectPageProps) {

@@ -365,10 +365,14 @@ test("Nhiều video: đủ clip mọi cảnh thì hiện màn hoàn tất và ch
     targetDurationSeconds: 15, videoAssetId: `ast_clip_${n}`, workflowStatus: "VideoCompleted", isStale: false }));
   const container = document.createElement("div"); document.body.append(container);
   const root = ReactDOMClient.createRoot(container);
-  await React.act(async () => { root.render(React.createElement(VideoProductionTab, { projectId: "prj_multi", onOpenPublishing: () => {} })); });
+  let selected: string[] = [];
+  await React.act(async () => { root.render(React.createElement(VideoProductionTab, { projectId: "prj_multi", onOpenPublishing: (...target: string[]) => { selected = target; } })); });
   await React.act(async () => { await new Promise(resolve => setTimeout(resolve, 100)); });
   assert.match(container.textContent ?? "", /2 clip đã sẵn sàng/);
-  assert.equal(Array.from(container.querySelectorAll("button")).find(b => b.textContent?.trim() === "Đăng video")!.disabled, false);
+  const secondClip = container.querySelector<HTMLButtonElement>('button[aria-label="Đăng clip Cảnh 2"]')!;
+  assert.equal(secondClip.disabled, false);
+  await React.act(async () => secondClip.click());
+  assert.deepEqual(selected, ["prj_multi", "ast_clip_2"]);
   await React.act(async () => root.unmount()); container.remove();
   mockConfig = previousConfig;
   mockScenes = [];

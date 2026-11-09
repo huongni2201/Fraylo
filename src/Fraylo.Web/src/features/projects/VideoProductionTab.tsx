@@ -134,7 +134,7 @@ export interface ActiveTemplateInfo {
 export interface VideoProductionTabProps {
   projectId: string;
   onRefreshProject?: () => void;
-  onOpenPublishing?: (projectId: string) => void;
+  onOpenPublishing?: (projectId: string, assetId: string) => void;
 }
 
 const STAGES = [
@@ -1553,19 +1553,24 @@ export function VideoProductionTab({
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Chuẩn bị đăng TikTok</CardTitle>
               <p className="text-xs text-muted-foreground">
-                Xem trước bài đăng ở khung 9:16, rồi chọn tài khoản và quyền xem tại trang Đăng video.
+                Chọn clip để mở form cùng caption đã điền sẵn. Quyền xem theo thiết lập hiện có trên TikTok.
               </p>
             </CardHeader>
             <CardContent className="grid gap-5 lg:grid-cols-[minmax(0,auto)_minmax(16rem,1fr)]">
               <div className="flex gap-5 overflow-x-auto pb-2">
                 {tiktokPreviews.map((preview) => (
-                  <TikTokPostPreview
-                    key={preview.key}
-                    className="w-[200px]"
-                    title={preview.title}
-                    caption={preview.caption}
-                    videoSrc={`https://media.fraylo.local/media/${encodeURIComponent(preview.assetId)}`}
-                  />
+                  <div key={preview.key} className="w-[200px] shrink-0 space-y-2">
+                    <TikTokPostPreview
+                      title={preview.title}
+                      caption={preview.caption}
+                      videoSrc={`https://media.fraylo.local/media/${encodeURIComponent(preview.assetId)}`}
+                    />
+                    {!finalVideoAssetId && onOpenPublishing && <Button
+                      type="button" variant="outline" className="w-full"
+                      aria-label={`Đăng clip ${preview.title}`} disabled={!canPublishFinalVideo}
+                      onClick={() => onOpenPublishing(projectId, preview.assetId)}
+                    >Đăng video</Button>}
+                  </div>
                 ))}
               </div>
 
@@ -1580,12 +1585,6 @@ export function VideoProductionTab({
                       "Cần một video cuối hoàn chỉnh của Project và không phân cảnh nào bị đánh dấu cần xem lại."
                     )}
                   </p>
-                  {canPublishFinalVideo && (
-                    <ol className="list-decimal space-y-1 pl-4 text-xs text-muted-foreground">
-                      <li>Mở thư mục video và sao chép caption của bài đầu tiên.</li>
-                      <li>Chọn tài khoản và quyền xem tại trang Đăng video.</li>
-                    </ol>
-                  )}
                 </div>
 
                 <dl className="divide-y divide-border text-xs">
@@ -1604,9 +1603,9 @@ export function VideoProductionTab({
                 </dl>
 
                 <div className="mt-auto flex flex-col gap-2">
-                  {onOpenPublishing && <Button
+                  {finalVideoAssetId && onOpenPublishing && <Button
                     type="button"
-                    onClick={() => onOpenPublishing(projectId)}
+                    onClick={() => onOpenPublishing(projectId, finalVideoAssetId)}
                     disabled={!canPublishFinalVideo}
                     className="w-full gap-2"
                   >
@@ -1624,7 +1623,7 @@ export function VideoProductionTab({
                     ) : (
                       <FolderOpen className="h-4 w-4" />
                     )}
-                    Mở video và sao chép caption
+                    Xuất để đăng thủ công
                   </Button>
                 </div>
               </div>

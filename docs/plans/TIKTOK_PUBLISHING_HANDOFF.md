@@ -4,7 +4,7 @@ Ngày 2026-10-27 (UTC+07). Owner: chat **Thêm tab Đăng video**. Người dùn
 
 Yêu cầu trực tiếp mới cho phép luồng Playwright upload/đăng sau khi tạo video, thay ranh giới export-only trong phần TikTok Publishing của [video-first plan](VIDEO_FIRST_ARCHITECTURE_PLAN.md). Chat migration giữ ownership schema/consumer và STATUS/TASKS; chat này giữ module Publishing cùng wiring UI/host. Không đổi evidence lịch sử thành PASS hiện hành.
 
-Kế hoạch mở rộng: [tab danh sách video phân trang để đăng nhiều video](20261101-bulk-publishing.md) (đề xuất, chưa triển khai).
+Tab [danh sách video phân trang](20261101-bulk-publishing.md) đã tích hợp.
 
 ## Module đã chuẩn bị
 
@@ -15,7 +15,7 @@ Kế hoạch mở rộng: [tab danh sách video phân trang để đăng nhiều
 
 Session dùng persistent profile có sẵn thay việc xuất thêm `storageState` JSON chứa cookie/token. Không đăng nhập bằng password tự động. Route chỉ chặn GET ảnh/font và hai host tracking được liệt kê; giữ script, media, fetch/XHR, POST/PUT phục vụ upload. Không cam kết tăng tốc 3 lần khi chưa đo thực tế.
 
-`Preparing` → commit `Submitted` **trước click Post** → `Published` chỉ sau thông báo thành công của TikTok. Theo yêu cầu 2026-10-30, lỗi/hủy/gián đoạn chuyển `Failed`, giữ lỗi gốc và nhả guard; bỏ đối soát và không tự retry. Lịch sử `Uncertain` cũ chuyển `Failed` khi tải lịch sử hoặc bắt đầu đăng. Chỉ yêu cầu mới do người dùng gửi mới đăng lại; replay cùng request ID không gửi lại. `Published` giữ guard profile + SHA-256. Nếu TikTok đã nhận bài nhưng app chưa đọc được xác nhận, đăng lại thủ công có thể trùng bài. Lỗi đọc URL tùy chọn hoặc đóng browser sau xác nhận không đổi kết quả đã đăng.
+`Preparing` → commit `Submitted` **trước click Post** → `Published` sau thông báo thành công hiển thị trên TikTok. Lỗi trước checkpoint chuyển `Failed` và nhả khóa. Lỗi hoặc gián đoạn sau checkpoint chuyển `Uncertain`, giữ khóa theo profile + SHA-256. Để gửi lại, người dùng kiểm tra đúng tài khoản và xác nhận lượt `Uncertain` đang giữ khóa. Replay cùng request ID không gửi lại. Lỗi đọc URL tùy chọn hoặc đóng browser sau xác nhận giữ kết quả `Published`.
 
 ## Wiring hiện hành
 
@@ -29,8 +29,8 @@ Session dùng persistent profile có sẵn thay việc xuất thêm `storageStat
    ```
 
    `PublishingPage` giữ mounted trong wrapper `block/hidden`, chỉ tải khi active. Callback Cài đặt chọn đúng tab Tài khoản qua navigation signal; callback xem video quay về đúng Project. Navigation vẫn giữ dirty guard Settings.
-4. CTA `Đăng video` ở kết quả `VideoProductionTab` đi qua callback `ProjectPage` về shell, mang project ID và selection revision. Sau khi tải danh sách mới nhất, form tự chọn đúng output/caption. Chuyển route thông thường giữ draft; CTA mới từ Project có thể chọn revision mới. Export cũ là lựa chọn phụ.
-5. Backend và UI cùng chặn output stale, nhiều clip chưa có final revision, tài khoản thiếu phiên, caption không hợp lệ và lần đăng đang chạy/đã thành công. Việc tạo video hoàn tất không tự gửi lên TikTok.
+4. CTA `Đăng video` truyền mã dự án, mã clip và số lần điều hướng về shell. Form điền đúng clip và caption từ danh sách mới nhất. Nếu clip đã đổi hoặc chưa sẵn sàng, form bỏ lựa chọn cũ. Chuyển route thông thường giữ draft. Xuất để đăng thủ công vẫn có ở kết quả dự án.
+5. Backend và UI chặn đầu ra stale, tài khoản thiếu phiên, caption không hợp lệ và lượt đang gửi hoặc đã đăng. Với dự án nhiều video, từng clip sẵn sàng khi tất cả cảnh có kết quả hợp lệ. Người dùng chủ động chọn đăng.
 
 ## Qualification và giới hạn cần giữ rõ
 

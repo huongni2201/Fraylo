@@ -103,11 +103,8 @@ public sealed class TikTokVideoUploader(
             {
                 HasTextRegex = new Regex("Your video has been posted|Video (published|posted)|Đã đăng video|Video đã được đăng", RegexOptions.IgnoreCase)
             });
-            // TikTok có thể chỉ chuyển khỏi trang tải lên (không hiện toast role=alert/status); coi đó cũng là đã đăng.
-            await page.WaitForFunctionAsync(
-                "re => !location.pathname.startsWith('/tiktokstudio/upload') || new RegExp(re, 'i').test(document.body.innerText)",
-                "Your video has been posted|Video (published|posted)|Đã đăng video|Video đã được đăng",
-                new() { Timeout = 30000 });
+            await success.First.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30000 });
+            EnsureTikTokUrl(page.Url);
             published = true;
             var links = await success.Locator("a[href]").EvaluateAllAsync<string[]>("els => els.map(e => e.href)");
             return links.FirstOrDefault(url => IsPostUrlForIdentity(url, expected));

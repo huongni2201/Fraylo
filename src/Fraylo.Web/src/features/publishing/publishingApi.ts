@@ -1,6 +1,6 @@
 import { listTikTokAnalyticsAccounts, type TikTokAnalyticsAccount } from "../analytics/analyticsApi";
 
-export type PublishState = "Preparing" | "Submitted" | "Published" | "Failed";
+export type PublishState = "Preparing" | "Submitted" | "Published" | "Failed" | "Uncertain";
 
 export interface PublishVideo {
   projectId: string;
@@ -21,6 +21,7 @@ export interface PublishRequest {
   /** Tên sound tìm trong trình chỉnh sửa của TikTok; bỏ trống thì không thêm sound. */
   soundName?: string;
   favoriteSoundKey?: string;
+  retryAfterAttemptId?: string;
 }
 
 export interface PublishAttempt {
@@ -69,7 +70,11 @@ export function requestIdFor(store: Map<string, { signature: string; id: string 
 }
 
 export function blocksAnotherPublish(state: PublishState): boolean {
-  return state !== "Failed";
+  return state !== "Failed" && state !== "Uncertain";
+}
+
+export function confirmUncertainPublishRetry(attempt: PublishAttempt): boolean {
+  return window.confirm(`Kiểm tra bài đăng trên TikTok của ${attempt.accountIdentity}. Bạn xác nhận video chưa xuất hiện và muốn gửi lại?`);
 }
 
 export function publishingError(error: unknown): string {

@@ -24,6 +24,19 @@ jobs:
           node-version: 24.19.0
       - run: pnpm install --frozen-lockfile
         working-directory: src/Fraylo.Web
+      - name: Kiểm thử web
+        run: pnpm --dir src/Fraylo.Web test
+      - name: Build Release và kiểm thử luồng chính
+        shell: pwsh
+        run: |
+          dotnet build Fraylo.sln -c Release -m:1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          dotnet run --no-build -c Release --project tests/Fraylo.Desktop.SmokeChecks -- workflow
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          dotnet run --no-build -c Release --project tests/Fraylo.Desktop.SmokeChecks -- reference-video
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          dotnet run --no-build -c Release --project tests/Fraylo.Publishing.SmokeChecks
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Cài Inno Setup
         run: choco install innosetup -y --no-progress
       - name: Cấp khóa ký cập nhật

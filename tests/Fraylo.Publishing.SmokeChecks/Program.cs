@@ -133,12 +133,15 @@ public static partial class Program
             fake.Action = async (before, _) => { await before(); throw new TimeoutException("Connection lost"); };
             var uncertainRequest = NewRequest();
             var uncertain = await service.PublishAsync(uncertainRequest);
-            Check(uncertain.State == "Failed" && uncertain.Message.Contains("Connection lost"), "Timeout sau submit phải Failed và giữ lỗi gốc");
+            Check(uncertain.State == "Uncertain" && uncertain.Message.Contains("Connection lost"), "Timeout sau submit cần xác nhận và giữ lỗi gốc");
             var calls = fake.Calls;
             Check((await service.PublishAsync(uncertainRequest)).AttemptId == uncertain.AttemptId && fake.Calls == calls, "Replay không gửi lại");
             await Reject(() => service.PublishAsync(uncertainRequest with { Caption = "Nội dung khác" }));
             await Reject(() => service.PublishAsync(uncertainRequest with { FavoriteSoundKey = new string('a', 64) }));
-            Pass("Timeout sau submit giữ lỗi gốc; replay không gửi lại, yêu cầu mới được phép đăng.");
+            await Reject(() => service.PublishAsync(NewRequest()));
+            await Reject(() => service.PublishAsync(NewRequest() with { RetryAfterAttemptId = failed.AttemptId }));
+            Check(fake.Calls == calls, "Phải xác nhận đúng lần đăng chưa rõ trước khi gửi lại");
+            Pass("Timeout sau submit giữ lỗi gốc và khóa đến khi xác nhận đúng lượt.");
 
             fake.Action = async (before, _) =>
             {
@@ -148,13 +151,13 @@ public static partial class Program
                 Check(raw.Value.Contains("Submitted"), "Checkpoint đã commit trước side effect");
                 return "https://www.tiktok.com/@creator/video/12345";
             };
-            var publishedRequest = NewRequest();
+            var publishedRequest = NewRequest() with { RetryAfterAttemptId = uncertain.AttemptId };
             var published = await service.PublishAsync(publishedRequest);
             Check(published.State == "Published" && published.ExternalPostUrl != null, "Xác nhận thực của adapter");
             await Reject(() => service.PublishAsync(NewRequest()));
             Pass("Sau Failed được đăng lại thủ công; Published giữ khóa chống trùng.");
 
-            // Giả lập crash sau checkpoint: khôi phục Failed, không tự gửi lại.
+            // Giả lập crash sau checkpoint: giữ khóa và yêu cầu kiểm tra TikTok.
             await using (var db = new FrayloDbContext(options))
             {
                 var row = await db.AppSettings.SingleAsync(s => s.Key == "publishing.attempt." + published.AttemptId);
@@ -165,19 +168,20 @@ public static partial class Program
             }
             service = new(options, roots, profiles, fake);
             var recovered = (await service.ListAsync()).Attempts.Single(a => a.AttemptId == published.AttemptId);
-            Check(recovered.State == "Failed", "Khôi phục lần đăng gián đoạn thành Failed");
-            Pass("Restart giữ lịch sử Failed, không resend.");
+            Check(recovered.State == "Uncertain", "Khôi phục lần đăng gián đoạn thành Uncertain");
+            await Reject(() => service.PublishAsync(NewRequest()));
+            Pass("Restart giữ khóa của lượt chưa xác nhận, không resend.");
             await using (var db = new FrayloDbContext(options))
             {
                 var row = await db.AppSettings.SingleAsync(s => s.Key == "publishing.attempt." + published.AttemptId);
                 var json = JsonNode.Parse(row.Value)!;
-                json["attempt"]!["state"] = "Uncertain";
+                json["attempt"]!["state"] = "UserConfirmedNotPublished";
                 row.Value = json.ToJsonString();
                 await db.SaveChangesAsync();
             }
             Check((await service.ListAsync()).Attempts.Single(a => a.AttemptId == published.AttemptId).State == "Failed",
-                "Lịch sử Uncertain cũ phải chuyển Failed");
-            Pass("Lịch sử cần đối soát cũ được chuyển Failed.");
+                "Lịch sử đã xác nhận chưa đăng chuyển Failed và nhả khóa");
+            Pass("Lịch sử đã xác nhận chưa đăng vẫn tương thích.");
 
             var revisionId = Guid.NewGuid().ToString("D");
             await using (var db = new FrayloDbContext(options))
@@ -341,6 +345,17 @@ public static partial class Program
         Check(controller.IsRunning(profileId) && !preservedPage.IsClosed && handle.Context.Pages.Count == 1,
             "Tái dùng context ẩn nhưng chỉ đóng page tự tạo");
         Pass("Toàn adapter đi qua upload/caption/checkpoint/Post/success; giữ context của caller.");
+        markup = """
+            <input type="file" hidden><div role="textbox" contenteditable="true"></div>
+            <button onclick="location.href='/login'">Post</button>
+            """;
+        try
+        {
+            await uploader.PublishAsync(input, () => Task.CompletedTask, CancellationToken.None);
+            throw new InvalidOperationException("Chuyển sang trang login không được coi là đã đăng.");
+        }
+        catch (TimeoutException) { }
+        Pass("Rời trang upload mà thiếu thông báo xác nhận không được coi là đã đăng.");
         markup = UploadNoticesFixture;
         bool noticeCheckpoint = false;
         await Reject(() => uploader.PublishAsync(input, () => { noticeCheckpoint = true; throw new InvalidOperationException("Dừng fixture trước Post"); }, CancellationToken.None));

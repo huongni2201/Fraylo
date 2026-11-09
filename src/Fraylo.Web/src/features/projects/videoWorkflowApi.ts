@@ -278,10 +278,10 @@ export const videoWorkflowApi = {
     return data!;
   },
 
-  async startWorkflow(projectId: string): Promise<StartProjectWorkflowResponseData> {
+  async startWorkflow(projectId: string, clientRequestId: string = crypto.randomUUID()): Promise<StartProjectWorkflowResponseData> {
     const data = await bridgeClient.invoke<StartProjectWorkflowResponseData>(
       "workflow.start",
-      { projectId, clientRequestId: crypto.randomUUID() },
+      { projectId, clientRequestId },
     );
     return data!;
   },

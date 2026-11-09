@@ -102,5 +102,5 @@ Fraylo tổ chức theo kiến trúc modular monolith: WPF làm host desktop, We
 
 - Thư mục dữ liệu mặc định là `%LOCALAPPDATA%\Fraylo`, database `fraylo.db`. Dữ liệu của bản TiToAI cũ không được chuyển sang; app tạo database trống khi chạy lần đầu.
 - Tác vụ lỗi thông thường không tự động thử lại; người dùng kiểm tra nguyên nhân và quyết định thử lại thủ công.
-- Nếu TikTok đã nhận bài nhưng ứng dụng chưa đọc được xác nhận, đăng lại sau lỗi có thể tạo bài trùng. Kiểm tra tài khoản TikTok trước khi đăng lại.
+- Lượt đăng TikTok đã bắt đầu gửi nhưng thiếu xác nhận giữ trạng thái **Chưa xác nhận**. Kiểm tra bài trên đúng tài khoản rồi xác nhận nếu cần gửi lại.
 - Chức năng sao lưu/khôi phục đầy đủ chưa hoàn tất. Xem [STATUS](docs/agents/STATUS.md) trước khi dựa vào các khả năng đang phát triển.

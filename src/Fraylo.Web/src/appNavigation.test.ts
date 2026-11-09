@@ -16,6 +16,7 @@ let facebookAnalyticsCatalogCalls = 0;
 let facebookAnalyticsSyncCalls = 0;
 let aiAnalysisStarts = 0;
 const savedDraftIds: string[] = [];
+const futureDraftDueAtUtc = new Date(Date.now() + 7 * 86_400_000).toISOString();
 
 (domWindow as any).chrome = {
   webview: {
@@ -49,7 +50,7 @@ const savedDraftIds: string[] = [];
           const task = { taskId: id, batchId: id, accountId: "a", targetId: id, groupName: personal ? "Trang cá nhân" : "Nhóm A", groupUrl: "https://www.facebook.com/", text: personal ? "Nội dung cá nhân chung" : "Nội dung nhóm chung", state: "Queued", message: "", createdAtUtc: "", updatedAtUtc: "", submittedAtUtc: null };
           return { batchId: id, name: personal ? "Bài cá nhân chung" : "Bài nhóm chung", accountId: "a", paused: false, revision: 1, createdAtUtc: "", tasks: [task] };
         });
-        payloadData = { accounts: [{ accountId: "a", displayName: "Tài khoản A", accountIdentity: "A", sessionStatus: "Connected" }], groups: [{ targetId: "group:a", accountId: "a", name: "Nhóm A", url: "https://www.facebook.com/" }], posts, tasks: posts.flatMap(p => p.tasks), drafts: posts.map(p => ({ draftId: p.batchId, name: "Nháp " + p.name, accountId: p.accountId, text: "Nháp " + p.tasks[0].text, targetIds: [p.tasks[0].targetId], imageAssetIds: [], updatedAtUtc: "", dueAtUtc: "2026-11-08T10:00:00Z" })) };
+        payloadData = { accounts: [{ accountId: "a", displayName: "Tài khoản A", accountIdentity: "A", sessionStatus: "Connected" }], groups: [{ targetId: "group:a", accountId: "a", name: "Nhóm A", url: "https://www.facebook.com/" }], posts, tasks: posts.flatMap(p => p.tasks), drafts: posts.map(p => ({ draftId: p.batchId, name: "Nháp " + p.name, accountId: p.accountId, text: "Nháp " + p.tasks[0].text, targetIds: [p.tasks[0].targetId], imageAssetIds: [], updatedAtUtc: "", dueAtUtc: futureDraftDueAtUtc })) };
       } else if (req.command === "facebook.drafts.save") {
         savedDraftIds.push(req.payload.draftId); payloadData = { ...req.payload, updatedAtUtc: "" };
       } else if (req.command === "facebook.analytics.catalog") {
@@ -98,6 +99,12 @@ const React = (await import("react")).default;
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const App = (await import("./App.tsx")).default;
+
+async function waitForRendered(predicate: () => boolean) {
+  for (let i = 0; i < 100 && !predicate(); i++) {
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+  }
+}
 
 async function runTests() {
   console.log("=== KIỂM THỬ TÁCH MẪU PROMPT VÀ TÀI NGUYÊN MEDIA THÀNH 2 TAB & 2 SCREEN ===");
@@ -225,6 +232,7 @@ async function runTests() {
   await act(async () => { queueRoute.click(); await new Promise(r => setTimeout(r, 100)); });
   assert.equal(queueRoute.getAttribute("aria-current"), "page");
   const queue = container.querySelector('[aria-label="Hàng đợi Facebook chung"]')!;
+  await waitForRendered(() => queue.querySelectorAll("article").length === 2);
   assert.match(queue.textContent!, /Bài cá nhân chung/); assert.match(queue.textContent!, /Bài nhóm chung/);
   await act(async () => personalRoute.click());
   assert.equal(personalText.value, "Nháp giữ qua hàng đợi");
@@ -244,6 +252,7 @@ async function runTests() {
   assert.ok(Array.from(container.querySelectorAll("h2")).some(h => h.textContent === "Lịch sử Facebook"));
   await act(async () => { draftsRoute.click(); await new Promise(r => setTimeout(r, 30)); });
   const drafts = container.querySelector('[aria-label="Nháp Facebook chung"]')!;
+  await waitForRendered(() => drafts.querySelectorAll("article").length === 2);
   assert.equal(draftsRoute.getAttribute("aria-current"), "page");
   assert.equal(drafts.querySelectorAll("article").length, 2);
   await act(async () => { drafts.querySelectorAll("article")[1].querySelector<HTMLButtonElement>("button")!.click(); });

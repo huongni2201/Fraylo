@@ -165,7 +165,7 @@ function AppContent() {
   }, [activeRoute]);
   const isLoaded = (route: ActiveRoute) => activeRoute === route || loadedRoutes.has(route);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [publishTarget, setPublishTarget] = useState<{ projectId: string; revision: number } | null>(null);
+  const [publishTarget, setPublishTarget] = useState<{ projectId: string; assetId: string; revision: number } | null>(null);
   const [accountsNavigationSignal, setAccountsNavigationSignal] = useState(0);
   const [aiNavigationSignal, setAiNavigationSignal] = useState(0);
 
@@ -240,8 +240,8 @@ function AppContent() {
     handleNavigate("settings");
   }, [handleNavigate]);
 
-  const handleOpenPublishing = (projectId: string) => {
-    setPublishTarget(current => ({ projectId, revision: (current?.revision ?? 0) + 1 }));
+  const handleOpenPublishing = (projectId: string, assetId: string) => {
+    setPublishTarget(current => ({ projectId, assetId, revision: (current?.revision ?? 0) + 1 }));
     handleNavigate("publishing");
   };
 
@@ -433,6 +433,7 @@ function AppContent() {
                     active={activeRoute === "publishing"}
                     api={publishingApi}
                     initialProjectId={publishTarget?.projectId}
+                    initialAssetId={publishTarget?.assetId}
                     selectionRevision={publishTarget?.revision}
                     onOpenAccounts={handleNavigateToSettingsAccounts}
                     onReviewVideo={handleReviewPublishedVideo}

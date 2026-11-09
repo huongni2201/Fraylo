@@ -91,8 +91,8 @@ test("Trang ẩn không tải dữ liệu; mở lại từ Project chọn đúng
     publish: async () => { throw new Error("Không được tự đăng"); },
   };
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
-  const render = (active: boolean, selectionRevision: number) => React.createElement(PublishingPage,
-    { active, selectionRevision, initialProjectId: "a", api, onOpenAccounts: () => {}, onReviewVideo: async () => { throw new Error("Dự án đã xóa"); } });
+  const render = (active: boolean, selectionRevision: number, initialAssetId?: string) => React.createElement(PublishingPage,
+    { active, selectionRevision, initialProjectId: "a", initialAssetId, api, onOpenAccounts: () => {}, onReviewVideo: async () => { throw new Error("Dự án đã xóa"); } });
   await React.act(async () => root.render(render(false, 1)));
   assert.equal(calls, 0);
   await React.act(async () => root.render(render(true, 1)));
@@ -106,12 +106,15 @@ test("Trang ẩn không tải dữ liệu; mở lại từ Project chọn đúng
   assert.equal(container.querySelector<HTMLSelectElement>("#publish-video")!.value, "video-b");
   assert.equal(container.querySelector<HTMLTextAreaElement>("#publish-caption")!.value, "Caption B");
   await React.act(async () => root.render(render(false, 1)));
-  videos = [{ ...videos[0], assetId: "video-a-2", fileName: "a-2.mp4", caption: "Caption A mới" }, videos[1]];
-  await React.act(async () => root.render(render(true, 2)));
+  videos = [...videos, { ...videos[0], assetId: "video-a-2", fileName: "a-2.mp4", caption: "Caption A mới" }];
+  await React.act(async () => root.render(render(true, 2, "video-a-2")));
   assert.equal(container.querySelector<HTMLSelectElement>("#publish-video")!.value, "video-a-2");
   assert.equal(container.querySelector<HTMLTextAreaElement>("#publish-caption")!.value, "Caption A mới");
   await React.act(async () => { Array.from(container.querySelectorAll("button")).find(b => b.textContent?.includes("Xem lại video"))!.click(); });
   assert.match(container.textContent!, /Dự án đã xóa/);
+  await React.act(async () => root.render(render(true, 3, "missing-video")));
+  assert.equal(container.querySelector<HTMLSelectElement>("#publish-video")!.value, "");
+  assert.match(container.textContent!, /Clip đã chọn chưa sẵn sàng/);
   await React.act(async () => root.unmount()); container.remove();
 });
 

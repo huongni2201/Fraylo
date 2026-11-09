@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import type { TikTokAnalyticsAccount } from "../analytics/analyticsApi";
-import { blocksAnotherPublish, publishingError, requestIdFor, type PublishAttempt, type PublishingApi, type PublishVideo } from "./publishingApi";
+import { blocksAnotherPublish, confirmUncertainPublishRetry, publishingError, requestIdFor, type PublishAttempt, type PublishingApi, type PublishVideo } from "./publishingApi";
 import { PublishStateBadge } from "./PublishStateBadge";
 import { FavoriteSoundPicker } from "./FavoriteSoundPicker";
 
@@ -44,13 +44,14 @@ export function VideoListTab({ videos, attempts, accounts, api, disabled, onAtte
   const edit = (assetId: string, patch: { accountId?: string; caption?: string; favoriteSoundKey?: string }) =>
     setDrafts(d => ({ ...d, [assetId]: { ...d[assetId], ...patch } }));
 
-  const publish = async (video: PublishVideo, accountId: string, caption: string, favoriteSoundKey: string) => {
+  const publish = async (video: PublishVideo, accountId: string, caption: string, favoriteSoundKey: string, uncertain?: PublishAttempt) => {
     if (busyRef.current || disabled || soundBusy) return;
+    if (uncertain && !confirmUncertainPublishRetry(uncertain)) return;
     busyRef.current = true;
     setPublishingId(video.assetId); onBusyChange(true); setError(null); setMessage(null);
-    const id = requestIdFor(requestIds.current, video.assetId, JSON.stringify([video.projectId, video.assetId, accountId, caption, favoriteSoundKey]));
+    const id = requestIdFor(requestIds.current, video.assetId, JSON.stringify([video.projectId, video.assetId, accountId, caption, favoriteSoundKey, uncertain?.attemptId]));
     try {
-      const result = await api.publish({ clientRequestId: id, projectId: video.projectId, assetId: video.assetId, accountId, caption, ...(favoriteSoundKey && { favoriteSoundKey }) });
+      const result = await api.publish({ clientRequestId: id, projectId: video.projectId, assetId: video.assetId, accountId, caption, ...(favoriteSoundKey && { favoriteSoundKey }), ...(uncertain && { retryAfterAttemptId: uncertain.attemptId }) });
       onAttempt(result);
       setMessage(`${video.fileName}: ${result.message}`);
       if (result.state === "Failed") requestIds.current.delete(video.assetId);
@@ -88,6 +89,7 @@ export function VideoListTab({ videos, attempts, accounts, api, disabled, onAtte
                 const account = accounts.find(a => a.accountId === accountId);
                 const forAccount = attempts.filter(a => a.assetId === video.assetId && a.accountId === accountId);
                 const latest = forAccount[0];
+                const uncertain = latest?.state === "Uncertain" ? latest : undefined;
                 const blocking = forAccount.find(a => blocksAnotherPublish(a.state));
                 const running = publishingId === video.assetId;
                 const canPublish = !!account && account.sessionStatus === "Connected" && caption.trim().length > 0 && length <= 2200 &&
@@ -123,14 +125,14 @@ export function VideoListTab({ videos, attempts, accounts, api, disabled, onAtte
                     <TableCell className="align-top text-sm">
                       {latest ? <div className="space-y-1.5">
                         <PublishStateBadge state={latest.state} />
-                        {latest.state === "Failed" && <p className="text-xs leading-relaxed text-muted-foreground">{latest.message}</p>}
+                        {(latest.state === "Failed" || uncertain) && <p className="text-xs leading-relaxed text-muted-foreground">{latest.message}</p>}
                         {latest.externalPostUrl && <a href={latest.externalPostUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary underline-offset-2 hover:underline">Xem bài đăng<ExternalLink className="size-3" aria-hidden="true" /></a>}
                       </div> : <Badge variant="outline" className="whitespace-nowrap text-muted-foreground">Chưa đăng</Badge>}
                     </TableCell>
                     <TableCell className="text-right align-top">
-                      <Button size="sm" className="gap-2" disabled={!canPublish} onClick={() => void publish(video, accountId, caption, favoriteSoundKey)}>
+                      <Button size="sm" className="gap-2" disabled={!canPublish} onClick={() => void publish(video, accountId, caption, favoriteSoundKey, uncertain)}>
                         {running ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
-                        {running ? "Đang đăng…" : "Đăng"}
+                        {running ? "Đang đăng…" : uncertain ? "Kiểm tra và gửi lại" : "Đăng"}
                       </Button>
                     </TableCell>
                   </TableRow>
