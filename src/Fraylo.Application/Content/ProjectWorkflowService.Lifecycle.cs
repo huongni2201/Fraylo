@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Fraylo.Application.Content.Workflows;
 using Fraylo.Application.Jobs;
+using Fraylo.Application.Prompts.Exceptions;
 using Fraylo.Application.Providers;
 using Fraylo.Contracts.Content;
 using Fraylo.Contracts.Jobs;
@@ -148,32 +149,35 @@ public sealed partial class ProjectWorkflowService
         }
 
         // Mẫu + sản phẩm (một video) không viết kịch bản: ảnh ghép là bước đầu, video chỉ dùng đúng ảnh đó.
-        // Chế độ ảnh 9 ô vẫn cần Script (9 shot) trước nên không đi đường này; ghép ảnh chạy sau Script rồi mới tạo ảnh 3×3.
+        // Ở chế độ storyboard, Script chạy trước bước ghép ảnh và tạo lưới.
         bool gridMode = VideoWorkflowPromptComposer.IsGridMode(config);
-        if (config.ReferenceImageMode == ReferenceImageModes.StoryboardGrid9 && !singleVideo)
+        if (ReferenceImageModes.GridSize(config.ReferenceImageMode) > 0 && !singleVideo)
         {
             throw new ProjectWorkflowValidationException(
-                $"Ảnh storyboard {ReferenceImageModes.GridShotCount} ô chỉ dùng cho chế độ một video.");
+                "Ảnh storyboard chỉ dùng cho chế độ một video.");
         }
         bool composeFirst = images.ComposeBeforePlanning && existingScenes.Count == 0 && _jobService != null;
         bool prepareSceneFirst = composeFirst || (images.CreateSceneBeforePlanning && existingScenes.Count == 0 && _jobService != null);
+        bool needsGridReplan = false;
+        if (config.ReferenceImageMode == ReferenceImageModes.StoryboardGrid25 && existingScenes.Count == 1)
+        {
+            var storyboard = await new StoryboardContentService(_dbOptions).GetAsync(normalizedProjectId, cancellationToken);
+            var gridSize = ReferenceImageModes.GridSize(config.ReferenceImageMode);
+            needsGridReplan = storyboard?.Shots.Count != gridSize * gridSize || storyboard.DurationSeconds != config.TargetDurationPerSceneSeconds;
+        }
 
-        // Prompt dự án > mẫu toàn cục: báo thiếu ngay lúc bấm chạy, không đợi tới giữa pipeline.
-        if (existingScenes.Count == 0 && !prepareSceneFirst)
+        // Kiểm tra mẫu ảnh trước khi gửi kịch bản để báo sớm nếu mẫu đã chọn thiếu biến.
+        try
         {
-            await VideoWorkflowPromptComposer.ResolvePromptAsync(dbContext, config, JobTaskType.Script, cancellationToken);
+            if (images.GenerationPromptPurpose is { } imagePurpose)
+                await VideoWorkflowPromptComposer.RenderImageTemplateAsync(dbContext, imagePurpose, cancellationToken);
+            if (gridMode && images.GenerationPromptPurpose != JobTaskType.Image)
+                await VideoWorkflowPromptComposer.RenderImageTemplateAsync(dbContext, JobTaskType.Image, cancellationToken);
         }
-        if (images.GenerationPromptPurpose != null)
+        catch (PromptEngineException ex)
         {
-            await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(dbContext, images.GenerationPromptPurpose, cancellationToken);
+            throw new ProjectWorkflowValidationException(ex.Message);
         }
-        if (gridMode)
-        {
-            // Prompt ảnh 3×3 dùng mẫu Image đang chọn, kể cả khi chế độ Mẫu + sản phẩm còn mẫu Ghép ảnh riêng.
-            await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(dbContext, JobTaskType.Image, cancellationToken);
-        }
-        if (images.RequiresPromptTemplates)
-            await VideoWorkflowPromptComposer.ResolvePromptAsync(dbContext, config, JobTaskType.VideoPrompt, cancellationToken);
 
         if (prepareSceneFirst)
         {
@@ -202,8 +206,14 @@ public sealed partial class ProjectWorkflowService
         //   + Nếu có jobService hoặc enqueuer: Enqueue Job Script (với SceneId = null) theo template đã render.
         int enqueuedJobCount = 0;
 
-        if (existingScenes.Count == 0)
+        if (existingScenes.Count == 0 || needsGridReplan)
         {
+            if (needsGridReplan)
+            {
+                var markerKey = WorkflowSceneJobs.GridMarkerKey(existingScenes[0].Id);
+                var marker = await dbContext.AppSettings.FindAsync([markerKey], cancellationToken);
+                if (marker != null) dbContext.AppSettings.Remove(marker);
+            }
             if (_durableJobEnqueuer != null)
             {
                 enqueuedJobCount = await _durableJobEnqueuer(request, cancellationToken);

@@ -10,6 +10,7 @@ import {
   WorkflowModes,
   VideoStrategies,
   ReferenceImageModes,
+  storyboardGridSize,
   AudioOptions,
   WorkflowRunState,
   SceneWorkflowStatus,
@@ -35,11 +36,7 @@ import { AssetPicker } from "../library/AssetPicker";
 import { AssetMediaPreview } from "../library/AssetMediaPreview";
 import { TikTokPostPreview } from "./TikTokPostPreview";
 import { promptApi } from "../prompts/promptApi";
-import {
-  getActivePromptId,
-  getStoredPrompts,
-  DEFAULT_PRESET_PROMPTS,
-} from "../prompts/promptStorage";
+import { DEFAULT_PRESET_PROMPTS } from "../prompts/promptStorage";
 import { openAssetFolder, uploadAsset, type AssetItem } from "../library/libraryApi";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -88,27 +85,19 @@ async function loadActiveTemplateInfo(
   try {
     const backendTemplate = await promptApi.getTemplate(undefined, purpose);
     const templateText = backendTemplate?.content?.templateText;
-    if (templateText) {
+    if (templateText?.trim()) {
       return {
         name: backendTemplate.template.name,
         isCustom: false,
       };
     }
   } catch {
-    // Fallback sang prompt local nếu chưa đọc được template từ backend.
+    // Backend dùng mẫu tích hợp nếu chưa có mẫu đang dùng.
   }
 
-  const activePromptId = getActivePromptId(purpose);
-  const storedPrompt = activePromptId
-    ? getStoredPrompts().find((prompt) => prompt.id === activePromptId) ||
-      DEFAULT_PRESET_PROMPTS[purpose].find((prompt) => prompt.id === activePromptId)
-    : null;
-  const fallbackPrompt = storedPrompt || DEFAULT_PRESET_PROMPTS[purpose][0];
-  if (!fallbackPrompt) return null;
-
   return {
-    name: fallbackPrompt.name,
-    isCustom: !fallbackPrompt.isPreset,
+    name: DEFAULT_PRESET_PROMPTS[purpose][0].name,
+    isCustom: false,
   };
 }
 
@@ -220,9 +209,10 @@ export function VideoProductionTab({
   const videoPromptSource = appliedPromptSource(config?.videoGuidance, videoPromptTemplateInfo?.name);
   const isReferenceVideo = config?.workflowMode === WorkflowModes.ReferenceVideo;
 
+  const gridSize = storyboardGridSize(config?.referenceImageMode);
   const isGridMode =
     (config?.videoStrategy ?? VideoStrategies.MultiVideo) === VideoStrategies.SingleVideo &&
-    config?.referenceImageMode === ReferenceImageModes.StoryboardGrid9;
+    gridSize > 0;
 
   const saveConfigRequest = () => {
     if (!config) throw new Error("Cấu hình chưa sẵn sàng.");
@@ -239,8 +229,7 @@ export function VideoProductionTab({
       audioOption: config.audioOption,
       audioAssetId: config.audioAssetId,
       videoStrategy: strategy,
-      // Ảnh 9 ô chỉ hợp lệ với một video; các trường hợp khác luôn gửi Direct.
-      referenceImageMode: isGridMode ? ReferenceImageModes.StoryboardGrid9 : ReferenceImageModes.Direct,
+      referenceImageMode: isGridMode ? config.referenceImageMode ?? undefined : ReferenceImageModes.Direct,
       // Một video nhiều phân cảnh luôn có một cảnh trong bảng; nhiều video dùng số cảnh người dùng chọn.
       targetSceneCount: strategy === VideoStrategies.SingleVideo ? 1 : config.targetSceneCount,
       targetDurationPerSceneSeconds: config.targetDurationPerSceneSeconds,
@@ -462,7 +451,7 @@ export function VideoProductionTab({
         ? {
             ...prev,
             videoStrategy: strategy,
-            // Ảnh 9 ô chỉ có ở một video; đổi sang nhiều video thì tắt.
+            // Đổi sang nhiều video thì tắt storyboard.
             referenceImageMode:
               strategy === VideoStrategies.SingleVideo ? prev.referenceImageMode : ReferenceImageModes.Direct,
           }
@@ -476,7 +465,7 @@ export function VideoProductionTab({
       prev
         ? {
             ...prev,
-            referenceImageMode: enabled ? ReferenceImageModes.StoryboardGrid9 : ReferenceImageModes.Direct,
+            referenceImageMode: enabled ? ReferenceImageModes.StoryboardGrid25 : ReferenceImageModes.Direct,
             targetDurationPerSceneSeconds: prev.targetDurationPerSceneSeconds,
           }
         : prev,
@@ -1353,13 +1342,18 @@ export function VideoProductionTab({
                           checked={isGridMode}
                           onChange={(e) => handleGridModeChange(e.target.checked)}
                         />
-                        Tạo ảnh storyboard 9 ô (thử nghiệm)
+                        Tạo ảnh storyboard {isGridMode ? `${gridSize}×${gridSize}` : "5×5"} (thử nghiệm)
                       </label>
                       <p className="text-[11px] text-muted-foreground">
                         {isGridMode
-                          ? "AI viết 9 cảnh, tạo một ảnh 3×3 từ ảnh nguồn rồi gửi nguyên ảnh đó để tạo một video theo thời lượng đã chọn. Chưa kiểm chứng với provider thật."
-                          : "Tạo một ảnh 9 ô rồi gửi nguyên ảnh để tạo một video theo thời lượng đã chọn."}
+                          ? `AI viết ${gridSize * gridSize} cảnh, tạo một ảnh storyboard từ ảnh nguồn rồi gửi nguyên ảnh để tạo video theo thời lượng đã chọn.`
+                          : "Tạo một ảnh storyboard 25 ô rồi gửi nguyên ảnh để tạo một video theo thời lượng đã chọn."}
                       </p>
+                      {gridSize === 3 && (
+                        <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => handleGridModeChange(true)}>
+                          Chuyển sang 5×5
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1405,7 +1399,7 @@ export function VideoProductionTab({
                   </select>
                   <p className="text-[11px] text-muted-foreground">
                     {isGridMode
-                      ? "Ảnh storyboard 9 ô cố định 9 cảnh, chia đều trong thời lượng đã chọn."
+                      ? "Mỗi ô storyboard tương ứng với một cảnh trong thời lượng đã chọn."
                       : (config.videoStrategy ?? VideoStrategies.MultiVideo) === VideoStrategies.SingleVideo
                       ? "AI chia các đoạn của video theo nội dung; mốc thời gian có thể lệch tối đa 2 giây."
                       : "Mỗi cảnh là một clip có thời lượng này. Các clip được xuất riêng."}
@@ -1542,7 +1536,7 @@ export function VideoProductionTab({
           {isGridMode && (
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Ảnh storyboard 9 ô</CardTitle>
+                <CardTitle className="text-base">Ảnh storyboard {gridSize}×{gridSize}</CardTitle>
               </CardHeader>
               <CardContent>
                 <StoryboardGridProgress config={config} scene={scenes[0]} />

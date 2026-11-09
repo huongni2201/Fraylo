@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="..\Fraylo.Contracts\Prompts\TikTokPromptDefaults.json" LogicalName="Fraylo.TikTokPromptDefaults.json" />
     <ProjectReference Include="..\Fraylo.Contracts\Fraylo.Contracts.csproj" />
     <ProjectReference Include="..\Fraylo.Infrastructure\Fraylo.Infrastructure.csproj" />
     <ProjectReference Include="..\Fraylo.Browser\Fraylo.Browser.csproj" />

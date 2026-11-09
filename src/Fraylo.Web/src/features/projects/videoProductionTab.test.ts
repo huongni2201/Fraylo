@@ -770,7 +770,7 @@ test("VideoProductionTab: prompt áp dụng theo thứ tự Dự án > mẫu to�
   container.remove();
 });
 
-test("VideoProductionTab: bật ảnh storyboard 9 ô giữ thời lượng đã chọn và lưu referenceImageMode", async () => {
+test("VideoProductionTab: bật storyboard 5×5 giữ thời lượng đã chọn và lưu referenceImageMode", async () => {
   executedCommands = [];
   mockConfig = {
     projectId: "prj_test_01",
@@ -802,19 +802,21 @@ test("VideoProductionTab: bật ảnh storyboard 9 ô giữ thời lượng đã
   });
 
   const grid = container.querySelector("#grid-mode") as HTMLInputElement;
-  assert(grid && !grid.checked, "Một video có tùy chọn ảnh 9 ô, mặc định tắt (cấu hình cũ là Direct).");
+  assert(grid && !grid.checked, "Một video có tùy chọn storyboard, mặc định tắt.");
   await React.act(async () => grid.click());
+  assert.match(container.textContent ?? "", /Tạo ảnh storyboard 5×5/);
+  assert.match(container.textContent ?? "", /AI viết 25 cảnh/);
 
   const duration = container.querySelector("#target-duration") as HTMLSelectElement;
-  assert.equal(duration.value, "10", "Bật ảnh 9 ô giữ nguyên thời lượng đã chọn.");
-  assert.equal(duration.disabled, false, "Thời lượng vẫn chọn được khi bật ảnh 9 ô.");
+  assert.equal(duration.value, "10", "Bật 5×5 giữ thời lượng đã chọn.");
+  assert.equal(duration.disabled, false, "Thời lượng vẫn chọn được khi bật 5×5.");
 
   const saveButton = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("Lưu cấu hình"))!;
   await React.act(async () => saveButton.click());
   await React.act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 80));
   });
-  assert.equal(mockConfig.referenceImageMode, "StoryboardGrid9");
+  assert.equal(mockConfig.referenceImageMode, "StoryboardGrid25");
   assert.equal(mockConfig.targetDurationPerSceneSeconds, 10);
 
   // Đổi sang nhiều video thì tùy chọn biến mất và cấu hình trở về Direct.
@@ -824,7 +826,7 @@ test("VideoProductionTab: bật ảnh storyboard 9 ô giữ thời lượng đã
     setter.call(strategySelect, "MultiVideo");
     strategySelect.dispatchEvent(new Event("change", { bubbles: true }));
   });
-  assert(!container.querySelector("#grid-mode"), "Nhiều video không có tùy chọn ảnh 9 ô.");
+  assert(!container.querySelector("#grid-mode"), "Nhiều video không có tùy chọn storyboard.");
 
   await React.act(async () => root.unmount());
   container.remove();

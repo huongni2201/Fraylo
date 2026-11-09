@@ -1,6 +1,14 @@
-# Tạo ảnh storyboard 9 ô cho một video 15 giây
+# Ảnh storyboard cho một video
 
-Ngày: 2026-10-30. Trạng thái: **ĐANG TRIỂN KHAI** — backend (P1, phần lớn P2) và tùy chọn UI (P3) đã làm trên working tree, chưa commit; chưa có kiểm chứng provider thật. Chi tiết đã làm / chưa làm ở mục 9.
+> **Hiện hành từ 2026-11-09.** Bật storyboard cho lượt mới chọn một ảnh 5×5 từ 25 shot. Mẫu ảnh tự động bỏ biến `{chu_de}` cũ trước khi ghép chỉ dẫn từ ảnh nguồn và các shot. Lượt 3×3 đã lưu tiếp tục dùng hợp đồng 9 shot. Cấu hình cũ có thể chuyển sang 5×5 và lập lại storyboard cho cảnh hiện có. Lỗi validation khi khôi phục được ghi vào nhật ký tác vụ, giữ kết quả để áp dụng lại sau khi sửa.
+
+### JSON cho storyboard 5×5
+
+- Kịch bản trả `schemaVersion: 2` và mảng `shots` đúng 25 phần tử. Mỗi ô có `description` tiếng Việt, `imagePrompt` tiếng Anh mô tả khung tĩnh và `motionPrompt` tiếng Anh mô tả chuyển động khả thi. Thứ tự mảng đi từ trái sang phải, trên xuống dưới.
+- Fraylo tính mốc theo thời lượng cấu hình chia cho 25. Mốc của ô sau bắt đầu ngay tại điểm kết thúc ô trước. Phản hồi cũ có mốc thời gian vẫn đọc được theo quy tắc của phiên bản trước.
+- Bước ảnh dùng các ô cùng kích thước, giữ nhận diện từ ảnh nguồn và thể hiện góc máy, tư thế của từng ô. Bước chuyển động dùng `video_prompt` tiếng Anh và `tiktok_content` tiếng Việt. Các ô liền kề cùng hành động có thể nối thành một chuyển động liền mạch theo mốc đã tính.
+
+Các mục dưới đây ghi lại thiết kế và kiểm thử của bản 3×3 ngày 2026-10-30.
 
 ## 1. Yêu cầu đã chốt
 

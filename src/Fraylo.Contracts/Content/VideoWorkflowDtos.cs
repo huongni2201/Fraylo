@@ -65,12 +65,18 @@ public static class ReferenceImageModes
     /// <summary>Dùng ảnh nguồn (ảnh ghép / ảnh sẵn sàng / ảnh sản phẩm) trực tiếp.</summary>
     public const string Direct = "Direct";
 
-    /// <summary>Tạo một ảnh storyboard 3×3 từ 9 shot rồi gửi nguyên ảnh đó để render một video theo thời lượng đã chọn (10, 15 hoặc 30 giây).</summary>
+    /// <summary>Giữ hợp đồng 3×3 cho dự án đã lưu trước khi có lưới 5×5.</summary>
     public const string StoryboardGrid9 = "StoryboardGrid9";
+    public const string StoryboardGrid25 = "StoryboardGrid25";
 
-    public const int GridShotCount = 9;
+    public static int GridSize(string? mode) => mode switch
+    {
+        StoryboardGrid9 => 3,
+        StoryboardGrid25 => 5,
+        _ => 0
+    };
 
-    public static bool IsValid(string? mode) => mode is Direct or StoryboardGrid9;
+    public static bool IsValid(string? mode) => mode == Direct || GridSize(mode) > 0;
 }
 
 /// <summary>
@@ -236,7 +242,7 @@ public sealed record SceneWorkflowDetailDto(
     [property: JsonPropertyName("videoCandidateHistory")] IReadOnlyList<string>? VideoCandidateHistory,
     [property: JsonPropertyName("revision")] string Revision,
     [property: JsonPropertyName("staleTaskTypes")] IReadOnlyList<string>? StaleTaskTypes = null,
-    // Chế độ ảnh 9 ô, chỉ điền khi trả về từ list_scenes: ảnh 3×3 hiện hành (khi đã sẵn sàng) và ảnh ghép trung gian.
+    // Chỉ điền khi trả về từ list_scenes: ảnh storyboard hiện hành và ảnh ghép trung gian.
     [property: JsonPropertyName("gridImageAssetId")] string? GridImageAssetId = null,
     [property: JsonPropertyName("composedImageAssetId")] string? ComposedImageAssetId = null);
 

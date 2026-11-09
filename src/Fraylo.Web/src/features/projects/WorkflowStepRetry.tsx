@@ -12,7 +12,7 @@ import {
 export const stepKindLabel: Record<WorkflowStepKind, string> = {
   [WorkflowStepKinds.Script]: "Viết cảnh",
   [WorkflowStepKinds.Compose]: "Ghép ảnh mẫu + sản phẩm",
-  [WorkflowStepKinds.Grid]: "Tạo ảnh storyboard 3×3",
+  [WorkflowStepKinds.Grid]: "Tạo ảnh storyboard",
   [WorkflowStepKinds.Image]: "Tạo ảnh cảnh",
   [WorkflowStepKinds.Prompt]: "Viết prompt chuyển động",
   [WorkflowStepKinds.Render]: "Tạo video",
@@ -59,8 +59,7 @@ export function StepRetryAction({ step, label, retrying, onRetry }: {
 }
 
 /**
- * Danh sách bước đã dừng ở lỗi, mỗi bước một dòng kèm nút thử lại. Dùng cho luồng không có mốc 9 ô
- * (nhiều video, hoặc một video ảnh trực tiếp), nơi mốc 9 ô tự hiển thị nút ngay trên mốc lỗi.
+ * Danh sách bước đã dừng ở lỗi, mỗi bước một dòng kèm nút thử lại. Tiến trình storyboard có nút riêng tại mỗi mốc.
  */
 export function WorkflowStepIssues({ steps, scenes, retryingJobId, onRetry }: {
   steps: WorkflowStepState[] | null | undefined;

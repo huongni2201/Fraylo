@@ -2,11 +2,10 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Fraylo.Application.Jobs;
 using Fraylo.Application.Content.Workflows;
-using Fraylo.Application.Prompts;
+using Fraylo.Application.Prompts.Exceptions;
 using Fraylo.Application.Settings;
 using Fraylo.Contracts.Content;
 using Fraylo.Contracts.Jobs;
-using Fraylo.Contracts.Prompts;
 using Fraylo.Infrastructure.Persistence;
 using Fraylo.Infrastructure.Persistence.Entities;
 using static Fraylo.Application.Content.Workflows.WorkflowSceneJobs;
@@ -198,23 +197,21 @@ public sealed partial class ProjectWorkflowService
         var plans = await dbContext.AppSettings.AsNoTracking()
             .Where(s => planKeys.Contains(s.Key))
             .ToDictionaryAsync(s => s.Key, s => s.Value, cancellationToken).ConfigureAwait(false);
-        // Chế độ 9 ô: prompt ảnh thật là mô tả hình của từng ô gửi kèm mẫu Image; scene.plan chỉ là mô tả + chuyển động cho prompt video.
+        // Prompt ảnh dùng mô tả hình từng ô; scene.plan chứa mô tả và chuyển động cho prompt video.
         var storyboard = await new StoryboardContentService(_dbOptions).GetAsync(normalizedProjectId, cancellationToken).ConfigureAwait(false);
+        var gridSize = storyboard?.Shots.Count switch { 9 => 3, 25 => 5, _ => 0 };
         string? gridImagePrompt = null;
-        if (storyboard is { } sb
-            && sb.Shots.Count == ReferenceImageModes.GridShotCount
+        if (gridSize > 0 && storyboard is { } sb
             && sb.Shots.All(shot => !string.IsNullOrWhiteSpace(shot.ImagePrompt)))
         {
             try
             {
-                var template = await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(dbContext, JobTaskType.Image, cancellationToken).ConfigureAwait(false);
-                var rendered = (await new PromptTemplateService(dbContext).PreviewAsync(
-                    new PromptPreviewRequest(template.Id, null, null, null), cancellationToken).ConfigureAwait(false)).RenderedText;
-                gridImagePrompt = VideoWorkflowPromptComposer.ComposeGridImagePrompt(rendered, sb);
+                var rendered = await VideoWorkflowPromptComposer.RenderImageTemplateAsync(dbContext, JobTaskType.Image, cancellationToken).ConfigureAwait(false);
+                gridImagePrompt = VideoWorkflowPromptComposer.ComposeGridImagePrompt(rendered, sb, gridSize);
             }
-            catch (ProjectWorkflowValidationException)
+            catch (Exception ex) when (ex is ProjectWorkflowValidationException or PromptEngineException)
             {
-                // Chưa chọn mẫu Image: giữ nội dung scene.plan.
+                // Mẫu Image thiếu hoặc lỗi: giữ nội dung scene.plan.
             }
         }
         for (int i = 0; i < list.Count; i++)
@@ -416,7 +413,7 @@ public sealed partial class ProjectWorkflowService
         await EnsureScenePromptsRenderableAsync(dbContext, new[] { targetSceneId }, cancellationToken).ConfigureAwait(false);
         if (await NeedsGridImageAsync(dbContext, config, scene, cancellationToken).ConfigureAwait(false))
         {
-            throw new ProjectWorkflowValidationException("Ảnh storyboard 3×3 chưa sẵn sàng nên chưa thể tạo video.");
+            throw new ProjectWorkflowValidationException("Ảnh storyboard chưa sẵn sàng nên chưa thể tạo video.");
         }
 
         var imageAssetId = scene.ImageAssetId;

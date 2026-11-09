@@ -77,7 +77,7 @@ for (let restart = 0; restart < 2; restart++) {
   await act(async () => { instance.render(React.createElement(PromptTemplateManager)); });
   await act(async () => { button("Storyboard").dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 })); });
   if (!(container.querySelector("#prompt-name") as HTMLInputElement).value.includes("Storyboard") ||
-      !(container.querySelector("#prompt-template-text") as HTMLTextAreaElement).value.includes("9 phân cảnh")) {
+      !(container.querySelector("#prompt-template-text") as HTMLTextAreaElement).value.includes("đúng số cảnh ứng dụng yêu cầu")) {
     throw new Error("Storyboard phải có tên và nội dung mẫu sẵn sau mỗi lần mở lại trang.");
   }
   await act(async () => { instance.unmount(); });

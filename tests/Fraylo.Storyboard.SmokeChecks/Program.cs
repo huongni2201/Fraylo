@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 using Fraylo.Application.Content;
 using Fraylo.Application.Providers;
 using Fraylo.Infrastructure.Persistence;
@@ -37,6 +38,50 @@ if (StoryboardContentService.ParseGrid(Grid(9), 15).Shots.Count != 9) throw new 
 foreach (var invalidGrid in new[] { Grid(8), Grid(9, motion: false), Grid(9, duration: 17), Grid(9).Replace("\"endSeconds\":15", "\"endSeconds\":14") })
 {
     try { StoryboardContentService.ParseGrid(invalidGrid, 15); throw new Exception("Đã chấp nhận storyboard 9 ô sai"); }
+    catch (ProjectWorkflowValidationException) { }
+}
+
+var grid25 = JsonSerializer.Serialize(new
+{
+    durationSeconds = 10,
+    shots = Enumerable.Range(0, 25).Select(i => new
+    {
+        startSeconds = i * 0.4m,
+        endSeconds = (i + 1) * 0.4m,
+        description = "Hành động",
+        imagePrompt = "Hình",
+        motionPrompt = "Chuyển động"
+    })
+});
+if (StoryboardContentService.ParseGrid(grid25, 10, 5).Shots.Count != 25)
+    throw new Exception("Từ chối storyboard 25 ô có mốc thập phân hợp lệ");
+foreach (var invalidGrid in new[] { Grid(9, 15), grid25.Replace("\"startSeconds\":0.4", "\"startSeconds\":0.5") })
+{
+    try { StoryboardContentService.ParseGrid(invalidGrid, 10, 5); throw new Exception("Đã chấp nhận storyboard 25 ô sai"); }
+    catch (ProjectWorkflowValidationException) { }
+}
+
+string CompactGrid(int count = 25, int version = 2, bool withMotion = true) => JsonSerializer.Serialize(new
+{
+    schemaVersion = version,
+    shots = Enumerable.Range(1, count).Select(i => new
+    {
+        description = $"Cảnh {i}",
+        imagePrompt = $"Frame {i}",
+        motionPrompt = withMotion ? $"Move {i}" : ""
+    })
+});
+foreach (var duration in new[] { 10, 15, 30 })
+{
+    var compact = StoryboardContentService.ParseGrid($"JSON\n{CompactGrid()}\nSao chép", duration, 5);
+    if (compact.Shots.Count != 25 || compact.Shots[0].StartSeconds != 0 || compact.Shots[^1].EndSeconds != duration ||
+        compact.Shots[0].EndSeconds != duration / 25m || compact.Shots[^1].MotionPrompt != "Move 25" ||
+        compact.Shots.Zip(compact.Shots.Skip(1)).Any(pair => pair.First.EndSeconds != pair.Second.StartSeconds))
+        throw new Exception("Storyboard gọn phải giữ thứ tự và phủ đúng thời lượng cấu hình");
+}
+foreach (var invalidGrid in new[] { CompactGrid(24), CompactGrid(26), CompactGrid(version: 3), CompactGrid(withMotion: false), CompactGrid().Replace("\"Move 1\"", "null") })
+{
+    try { StoryboardContentService.ParseGrid(invalidGrid, 10, 5); throw new Exception("Đã chấp nhận JSON storyboard gọn sai"); }
     catch (ProjectWorkflowValidationException) { }
 }
 

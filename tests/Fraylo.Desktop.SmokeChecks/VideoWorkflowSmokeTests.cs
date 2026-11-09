@@ -102,7 +102,7 @@ public static class VideoWorkflowSmokeTests
         await RunCaseAsync("19. Mẫu + sản phẩm một video: không viết kịch bản; ảnh ghép là bước đầu, video dùng đúng ảnh đó",
             TestCase19_ModelAndProductSingleVideoComposesImageFirstAsync);
 
-        await RunCaseAsync("20. Ảnh 9 ô (Mẫu + sản phẩm): Script 9 shot → Ghép ảnh → một ảnh 3×3 → VideoPrompt dùng ảnh 3×3",
+        await RunCaseAsync("20. Storyboard 5×5 (Mẫu + sản phẩm): 25 shot → Ghép ảnh → ảnh storyboard → Prompt chuyển động",
             TestCase20_StoryboardGridModelAndProductAsync);
 
         await RunCaseAsync("21. Ảnh 9 ô (Ảnh sẵn sàng): contract Script, cấu hình không hợp lệ, job 3×3 từ ảnh sẵn sàng",
@@ -133,6 +133,9 @@ public static class VideoWorkflowSmokeTests
 
         await RunCaseAsync("30. Đổi ảnh chung: mỗi workflow làm mới đúng bước và giữ ảnh độc lập của cảnh",
             TestCase30_ThreeWorkflowsInvalidateImagesAsync);
+
+        await RunCaseAsync("31. Prompt TikTok mặc định: workflow chạy với danh sách mẫu trống, tôn trọng mẫu riêng",
+            TestCase31_BuiltInTikTokPromptsAsync);
 
         Console.WriteLine("\n-----------------------------------------------------------------");
         Console.WriteLine($"Kết quả kiểm thử Video Workflow: {_passCount} PASS, {_failCount} FAIL.");
@@ -216,7 +219,7 @@ public static class VideoWorkflowSmokeTests
         catch { }
     }
 
-    /// <summary>Prompt chung là bắt buộc nên test chạy workflow phải có sẵn mẫu đang dùng cho mỗi purpose.</summary>
+    /// <summary>Mẫu toàn cục đang dùng cho các ca kiểm tra mẫu tùy chỉnh.</summary>
     internal static void SeedRequiredPromptTemplates(FrayloDbContext db)
     {
         var now = DateTimeOffset.UtcNow.ToString("o");
@@ -470,20 +473,7 @@ public static class VideoWorkflowSmokeTests
             {
                 var sceneCount = await db.Scenes.CountAsync(s => s.ProjectId == prjId);
                 Assert(sceneCount == 0, $"Không được tự ý chèn cảnh mẫu hardcode vào DB, thực tế số cảnh: {sceneCount}");
-                // Prompt chung bắt buộc: bỏ mẫu đang dùng thì Start phải báo thiếu Prompt, backend không tự thay bằng prompt dựng sẵn.
-                db.PromptTemplates.RemoveRange(db.PromptTemplates);
-                await db.SaveChangesAsync();
             }
-            bool rejectedNoTemplate = false;
-            try
-            {
-                await service.StartWorkflowAsync(new StartProjectWorkflowRequest(prjId));
-            }
-            catch (ProjectWorkflowValidationException ex) when (ex.Message.Contains("Chưa có Prompt Script"))
-            {
-                rejectedNoTemplate = true;
-            }
-            Assert(rejectedNoTemplate, "Thiếu Prompt Script toàn ứng dụng phải bị từ chối với thông báo rõ ràng.");
         }
         finally
         {
@@ -1917,6 +1907,76 @@ public static class VideoWorkflowSmokeTests
         });
     }
 
+    private static string CompactGridScriptJson() => JsonSerializer.Serialize(new
+    {
+        schemaVersion = 2,
+        shots = Enumerable.Range(1, 25).Select(i => new
+        {
+            description = $"Mô tả cảnh {i}",
+            imagePrompt = $"Hình ô {i}",
+            motionPrompt = $"Chuyển động {i}"
+        })
+    });
+
+    private static async Task TestCase31_BuiltInTikTokPromptsAsync()
+    {
+        var (options, tempDir, projectId, workflow) = await CreateGridEnvironmentAsync(WorkflowModes.ModelAndProduct, withComposeTemplate: false);
+        try
+        {
+            using var db = new FrayloDbContext(options);
+            db.PromptTemplates.RemoveRange(db.PromptTemplates);
+            await db.SaveChangesAsync();
+            var model = SeedAsset(options, "Image", "default/model.jpg");
+            var product = SeedAsset(options, "Image", "default/product.jpg");
+            var composed = SeedAsset(options, "Image", "default/composed.jpg");
+            var grid = SeedAsset(options, "Image", "default/grid.jpg");
+            var config = await workflow.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
+                projectId, WorkflowModes.ModelAndProduct, "", model, product, null,
+                AudioOptions.None, null, 1, 15,
+                VideoStrategy: VideoStrategies.SingleVideo, ReferenceImageMode: ReferenceImageModes.StoryboardGrid25));
+
+            await workflow.StartWorkflowAsync(new StartProjectWorkflowRequest(projectId));
+            var script = await db.Jobs.AsNoTracking().SingleAsync(j => j.ProjectId == projectId && j.TaskType == JobTaskType.Script);
+            Assert(Rendered(script).Contains("Khi chưa có brief") && !Rendered(script).Contains("{chu_de}"), "Job Script nhận mẫu mặc định.");
+            await SucceedJobAsync(options, script.Id, CompactGridScriptJson(), null);
+            Assert(await workflow.ApplyJobOutputAsync(script.Id), "Áp dụng kịch bản dùng mẫu mặc định.");
+
+            var composeJob = await db.Jobs.AsNoTracking().SingleAsync(j => j.ProjectId == projectId && j.TaskType == JobTaskType.Image);
+            Assert(Rendered(composeJob).Contains("chuyên gia ghép ảnh"), "Job ghép dùng mẫu mặc định.");
+            await SucceedJobAsync(options, composeJob.Id, null, composed);
+            Assert(await workflow.ApplyJobOutputAsync(composeJob.Id), "Áp dụng ảnh ghép.");
+            var gridJob = await db.Jobs.AsNoTracking().SingleAsync(j => j.ProjectId == projectId && j.TaskType == JobTaskType.Image && j.Id != composeJob.Id);
+            Assert(Rendered(gridJob).Contains("5 cột × 5 hàng") && Rendered(gridJob).Contains("35mm lens"), "Job lưới dùng mẫu ảnh mặc định.");
+            await SucceedJobAsync(options, gridJob.Id, null, grid);
+            Assert(await workflow.ApplyJobOutputAsync(gridJob.Id), "Áp dụng ảnh lưới.");
+
+            var motionJob = await db.Jobs.AsNoTracking().SingleAsync(j => j.ProjectId == projectId && j.TaskType == JobTaskType.VideoPrompt);
+            var motion = Rendered(motionJob);
+            Assert(motion.Contains("three-quarter angle") && motion.Contains("soft side key") && motion.Contains("3–5 hashtag"),
+                "Job chuyển động nhận góc máy, ánh sáng và caption mặc định.");
+
+            var composer = new VideoWorkflowPromptComposer(options);
+            var multi = config with { VideoStrategy = VideoStrategies.MultiVideo, ReferenceImageMode = ReferenceImageModes.Direct };
+            var multiPrompt = await composer.ComposeScriptPlanningAiRequestAsync(multi);
+            Assert(multiPrompt.ComposedPrompt.Contains("soft side key") && multiPrompt.ComposedPrompt.Contains("3–5 hashtag"),
+                "Job Script luồng nhiều video nhận chỉ dẫn video và caption.");
+
+            var now = DateTimeOffset.UtcNow.ToString("o");
+            db.PromptTemplates.AddRange(
+                new PromptTemplate { Id = "custom-video", Purpose = JobTaskType.VideoPrompt, Name = "Video", TemplateText = "CAMERA_GLOBAL", IsActive = true, CreatedAtUtc = now, UpdatedAtUtc = now },
+                new PromptTemplate { Id = "custom-caption", Purpose = "TikTokContent", Name = "Caption", TemplateText = "CAPTION_GLOBAL", IsActive = true, CreatedAtUtc = now, UpdatedAtUtc = now });
+            await db.SaveChangesAsync();
+            var customized = await composer.ComposeScriptPlanningAiRequestAsync(multi);
+            Assert(customized.ComposedPrompt.Contains("CAMERA_GLOBAL") && customized.ComposedPrompt.Contains("CAPTION_GLOBAL")
+                && !customized.ComposedPrompt.Contains("soft side key") && !customized.ComposedPrompt.Contains("3–5 hashtag"),
+                "Mẫu toàn cục đang dùng thay mẫu mặc định.");
+            var projectPrompt = await composer.ComposeScriptPlanningAiRequestAsync(multi with { VideoGuidance = "CAMERA_PROJECT" });
+            Assert(projectPrompt.ComposedPrompt.Contains("CAMERA_PROJECT") && !projectPrompt.ComposedPrompt.Contains("CAMERA_GLOBAL"),
+                "Prompt video của dự án ưu tiên hơn mẫu toàn cục.");
+        }
+        finally { CleanupTestEnvironment(tempDir); }
+    }
+
     private static async Task<(DbContextOptions<FrayloDbContext> dbOptions, string tempDir, string prjId, ProjectWorkflowService workflowService)> CreateGridEnvironmentAsync(string workflowMode, bool withComposeTemplate)
     {
         var (dbOptions, tempDir, prjId) = CreateTestEnvironment();
@@ -1941,9 +2001,9 @@ public static class VideoWorkflowSmokeTests
             var now = DateTimeOffset.UtcNow.ToString("o");
             db.PromptTemplates.RemoveRange(db.PromptTemplates);
             db.PromptTemplates.AddRange(
-                new PromptTemplate { Id = "script-active", Purpose = "Script", Name = "Script", IsActive = true, TemplateText = "SCRIPT_DANG_DUNG", CreatedAtUtc = now, UpdatedAtUtc = now },
-                new PromptTemplate { Id = "image-active", Purpose = "Image", Name = "Image", IsActive = true, TemplateText = "IMAGE_DANG_DUNG", CreatedAtUtc = now, UpdatedAtUtc = now },
-                new PromptTemplate { Id = "video-active", Purpose = "VideoPrompt", Name = "Video", IsActive = true, TemplateText = "VIDEO_DANG_DUNG", CreatedAtUtc = now, UpdatedAtUtc = now });
+                new PromptTemplate { Id = "script-active", Purpose = "Script", Name = "Script", IsActive = true, TemplateText = "SCRIPT_DANG_DUNG {chu_de}", CreatedAtUtc = now, UpdatedAtUtc = now },
+                new PromptTemplate { Id = "image-active", Purpose = "Image", Name = "Image", IsActive = true, TemplateText = "IMAGE_DANG_DUNG {chu_de}", CreatedAtUtc = now, UpdatedAtUtc = now },
+                new PromptTemplate { Id = "video-active", Purpose = "VideoPrompt", Name = "Video", IsActive = true, TemplateText = "VIDEO_DANG_DUNG {chu_de}", CreatedAtUtc = now, UpdatedAtUtc = now });
             if (withComposeTemplate)
                 db.PromptTemplates.Add(new PromptTemplate { Id = "compose-active", Purpose = "ComposeImage", Name = "Ghép ảnh", IsActive = true, TemplateText = "COMPOSE_DANG_DUNG", CreatedAtUtc = now, UpdatedAtUtc = now });
             await db.SaveChangesAsync();
@@ -1968,7 +2028,7 @@ public static class VideoWorkflowSmokeTests
         await db.SaveChangesAsync();
     }
 
-    /// <summary>Kịch bản 20: Mẫu + sản phẩm, ảnh 9 ô: Script (9 shot) → Ghép ảnh → một ảnh 3×3 → VideoPrompt; ảnh gửi đi là ảnh 3×3.</summary>
+    /// <summary>Kịch bản 20: Mẫu + sản phẩm tạo một ảnh 5×5 từ 25 shot.</summary>
     private static async Task TestCase20_StoryboardGridModelAndProductAsync()
     {
         var (dbOptions, tempDir, prjId, workflowService) = await CreateGridEnvironmentAsync(WorkflowModes.ModelAndProduct, withComposeTemplate: true);
@@ -1977,26 +2037,29 @@ public static class VideoWorkflowSmokeTests
             var modelAssetId = SeedAsset(dbOptions, "Image", "models/grid_model.jpg");
             var productAssetId = SeedAsset(dbOptions, "Image", "products/grid_product.jpg");
             var composedAssetId = SeedAsset(dbOptions, "Image", "composed/grid_composed.png");
-            var gridAssetId = SeedAsset(dbOptions, "Image", "grid/grid_3x3.png");
+            var gridAssetId = SeedAsset(dbOptions, "Image", "grid/grid_5x5.png");
 
             await workflowService.SaveWorkflowConfigAsync(new SaveProjectWorkflowConfigRequest(
                 ProjectId: prjId, WorkflowMode: WorkflowModes.ModelAndProduct, GoalPrompt: "Váy xếp ly màu xám",
                 ModelAssetId: modelAssetId, ProductAssetId: productAssetId, ReadyImageAssetId: null,
                 AudioOption: AudioOptions.None, AudioAssetId: null, TargetSceneCount: 1, TargetDurationPerSceneSeconds: 15,
-                VideoStrategy: VideoStrategies.SingleVideo, ReferenceImageMode: ReferenceImageModes.StoryboardGrid9));
+                VideoStrategy: VideoStrategies.SingleVideo, ReferenceImageMode: ReferenceImageModes.StoryboardGrid25));
 
             await workflowService.StartWorkflowAsync(new StartProjectWorkflowRequest(prjId));
             string scriptJobId;
             using (var db = new FrayloDbContext(dbOptions))
             {
                 var jobs = await db.Jobs.Where(j => j.ProjectId == prjId).ToListAsync();
-                Assert(jobs.Count == 1 && jobs[0].TaskType == JobTaskType.Script, "Chế độ 9 ô phải bắt đầu bằng đúng một job Script (không ghép ảnh trước).");
-                Assert(Rendered(jobs[0]).Contains("motionPrompt"), "Prompt Script phải yêu cầu 9 shot có motionPrompt.");
+                Assert(jobs.Count == 1 && jobs[0].TaskType == JobTaskType.Script, "Chế độ 5×5 bắt đầu bằng đúng một job Script.");
+                var scriptPrompt = Rendered(jobs[0]);
+                Assert(scriptPrompt.Contains("25 shot") && scriptPrompt.Contains("\"schemaVersion\":2") &&
+                    scriptPrompt.Contains("Ảnh thứ hai xác định sản phẩm") && !scriptPrompt.Contains("endSeconds") && !scriptPrompt.Contains("{chu_de}"),
+                    "Prompt Script yêu cầu 25 shot theo JSON gọn, thời gian do Fraylo tính.");
                 scriptJobId = jobs[0].Id;
             }
 
-            await SucceedJobAsync(dbOptions, scriptJobId, GridScriptJson(), null);
-            Assert(await workflowService.ApplyJobOutputAsync(scriptJobId), "Apply Script 9 shot phải thành công.");
+            await SucceedJobAsync(dbOptions, scriptJobId, CompactGridScriptJson(), null);
+            Assert(await workflowService.ApplyJobOutputAsync(scriptJobId), "Apply Script 25 shot phải thành công.");
 
             string composeJobId;
             using (var db = new FrayloDbContext(dbOptions))
@@ -2021,8 +2084,9 @@ public static class VideoWorkflowSmokeTests
                 Assert(!await db.Jobs.AnyAsync(j => j.ProjectId == prjId && j.TaskType == JobTaskType.VideoPrompt), "Chưa có VideoPrompt trước khi ảnh 3×3 xong.");
                 var gridJob = await db.Jobs.SingleAsync(j => j.ProjectId == prjId && j.TaskType == JobTaskType.Image && j.Id != composeJobId);
                 var text = Rendered(gridJob);
-                Assert(text.Contains("IMAGE_DANG_DUNG") && text.Contains("3 cột × 3 hàng") && text.Contains("Ô 1 (0–2 giây): Hình ô 1") && text.Contains("Ô 9 (14–15 giây): Hình ô 9"),
-                    "Prompt 3×3 gồm mẫu Image, bố cục 3×3 và đủ chín ô theo thứ tự.");
+                Assert(text.Contains("IMAGE_DANG_DUNG") && !text.Contains("{chu_de}") && text.Contains("5 cột × 5 hàng")
+                    && text.Contains("Ô 1 (0–0.6 giây): Hình ô 1") && text.Contains("Ô 25 (14.4–15 giây): Hình ô 25"),
+                    "Prompt ảnh dùng mẫu đã bỏ biến chủ đề và đủ 25 ô theo thứ tự.");
                 Assert(gridJob.ConfigSnapshotJson!.Contains("\"WorkflowStepKey\":\"grid."), "Job 3×3 phải có step key riêng.");
                 using var snapshot = JsonDocument.Parse(gridJob.ConfigSnapshotJson!);
                 var media = snapshot.RootElement.GetProperty("MediaSnapshot");
@@ -2037,8 +2101,9 @@ public static class VideoWorkflowSmokeTests
             await SucceedJobAsync(dbOptions, gridJobId, null, gridAssetId);
             Assert(await workflowService.ApplyJobOutputAsync(gridJobId), "Apply ảnh 3×3 phải thành công.");
             var afterGrid = (await workflowService.ListSceneWorkflowDetailsAsync(prjId)).Single();
-            Assert(afterGrid.GridImageAssetId == gridAssetId && afterGrid.ComposedImageAssetId == composedAssetId, "Sau khi xong: ảnh 3×3 sẵn sàng và vẫn giữ ảnh ghép trung gian.");
+            Assert(afterGrid.GridImageAssetId == gridAssetId && afterGrid.ComposedImageAssetId == composedAssetId, "Ảnh 5×5 sẵn sàng và vẫn giữ ảnh ghép trung gian.");
 
+            string promptJobId;
             using (var db = new FrayloDbContext(dbOptions))
             {
                 var scene = await db.Scenes.SingleAsync(s => s.ProjectId == prjId);
@@ -2046,11 +2111,22 @@ public static class VideoWorkflowSmokeTests
                 Assert(await db.Jobs.CountAsync(j => j.ProjectId == prjId && j.TaskType == JobTaskType.Image) == 2, "Tổng cộng đúng hai job Image: Ghép ảnh và 3×3.");
                 var promptJob = await db.Jobs.SingleAsync(j => j.ProjectId == prjId && j.TaskType == JobTaskType.VideoPrompt);
                 var promptText = Rendered(promptJob);
-                Assert(promptText.Contains("GRID_REFERENCE") && promptText.Contains("Ô 1 (0–2 giây)") && promptText.Contains("Chuyển động: Chuyển động 9"),
-                    "Prompt video phải có hướng dẫn storyboard 3×3 và mốc từng ô.");
+                Assert(promptText.Contains("25 khung hình mốc") && promptText.Contains("Ô 1 (0–0.6 giây)") && !promptText.Contains("{chu_de}")
+                    && promptText.Contains("Chuyển động: Chuyển động 25") && promptText.Contains("gộp các ô liền kề cùng hành động"),
+                    "Prompt chuyển động giữ bố cục 5×5 và mốc từng ô.");
                 using var snapshot = JsonDocument.Parse(promptJob.ConfigSnapshotJson!);
                 Assert(snapshot.RootElement.GetProperty("MediaSnapshot").GetProperty("SourceImageAssetId").GetString() == gridAssetId,
-                    "VideoPrompt nhận ảnh 3×3, không phải ảnh ghép.");
+                    "VideoPrompt nhận ảnh 5×5.");
+                promptJobId = promptJob.Id;
+            }
+            const string motionResult = "Vertical 9:16, 15 seconds. Follow the 25 keyframes in order with smooth motion.";
+            var response = JsonSerializer.Serialize(new { video_prompt = motionResult, tiktok_content = "Xem chi tiết sản phẩm #thoitrang #phoidon #goiy" });
+            await SucceedJobAsync(dbOptions, promptJobId, response, null);
+            Assert(await workflowService.ApplyJobOutputAsync(promptJobId), "JSON prompt chuyển động phải áp dụng được.");
+            using (var db = new FrayloDbContext(dbOptions))
+            {
+                var render = await db.Jobs.SingleAsync(j => j.ProjectId == prjId && j.TaskType == JobTaskType.VideoRender);
+                Assert(Rendered(render) == motionResult, "Render nhận đúng video_prompt từ phản hồi JSON.");
             }
         }
         finally { CleanupTestEnvironment(tempDir); }
@@ -2113,7 +2189,8 @@ public static class VideoWorkflowSmokeTests
                 scriptJobId = (await db.Jobs.Where(j => j.ProjectId == prjId && j.TaskType == JobTaskType.Script && j.State != JobState.Succeeded).FirstAsync()).Id;
             }
             await SucceedJobAsync(dbOptions, scriptJobId, GridScriptJson(), null);
-            Assert(await workflowService.ApplyJobOutputAsync(scriptJobId), "Script 9 shot hợp lệ phải được apply.");
+            Assert(await workflowService.RunWorkflowApplySweepAsync() == 1, "Khởi động phải áp dụng được Script 9 shot cũ.");
+            Assert(await workflowService.RunWorkflowApplySweepAsync() == 0, "Khôi phục lại không tạo trùng job ảnh.");
 
             string gridJobId;
             using (var db = new FrayloDbContext(dbOptions))
@@ -2122,6 +2199,7 @@ public static class VideoWorkflowSmokeTests
                 Assert(scene.ImageAssetId == readyAssetId, "Ảnh sẵn sàng là nguồn của cảnh.");
                 var imageJobs = await db.Jobs.Where(j => j.ProjectId == prjId && j.TaskType == JobTaskType.Image).ToListAsync();
                 Assert(imageJobs.Count == 1 && imageJobs[0].ConfigSnapshotJson!.Contains("\"WorkflowStepKey\":\"grid."), "Ảnh sẵn sàng đi thẳng vào một job 3×3, không có bước ghép.");
+                Assert(!Rendered(imageJobs[0]).Contains("{chu_de}"), "Prompt ảnh không còn placeholder chủ đề.");
                 Assert(!await db.Jobs.AnyAsync(j => j.ProjectId == prjId && j.TaskType == JobTaskType.VideoPrompt), "Chưa có VideoPrompt trước khi ảnh 3×3 xong.");
                 using var snapshot = JsonDocument.Parse(imageJobs[0].ConfigSnapshotJson!);
                 Assert(snapshot.RootElement.GetProperty("MediaSnapshot").GetProperty("SourceImageAssetId").GetString() == readyAssetId, "Ảnh nguồn của job 3×3 là ảnh sẵn sàng.");
@@ -2135,6 +2213,42 @@ public static class VideoWorkflowSmokeTests
                 var scene = await db.Scenes.SingleAsync(s => s.ProjectId == prjId);
                 Assert(scene.ImageAssetId == gridAssetId, "Ảnh của cảnh phải là ảnh 3×3.");
                 Assert(await db.Jobs.CountAsync(j => j.ProjectId == prjId && j.TaskType == JobTaskType.VideoPrompt) == 1, "Sau ảnh 3×3 xếp hàng đúng một VideoPrompt.");
+            }
+
+            var existingScene = (await workflowService.ListSceneWorkflowDetailsAsync(prjId)).Single();
+            await workflowService.CancelWorkflowAsync(prjId);
+            await workflowService.SaveWorkflowConfigAsync(Config(VideoStrategies.SingleVideo, 10, ReferenceImageModes.StoryboardGrid25));
+            var restarted = await workflowService.StartWorkflowAsync(new StartProjectWorkflowRequest(prjId));
+            using (var db = new FrayloDbContext(dbOptions))
+            {
+                scriptJobId = (await db.Jobs.SingleAsync(j => j.ProjectId == prjId && j.TaskType == JobTaskType.Script && j.ConfigSnapshotJson!.Contains(restarted.RunId))).Id;
+                Assert(!await db.Jobs.AnyAsync(j => j.ProjectId == prjId && j.TaskType == JobTaskType.Image && j.ConfigSnapshotJson!.Contains(restarted.RunId)),
+                    "Chuyển từ 3×3 sang 5×5 phải tạo kịch bản trước khi tạo ảnh.");
+            }
+            await SucceedJobAsync(dbOptions, scriptJobId, CompactGridScriptJson(), null);
+
+            using (var db = new FrayloDbContext(dbOptions))
+            {
+                var image = await db.PromptTemplates.SingleAsync(t => t.Id == "image-active");
+                image.TemplateText += " {bien_khac}";
+                await db.SaveChangesAsync();
+            }
+            Assert(await workflowService.RunWorkflowApplySweepAsync() == 0, "Lỗi mẫu của dự án không làm bước khôi phục ném ngoại lệ.");
+            using (var db = new FrayloDbContext(dbOptions))
+            {
+                Assert(!await db.AppSettings.AnyAsync(s => s.Key == "workflow.applied." + scriptJobId), "Giữ kết quả để có thể áp dụng lại sau khi sửa mẫu.");
+                var image = await db.PromptTemplates.SingleAsync(t => t.Id == "image-active");
+                image.TemplateText = "IMAGE_DANG_DUNG {chu_de}";
+                await db.SaveChangesAsync();
+            }
+            Assert(await workflowService.RunWorkflowApplySweepAsync() == 1, "Kịch bản 25 shot tiếp tục sau khi sửa mẫu.");
+            using (var db = new FrayloDbContext(dbOptions))
+            {
+                var scene = await db.Scenes.SingleAsync(s => s.ProjectId == prjId);
+                Assert(scene.Id == existingScene.SceneId && scene.ImageAssetId == readyAssetId, "Dùng lại cảnh và ảnh nguồn gốc khi đổi cỡ lưới.");
+                var gridJob = await db.Jobs.SingleAsync(j => j.ProjectId == prjId && j.TaskType == JobTaskType.Image && j.ConfigSnapshotJson!.Contains(restarted.RunId));
+                Assert(Rendered(gridJob).Contains("Ô 25 (9.6–10 giây)") && Rendered(gridJob).Contains("5 cột × 5 hàng"),
+                    "Kịch bản 10 giây tạo đúng 25 ô.");
             }
         }
         finally { CleanupTestEnvironment(tempDir); }

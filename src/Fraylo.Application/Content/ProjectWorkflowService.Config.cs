@@ -252,11 +252,10 @@ public sealed partial class ProjectWorkflowService
         {
             throw new ProjectWorkflowValidationException($"Chế độ ảnh tham chiếu '{referenceImageMode}' không hợp lệ.");
         }
-        // Storyboard 9 ô là một ảnh cho một video: chỉ hợp lệ với luồng một video (cấu hình thiếu trường này là Direct).
-        if (referenceImageMode == ReferenceImageModes.StoryboardGrid9 && videoStrategy != VideoStrategies.SingleVideo)
+        if (ReferenceImageModes.GridSize(referenceImageMode) > 0 && videoStrategy != VideoStrategies.SingleVideo)
         {
             throw new ProjectWorkflowValidationException(
-                $"Ảnh storyboard {ReferenceImageModes.GridShotCount} ô chỉ dùng cho chế độ một video.");
+                "Ảnh storyboard chỉ dùng cho chế độ một video.");
         }
         var scriptGuidance = request.ScriptGuidance is null ? existing.ScriptGuidance : PromptGuidance.Normalize(request.ScriptGuidance);
         var videoGuidance = request.VideoGuidance is null ? existing.VideoGuidance : PromptGuidance.Normalize(request.VideoGuidance);
@@ -364,15 +363,15 @@ public sealed partial class ProjectWorkflowService
                     var updatedImages = VideoWorkflows.For(updated.WorkflowMode).PlanImages(updated);
                     var newCommonImage = updatedImages.CommonImageAssetId;
 
-                    // Chế độ 9 ô: ảnh của cảnh là ảnh storyboard sinh từ nguồn cũ nên phải đặt lại để sinh lại từ nguồn mới.
+                    // Lưới đã tạo từ nguồn cũ nên phải đặt lại khi đổi ảnh đầu vào.
                     if (sc.ImageAssetId == oldCommonImage || string.IsNullOrWhiteSpace(sc.ImageAssetId) ||
-                        updated.ReferenceImageMode == ReferenceImageModes.StoryboardGrid9)
+                        VideoWorkflowPromptComposer.IsGridMode(updated))
                     {
                         sc.ImageAssetId = newCommonImage;
                         sc.UpdatedAtUtc = updated.UpdatedAtUtc;
                     }
 
-                    if (updatedImages.GenerationPromptPurpose != null || updated.ReferenceImageMode == ReferenceImageModes.StoryboardGrid9)
+                    if (updatedImages.GenerationPromptPurpose != null || VideoWorkflowPromptComposer.IsGridMode(updated))
                     {
                         staleTasks.Add(JobTaskType.Image);
                     }

@@ -101,7 +101,7 @@ public sealed partial class ProjectWorkflowService
             ));
         }
 
-        // Chế độ ảnh 9 ô: ảnh 3×3 chỉ tính là sẵn sàng khi marker khớp ảnh hiện tại của cảnh.
+        // Ảnh storyboard sẵn sàng khi marker khớp ảnh hiện tại của cảnh.
         var markerKeys = result.SelectMany(d => new[] { GridMarkerKey(d.SceneId), ComposedMarkerKey(d.SceneId) }).ToList();
         var markers = await dbContext.AppSettings.AsNoTracking()
             .Where(item => markerKeys.Contains(item.Key))

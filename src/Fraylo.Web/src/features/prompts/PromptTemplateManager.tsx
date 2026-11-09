@@ -76,10 +76,9 @@ export function PromptTemplateManager() {
           setName(result.template.name);
           setTemplateText(result.content.templateText);
         } else if (DEFAULT_PRESET_PROMPTS[purpose][0]) {
-          // Chưa có mẫu nào cho mục đích này: gợi ý mẫu mặc định, người dùng bấm "Lưu prompt" để dùng.
+          // Hiện mẫu mặc định để xem hoặc lưu thành bản riêng.
           setName(DEFAULT_PRESET_PROMPTS[purpose][0].name);
           setTemplateText(DEFAULT_PRESET_PROMPTS[purpose][0].templateText);
-          setDirty(true);
         }
       } catch (error) {
         if (!controller.signal.aborted) setMessage((error as { message?: string }).message || "Không thể tải danh sách prompt.");
@@ -181,7 +180,12 @@ export function PromptTemplateManager() {
             <span className="text-sm font-medium">Danh sách mẫu</span>
             <Button variant="outline" size="sm" onClick={createTemplate} disabled={loading}>Tạo mới</Button>
           </div>
-          {purposeTemplates.length === 0 && <p className="text-sm text-muted-foreground">Chưa có mẫu. Tạo mẫu đầu tiên để sử dụng.</p>}
+          {!loading && purpose !== "Storyboard" && !purposeTemplates.some((item) => item.isActive) && (
+            <p className="text-sm text-muted-foreground">Chưa có mẫu riêng đang dùng. Fraylo sẽ dùng mẫu mặc định.</p>
+          )}
+          {!loading && purpose === "Storyboard" && purposeTemplates.length === 0 && (
+            <p className="text-sm text-muted-foreground">Chưa có mẫu đã lưu.</p>
+          )}
           <div className="flex flex-col gap-1">
             {purposeTemplates.map((item) => (
               <button key={item.templateId} type="button" disabled={loading} onClick={() => void openTemplate(item.templateId)}

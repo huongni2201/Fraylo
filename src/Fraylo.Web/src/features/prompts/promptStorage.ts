@@ -3,6 +3,7 @@
  */
 
 import type { PromptPurpose } from "./promptApi.ts";
+import tikTokDefaults from "../../../../Fraylo.Contracts/Prompts/TikTokPromptDefaults.json" with { type: "json" };
 
 export interface CustomPromptItem {
   id: string;
@@ -32,13 +33,8 @@ export const DEFAULT_PRESET_PROMPTS: Record<PromptPurpose, CustomPromptItem[]> =
   Script: [
     {
       id: "preset-script-tiktok-standard",
-      name: "Kịch bản TikTok chuẩn (Hook + Thân + CTA)",
+      ...tikTokDefaults.Script,
       purpose: "Script",
-      templateText:
-        "Bạn là biên kịch video ngắn cho kênh được cung cấp. Phát triển nội dung được cung cấp hoặc SELECTED_IDEA thành kịch bản có hook rõ, diễn biến hợp lý và kết thúc phù hợp.\n\n" +
-        "Tự đề xuất bối cảnh, nhân vật, phong cách và thời lượng còn thiếu, ghi rõ các giả định đáng kể. Không yêu cầu người dùng điền biến kỹ thuật. Giữ nhân vật, trang phục, đạo cụ và bối cảnh nhất quán giữa các cảnh. Chia cảnh sao cho hành động có thể tạo thành video, tránh nhồi quá nhiều diễn biến trong một cảnh.\n\n" +
-        "Mỗi cảnh có tên, mô tả hình ảnh/hành động, thời lượng mục tiêu và imagePrompt theo OUTPUT_CONTRACT.\n\n" +
-        "Trả kèm một bài đăng TikTok cho toàn video: caption có hook, nội dung và CTA tự nhiên, cùng hashtags liên quan {chu_de}. Viết tiếng Việt, riêng prompt tạo ảnh bằng tiếng Anh nếu hợp đồng yêu cầu. Tuân thủ OUTPUT_CONTRACT của ứng dụng.",
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       isPreset: true,
@@ -75,10 +71,8 @@ export const DEFAULT_PRESET_PROMPTS: Record<PromptPurpose, CustomPromptItem[]> =
   Image: [
     {
       id: "preset-image-photorealistic",
-      name: "Tạo ảnh TikTok chân thực (Photorealistic 8K)",
+      ...tikTokDefaults.Image,
       purpose: "Image",
-      templateText:
-        "A hyper-realistic cinematic photo for TikTok video scene, depicting {chu_de}, shot on 35mm lens, f/1.8 aperture, natural lighting, high dynamic range, 8k resolution, detailed texture and atmosphere, professional color grading, photorealistic, cinematic composition.",
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       isPreset: true,
@@ -88,7 +82,7 @@ export const DEFAULT_PRESET_PROMPTS: Record<PromptPurpose, CustomPromptItem[]> =
       name: "Tạo ảnh Phong cách 3D / Hoạt hình Pixar",
       purpose: "Image",
       templateText:
-        "A stylized 3D render animation style image of {chu_de}, vibrant colors, volumetric lighting, Pixar and Disney inspired aesthetic, clean background, 4k render, highly detailed character design, charming expression.",
+        "A stylized 3D image based on the provided scene description and reference image, with vibrant colors, volumetric lighting, a clean background, detailed character design, and a charming expression.",
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       isPreset: true,
@@ -97,12 +91,8 @@ export const DEFAULT_PRESET_PROMPTS: Record<PromptPurpose, CustomPromptItem[]> =
   ComposeImage: [
     {
       id: "preset-compose-image-model-product",
-      name: "Ghép người mẫu với sản phẩm (một ảnh)",
+      ...tikTokDefaults.ComposeImage,
       purpose: "ComposeImage",
-      templateText:
-        "Bạn là chuyên gia ghép ảnh cho nội dung video ngắn. Hãy ghép hai ảnh đính kèm thành MỘT ảnh duy nhất: người mẫu ở ảnh thứ nhất mặc hoặc dùng sản phẩm ở ảnh thứ hai.\n\n" +
-        "Giữ nguyên gương mặt, dáng người, tư thế và nền của người mẫu. Giữ đúng màu sắc, kiểu dáng, chất liệu, họa tiết, đường may và chi tiết nhìn thấy của sản phẩm; không tự đổi màu hay thêm biến thể.\n\n" +
-        "Không thêm chữ, logo, giá, nhãn khuyến mãi hoặc thông tin không có trong ảnh gốc. Chỉ trả về một ảnh.",
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       isPreset: true,
@@ -111,13 +101,13 @@ export const DEFAULT_PRESET_PROMPTS: Record<PromptPurpose, CustomPromptItem[]> =
   Storyboard: [
     {
       id: "preset-storyboard-grid9",
-      name: "Storyboard 9 phân cảnh nhất quán",
+      name: "Storyboard nhất quán",
       purpose: "Storyboard",
       templateText:
-        "Bạn là đạo diễn hình ảnh cho video ngắn. Dựa trên kịch bản, yêu cầu nội dung, thời lượng và ảnh tham chiếu được cung cấp, xây dựng storyboard gồm đúng 9 phân cảnh theo thứ tự kể chuyện.\n\n" +
+        "Bạn là đạo diễn hình ảnh cho video ngắn. Dựa trên kịch bản, yêu cầu nội dung, thời lượng và ảnh tham chiếu, xây dựng storyboard theo đúng số cảnh ứng dụng yêu cầu.\n\n" +
         "Mở đầu bằng hình ảnh thu hút, phát triển nội dung mạch lạc và kết thúc bằng điểm nhấn phù hợp. Chia mốc thời gian liên tục, không chồng lấn, bao phủ đúng thời lượng video. Mỗi phân cảnh mô tả rõ bối cảnh, góc máy, cỡ cảnh, hành động, prompt tạo ảnh và chuyển động phù hợp.\n\n" +
         "Giữ cùng nhân vật, trang phục, sản phẩm, màu sắc, ánh sáng và phong cách giữa các phân cảnh. Bảo toàn chi tiết từ ảnh nguồn; không tự thêm tính năng, giá, ưu đãi hoặc công dụng sản phẩm chưa được cung cấp. Mỗi phân cảnh có hành động đơn giản, khả thi khi tạo video.\n\n" +
-        "Thứ tự 9 ô storyboard là trái sang phải, trên xuống dưới. Viết mô tả bằng tiếng Việt; prompt tạo ảnh hoặc chuyển động bằng tiếng Anh khi được yêu cầu. Tuân thủ OUTPUT_CONTRACT của ứng dụng, không thêm văn bản ngoài cấu trúc yêu cầu.",
+        "Đọc các ô storyboard từ trái sang phải, trên xuống dưới. Viết mô tả bằng tiếng Việt và prompt tạo ảnh hoặc chuyển động bằng tiếng Anh khi được yêu cầu. Tuân thủ OUTPUT_CONTRACT của ứng dụng.",
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       isPreset: true,
@@ -126,14 +116,8 @@ export const DEFAULT_PRESET_PROMPTS: Record<PromptPurpose, CustomPromptItem[]> =
   TikTokContent: [
     {
       id: "preset-tiktok-content-natural",
-      name: "Nội dung TikTok tự nhiên, không sến",
+      ...tikTokDefaults.TikTokContent,
       purpose: "TikTokContent",
-      templateText:
-        "Viết nội dung đăng TikTok bằng tiếng Việt như người thật đang chia sẻ, giọng thân thiện, ngắn gọn.\n" +
-        "- Dòng đầu: tiêu đề 1 câu dưới 70 ký tự, nêu đúng điểm nổi bật của sản phẩm trong video; không dùng câu hỏi lựa chọn kiểu \"A hay B?\", không dùng cụm khoa trương (hot, siêu phẩm, must-have, săn ngay).\n" +
-        "- Caption 1-2 câu tự nhiên, nói lợi ích thật nhìn thấy trong video; không bịa giá, giảm giá, công dụng.\n" +
-        "- Tối đa 1-2 emoji, đặt cuối câu nếu cần.\n" +
-        "- Cuối cùng 3-5 hashtag liên quan đến sản phẩm.",
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       isPreset: true,
@@ -142,13 +126,8 @@ export const DEFAULT_PRESET_PROMPTS: Record<PromptPurpose, CustomPromptItem[]> =
   VideoPrompt: [
     {
       id: "preset-video-cinematic-camera",
-      name: "Prompt Video tiếng Anh điện ảnh (Cinematic Camera)",
+      ...tikTokDefaults.VideoPrompt,
       purpose: "VideoPrompt",
-      templateText:
-        "Bạn là chuyên gia viết prompt cho công cụ tạo video AI.\n" +
-        "Từ ý tưởng/kịch bản, cảnh đã duyệt, hồ sơ nhân vật và ảnh tham chiếu được cung cấp, viết prompt video hoàn chỉnh bằng tiếng Anh cho từng cảnh về {chu_de}.\n\n" +
-        "Tự chọn chi tiết phù hợp còn thiếu về bối cảnh, hành động, góc máy, chuyển động camera, ánh sáng và không khí. Không yêu cầu người dùng điền biến kỹ thuật. Ưu tiên hành động cụ thể, trình tự chuyển động rõ và khả thi trong thời lượng mục tiêu. Duy trì đặc điểm nhân vật, trang phục, đạo cụ và phong cách giữa cảnh.\n\n" +
-        "Trả promptEn gắn đúng scene key theo OUTPUT_CONTRACT. Tuân thủ OUTPUT_CONTRACT.",
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       isPreset: true,
@@ -158,7 +137,7 @@ export const DEFAULT_PRESET_PROMPTS: Record<PromptPurpose, CustomPromptItem[]> =
       name: "Prompt Video Chuyển động nhanh & Kịch tính",
       purpose: "VideoPrompt",
       templateText:
-        "Dynamic camera tracking shot, high motion intensity, dramatic rim lighting, cinematic depth of field, depicting {hanh_dong} in rapid pacing, fast transitions, motion blur, 4k high quality, immersive soundstage feeling.",
+        "Write concise English render directions for the action and reference provided. Use a brisk, deliberate lateral track or a short push-in when it reveals the product, followed by a steady close-up. Keep the product sharp during motion. Match the reference lighting and preserve skin tone and product color. Use a subtle rim light only when it separates the subject without changing the product appearance. Maintain continuity and follow OUTPUT_CONTRACT.",
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       isPreset: true,

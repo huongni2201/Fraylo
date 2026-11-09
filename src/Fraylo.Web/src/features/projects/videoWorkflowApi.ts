@@ -17,14 +17,20 @@ export const VideoStrategies = {
 
 export type VideoStrategy = (typeof VideoStrategies)[keyof typeof VideoStrategies];
 
-/** Cách tạo ảnh gửi render của luồng một video: ảnh nguồn trực tiếp, hoặc một ảnh storyboard 3×3 (STORYBOARD_CONTACT_SHEET §3.1). */
+/** Ảnh gửi render của luồng một video: ảnh trực tiếp hoặc một ảnh storyboard. */
 export const ReferenceImageModes = {
   Direct: "Direct",
   StoryboardGrid9: "StoryboardGrid9",
+  StoryboardGrid25: "StoryboardGrid25",
 } as const;
 
 export type ReferenceImageMode = (typeof ReferenceImageModes)[keyof typeof ReferenceImageModes];
 
+export function storyboardGridSize(mode?: ReferenceImageMode | null): number {
+  if (mode === ReferenceImageModes.StoryboardGrid25) return 5;
+  if (mode === ReferenceImageModes.StoryboardGrid9) return 3;
+  return 0;
+}
 
 export const AudioOptions = {
   None: "None",
@@ -83,7 +89,7 @@ export interface ProjectWorkflowConfigDto {
   steps?: WorkflowStepState[] | null;
 }
 
-/** Loại bước logic của một run: compose/grid chỉ có ở chế độ ảnh 9 ô, image ở chế độ thường. */
+/** Loại bước của một lượt sản xuất. */
 export const WorkflowStepKinds = {
   Script: "script",
   Compose: "compose",
@@ -145,7 +151,7 @@ export interface SaveProjectWorkflowConfigRequest {
 }
 
 export interface SceneWorkflowDetailDto {
-  /** Chế độ ảnh 9 ô: ảnh 3×3 hiện hành khi đã sẵn sàng, và ảnh ghép trung gian. */
+  /** Ảnh storyboard hiện hành khi đã sẵn sàng, và ảnh ghép trung gian. */
   gridImageAssetId?: string | null;
   composedImageAssetId?: string | null;
   sceneId: string;

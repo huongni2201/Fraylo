@@ -1,8 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using Fraylo.Application.Prompts;
 using Fraylo.Contracts.Content;
 using Fraylo.Contracts.Jobs;
-using Fraylo.Contracts.Prompts;
 using Fraylo.Infrastructure.Persistence;
 using Fraylo.Infrastructure.Persistence.Entities;
 
@@ -17,10 +15,8 @@ internal sealed class WorkflowSceneJobs(DbContextOptions<FrayloDbContext> dbOpti
     public async Task<JobEnqueueRequest?> CreateImageJobAsync(
         WorkflowSceneContext context, string templatePurpose, string instruction, CancellationToken cancellationToken)
     {
-        var template = await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(
+        var rendered = await VideoWorkflowPromptComposer.RenderImageTemplateAsync(
             context.DbContext, templatePurpose, cancellationToken).ConfigureAwait(false);
-        var rendered = (await new PromptTemplateService(context.DbContext).PreviewAsync(
-            new PromptPreviewRequest(template.Id, null, null, null), cancellationToken).ConfigureAwait(false)).RenderedText;
         return new JobEnqueueRequest(
             ProjectId: context.ProjectId,
             SceneId: context.Scene.Id,
@@ -72,19 +68,18 @@ internal sealed class WorkflowSceneJobs(DbContextOptions<FrayloDbContext> dbOpti
         FrayloDbContext dbContext, ProjectWorkflowConfigDto config, Scene scene, CancellationToken cancellationToken)
     {
         var storyboard = await new StoryboardContentService(dbOptions).GetAsync(scene.ProjectId, cancellationToken).ConfigureAwait(false);
-        if (storyboard == null || storyboard.Shots.Count != ReferenceImageModes.GridShotCount)
+        var gridSize = ReferenceImageModes.GridSize(config.ReferenceImageMode);
+        if (storyboard == null || storyboard.Shots.Count != gridSize * gridSize)
         {
-            throw new ProjectWorkflowValidationException("Chưa có storyboard đủ 9 shot nên chưa thể tạo ảnh 3×3.");
+            throw new ProjectWorkflowValidationException($"Cần storyboard đủ {gridSize * gridSize} shot để tạo ảnh {gridSize}×{gridSize}.");
         }
-        var template = await VideoWorkflowPromptComposer.RequireActiveTemplateAsync(dbContext, JobTaskType.Image, cancellationToken).ConfigureAwait(false);
-        var rendered = (await new PromptTemplateService(dbContext).PreviewAsync(
-            new PromptPreviewRequest(template.Id, null, null, null), cancellationToken).ConfigureAwait(false)).RenderedText;
+        var rendered = await VideoWorkflowPromptComposer.RenderImageTemplateAsync(dbContext, JobTaskType.Image, cancellationToken).ConfigureAwait(false);
         var source = scene.ImageAssetId!;
         return new JobEnqueueRequest(
             ProjectId: scene.ProjectId,
             SceneId: scene.Id,
             TaskType: JobTaskType.Image,
-            CustomPromptText: VideoWorkflowPromptComposer.ComposeGridImagePrompt(rendered, storyboard),
+            CustomPromptText: VideoWorkflowPromptComposer.ComposeGridImagePrompt(rendered, storyboard, gridSize),
             WorkflowRunId: config.CurrentRunId,
             WorkflowStepKey: $"{GridStepPrefix}{scene.Id}.{scene.UpdatedAtUtc}",
             MediaSnapshot: new JobMediaSnapshotDto(

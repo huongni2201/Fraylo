@@ -7,6 +7,7 @@ import {
   WorkflowModes,
   WorkflowRunState,
   WorkflowStepOutcomes,
+  storyboardGridSize,
   type ProjectWorkflowConfigDto,
   type SceneWorkflowDetailDto,
   type WorkflowStepKind,
@@ -33,19 +34,19 @@ const milestoneStepKind: Record<GridMilestone["key"], WorkflowStepKind> = {
 };
 
 /**
- * Mốc tiến trình của chế độ ảnh 9 ô, suy ra từ dữ liệu thật của cảnh (không dùng timer):
- * viết 9 cảnh → [ghép ảnh, chỉ Mẫu + sản phẩm] → ảnh storyboard 3×3 → prompt chuyển động → video.
+ * Mốc tiến trình lấy từ các bước của lượt hiện hành hoặc từ dữ liệu cảnh.
  * Mốc đầu tiên chưa xong là mốc đang chạy; run Failed thì đó là mốc lỗi.
  * Khi backend trả steps, bước đã dừng ở lỗi/bị loại/hủy luôn là mốc lỗi (kể cả khi còn ảnh hoặc prompt cũ),
  * và các mốc khác không bị gán lỗi.
  */
 export function gridMilestones(config: ProjectWorkflowConfigDto, scene: SceneWorkflowDetailDto | undefined): GridMilestone[] {
+  const size = storyboardGridSize(config.referenceImageMode);
   const steps: Array<[GridMilestone["key"], string, boolean]> = [
-    ["script", "Viết 9 cảnh", !!scene],
+    ["script", `Viết ${size * size} cảnh`, !!scene],
     ...(config.workflowMode === WorkflowModes.ModelAndProduct
       ? [["compose", "Ghép ảnh mẫu + sản phẩm", !!scene?.composedImageAssetId] as [GridMilestone["key"], string, boolean]]
       : []),
-    ["grid", "Tạo ảnh storyboard 3×3", !!scene?.gridImageAssetId],
+    ["grid", `Tạo ảnh storyboard ${size}×${size}`, !!scene?.gridImageAssetId],
     ["prompt", "Viết prompt chuyển động", !!scene?.gridImageAssetId && !!scene.motionPromptText],
     ["video", "Tạo video", !!scene?.videoAssetId],
   ];
@@ -106,7 +107,7 @@ function ImageTile({ title, assetId, onZoom }: { title: string; assetId: string 
   );
 }
 
-/** Mốc tiến trình và ảnh của chế độ 9 ô: ảnh đầu vào, ảnh ghép trung gian (nếu có) và ảnh storyboard 3×3 đầu ra. */
+/** Mốc tiến trình, ảnh đầu vào, ảnh ghép và ảnh storyboard gửi render. */
 export function StoryboardGridProgress({ config, scene, retryingJobId = null, onRetryStep }: {
   config: ProjectWorkflowConfigDto;
   scene: SceneWorkflowDetailDto | undefined;
@@ -115,12 +116,13 @@ export function StoryboardGridProgress({ config, scene, retryingJobId = null, on
 }) {
   const [zoomAssetId, setZoomAssetId] = useState<string | null>(null);
   const milestones = gridMilestones(config, scene);
+  const size = storyboardGridSize(config.referenceImageMode);
   const inputAssetId =
     config.workflowMode === WorkflowModes.ReadyImage ? config.readyImageAssetId : config.productAssetId;
   const inputTitle = config.workflowMode === WorkflowModes.ReadyImage ? "Ảnh sẵn sàng (đầu vào)" : "Ảnh sản phẩm (đầu vào)";
 
   return (
-    <section className="space-y-4" aria-label="Tiến trình ảnh storyboard 9 ô">
+    <section className="space-y-4" aria-label={`Tiến trình ảnh storyboard ${size}×${size}`}>
       <ol className="space-y-2">
         {milestones.map((milestone) => (
           <li key={milestone.key} className="space-y-1.5 text-sm">
@@ -150,7 +152,7 @@ export function StoryboardGridProgress({ config, scene, retryingJobId = null, on
         {config.workflowMode === WorkflowModes.ModelAndProduct && (
           <ImageTile title="Ảnh ghép (trung gian)" assetId={scene?.composedImageAssetId} onZoom={setZoomAssetId} />
         )}
-        <ImageTile title="Ảnh storyboard 3×3 (gửi render)" assetId={scene?.gridImageAssetId} onZoom={setZoomAssetId} />
+        <ImageTile title={`Ảnh storyboard ${size}×${size} (gửi render)`} assetId={scene?.gridImageAssetId} onZoom={setZoomAssetId} />
       </div>
       {zoomAssetId && <AssetPreviewDialog assetId={zoomAssetId} onClose={() => setZoomAssetId(null)} />}
     </section>

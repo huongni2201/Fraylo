@@ -1,0 +1,22 @@
+{
+  "Script": {
+    "name": "Kịch bản TikTok chuẩn (Hook + Thân + CTA)",
+    "templateText": "Viết kịch bản TikTok dựa trên yêu cầu, ảnh tham chiếu và nội dung đã duyệt. Khi chưa có brief, chọn một chi tiết sản phẩm nhìn thấy rõ để kể một câu chuyện ngắn. Đưa chi tiết đó vào khung mở đầu, cho thấy cách dùng hoặc điểm đáng chú ý bằng hành động đơn giản, rồi kết bằng khung sản phẩm dễ nhận diện.\n\nGiữ người mẫu, trang phục, sản phẩm và bối cảnh nhất quán. Mỗi đoạn tập trung vào một hành động khả thi trong thời lượng được giao. Chỉ dùng đặc điểm nhìn thấy hoặc dữ kiện đã cung cấp. Tuân thủ số cảnh, thời lượng và các trường của OUTPUT_CONTRACT. Khi hợp đồng yêu cầu nội dung TikTok, viết lời mời xem sản phẩm phù hợp với video."
+  },
+  "TikTokContent": {
+    "name": "Nội dung TikTok tự nhiên, không sến",
+    "templateText": "Viết một caption TikTok bằng tiếng Việt tự nhiên, sẵn để đăng. Mở bằng một câu ngắn nêu một chi tiết nhìn thấy rõ hoặc tình huống thực sự xuất hiện trong clip. Thêm một câu gắn chi tiết đó với cách dùng hoặc điều người xem có thể quan sát, rồi mời xem thêm hoặc xem sản phẩm trong giỏ nếu video có ngữ cảnh mua sắm.\n\nDùng lời cụ thể, tránh giật tít, lời chứng thực giả và trải nghiệm cá nhân không được cung cấp. Không suy đoán giá, ưu đãi, chất liệu, công dụng hay kết quả. Khi dữ kiện ít, mô tả điều nhìn thấy và dùng lời mời nhẹ nhàng. Có thể dùng một emoji nếu phù hợp. Kết bằng 3–5 hashtag liên quan trực tiếp đến sản phẩm hoặc ngữ cảnh, không lặp và không chèn tag chung chung. Chỉ trả nội dung hoàn chỉnh trong trường JSON yêu cầu, không thêm nhãn hoặc giải thích."
+  },
+  "VideoPrompt": {
+    "name": "Prompt Video tiếng Anh điện ảnh (Cinematic Camera)",
+    "templateText": "Write production-ready video directions in English for the supplied duration and reference image. Keep the product readable in a vertical 9:16 frame. Use the approved sequence or storyboard as the source for framing and action. Where details are unspecified, start with a stable medium shot at eye level or a three-quarter angle, use a detail close-up when it reveals a visible feature, and end on a steady product view. Choose one motivated camera move per beat, such as a slow push-in, a short lateral track, or a locked frame. State what the subject does, what stays in focus, and where movement stops.\n\nMatch the direction and color of light in the reference. Where lighting is unspecified, use a soft side key with gentle fill to show texture, stable white balance and controlled reflections. Keep skin tone and product color faithful. Preserve the same face, wardrobe, proportions, visible details and background continuity. Avoid focus hunting, jitter, exposure changes, warped products, and busy cuts. Specify only camera and lighting choices that help the viewer see the product. Follow the exact fields in OUTPUT_CONTRACT."
+  },
+  "Image": {
+    "name": "Tạo ảnh TikTok chân thực (Photorealistic 8K)",
+    "templateText": "A hyper-realistic cinematic photo for a TikTok scene based on the provided scene description and reference image. Use a 35mm lens, f/1.8 aperture, natural lighting, high dynamic range, detailed textures, professional color grading, and cinematic composition."
+  },
+  "ComposeImage": {
+    "name": "Ghép người mẫu với sản phẩm (một ảnh)",
+    "templateText": "Bạn là chuyên gia ghép ảnh cho nội dung video ngắn. Hãy ghép hai ảnh đính kèm thành MỘT ảnh duy nhất: người mẫu ở ảnh thứ nhất mặc hoặc dùng sản phẩm ở ảnh thứ hai.\n\nGiữ nguyên gương mặt, dáng người, tư thế và nền của người mẫu. Giữ đúng màu sắc, kiểu dáng, chất liệu, họa tiết, đường may và chi tiết nhìn thấy của sản phẩm; không tự đổi màu hay thêm biến thể.\n\nKhông thêm chữ, logo, giá, nhãn khuyến mãi hoặc thông tin không có trong ảnh gốc. Chỉ trả về một ảnh."
+  }
+}
